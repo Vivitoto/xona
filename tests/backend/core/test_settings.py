@@ -1,4 +1,10 @@
+import re
 from pathlib import Path
+
+try:
+    import tomllib
+except ModuleNotFoundError:
+    import tomli as tomllib
 
 import pytest
 
@@ -112,3 +118,26 @@ def test_create_app_accepts_settings_injection(tmp_path: Path) -> None:
 
     assert app.title == "Xona"
     assert app.state.settings is settings
+
+
+def test_pydantic_settings_lower_bound_supports_no_decode() -> None:
+    pyproject_path = Path(__file__).parents[3] / "pyproject.toml"
+    pyproject = tomllib.loads(pyproject_path.read_text(encoding="utf-8"))
+    dependencies = pyproject["project"]["dependencies"]
+    requirement = next(
+        (
+            dependency
+            for dependency in dependencies
+            if dependency.lower().startswith("pydantic-settings")
+        ),
+        None,
+    )
+
+    assert requirement is not None
+    match = re.search(r">=\s*(\d+(?:\.\d+){0,2})", requirement)
+    assert match is not None
+
+    lower_bound = tuple(int(part) for part in match.group(1).split("."))
+    lower_bound += (0,) * (3 - len(lower_bound))
+
+    assert lower_bound >= (2, 7, 0), "NoDecode requires pydantic-settings>=2.7.0"
