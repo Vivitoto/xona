@@ -21,6 +21,9 @@ class Settings(BaseSettings):
     emby_server_url: str | None = None
     emby_api_key: str | None = None
     auth_enabled: bool = False
+    auth_username: str | None = None
+    auth_password_hash: str | None = None
+    auth_cookie_secure: bool = False
     worker_enabled: bool = False
     monitor_enabled: bool = False
 
