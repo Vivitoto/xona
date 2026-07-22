@@ -9,6 +9,7 @@ description = "Xona media management application"
 requires-python = ">=3.12"
 dependencies = [
     "fastapi>=0.115.0",
+    "pydantic-settings>=2.0.0",
 ]
 
 [project.optional-dependencies]
