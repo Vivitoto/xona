@@ -39,10 +39,15 @@ def run_migrations(
 
 def _alembic_config(database_url: str) -> Config:
     config = Config()
-    config.set_main_option("script_location", str(_alembic_directory()))
-    config.set_main_option("sqlalchemy.url", database_url)
+    config.set_main_option(
+        "script_location", _escape_configparser_value(str(_alembic_directory()))
+    )
     config.attributes["database_url"] = database_url
     return config
+
+
+def _escape_configparser_value(value: str) -> str:
+    return value.replace("%", "%%")
 
 
 def _alembic_directory() -> Path:

@@ -1,10 +1,13 @@
 from __future__ import annotations
 
 import os
+import re
+import shutil
 import sqlite3
 import subprocess
 import sys
 import textwrap
+from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
 
 
@@ -33,13 +36,76 @@ def _alembic_revision(database_path: Path) -> str:
     return str(row[0])
 
 
+def _copy_project_for_wheel(target_root: Path) -> Path:
+    source_copy = target_root / "source"
+    source_copy.mkdir()
+    shutil.copy2(PROJECT_ROOT / "pyproject.toml", source_copy / "pyproject.toml")
+    shutil.copytree(
+        PROJECT_ROOT / "backend",
+        source_copy / "backend",
+        ignore=shutil.ignore_patterns("__pycache__", "*.pyc"),
+    )
+    return source_copy
+
+
+def _installed_major_version(distribution_name: str) -> int:
+    match = re.match(r"\d+", version(distribution_name))
+    if match is None:
+        raise ValueError(f"Cannot parse version for {distribution_name!r}.")
+    return int(match.group())
+
+
+def _build_isolation_args() -> list[str]:
+    try:
+        setuptools_major = _installed_major_version("setuptools")
+        version("wheel")
+    except (PackageNotFoundError, ValueError):
+        return []
+    if setuptools_major < 69:
+        return []
+    return ["--no-build-isolation"]
+
+
+def test_alembic_config_preserves_percent_script_location(
+    tmp_path: Path, monkeypatch
+) -> None:
+    from backend.app.db import migrations
+
+    alembic_directory = (
+        tmp_path / "installed%site" / "backend" / "app" / "db" / "alembic"
+    )
+    alembic_directory.mkdir(parents=True)
+    monkeypatch.setattr(migrations, "_alembic_directory", lambda: alembic_directory)
+
+    config = migrations._alembic_config(_sqlite_url(tmp_path / "xona.db"))
+
+    assert config.get_main_option("script_location") == str(alembic_directory)
+
+
+def test_alembic_config_keeps_percent_database_url_in_attributes(
+    tmp_path: Path, monkeypatch
+) -> None:
+    from backend.app.db import migrations
+
+    alembic_directory = tmp_path / "backend" / "app" / "db" / "alembic"
+    alembic_directory.mkdir(parents=True)
+    database_url = _sqlite_url(tmp_path / "db%2Froot" / "xona.db")
+    monkeypatch.setattr(migrations, "_alembic_directory", lambda: alembic_directory)
+
+    config = migrations._alembic_config(database_url)
+
+    assert config.attributes["database_url"] == database_url
+    assert config.get_main_option("sqlalchemy.url") is None
+
+
 def test_installed_wheel_runs_packaged_alembic_migrations(tmp_path: Path) -> None:
+    source_copy = _copy_project_for_wheel(tmp_path)
     wheelhouse = tmp_path / "wheelhouse"
-    site_target = tmp_path / "site"
+    site_target = tmp_path / "installed%root" / "site"
     run_dir = tmp_path / "run"
-    database_path = tmp_path / "xona.db"
+    database_path = tmp_path / "db%2Froot" / "xona.db"
     wheelhouse.mkdir()
-    site_target.mkdir()
+    site_target.mkdir(parents=True)
     run_dir.mkdir()
 
     pip_env = os.environ.copy()
@@ -48,6 +114,7 @@ def test_installed_wheel_runs_packaged_alembic_migrations(tmp_path: Path) -> Non
     requires_python_args = (
         ["--ignore-requires-python"] if sys.version_info < (3, 12) else []
     )
+    build_isolation_args = _build_isolation_args()
 
     wheel_result = subprocess.run(
         [
@@ -55,11 +122,12 @@ def test_installed_wheel_runs_packaged_alembic_migrations(tmp_path: Path) -> Non
             "-m",
             "pip",
             "wheel",
+            *build_isolation_args,
             "--no-deps",
             *requires_python_args,
             "--wheel-dir",
             str(wheelhouse),
-            str(PROJECT_ROOT),
+            str(source_copy),
         ],
         cwd=tmp_path,
         env=pip_env,
