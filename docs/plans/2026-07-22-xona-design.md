@@ -1,4 +1,4 @@
-# XChina Organizer Design
+# Xona Design
 
 **Date:** 2026-07-22
 
@@ -43,7 +43,7 @@ The first release stays single-container for the application. FlareSolverr is ex
 
 ```text
 Browser
-  -> XChina Organizer Web UI
+  -> Xona Web UI
       -> FastAPI API
           -> scanner / monitor
           -> matcher
@@ -372,7 +372,7 @@ Example:
 
 ```yaml
 services:
-  xchina-organizer:
+  app:
     build: .
     ports:
       - "8732:8732"

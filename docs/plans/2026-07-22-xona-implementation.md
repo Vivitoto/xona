@@ -1,8 +1,8 @@
-# XChina Organizer Implementation Plan
+# Xona Implementation Plan
 
 **Implementer TDD Instruction:** This is a strict red-green-refactor plan. For every task, first create or modify only the listed tests and fixtures, run the listed failing command, and confirm the expected failure reason. Then make the smallest implementation change in only the listed application files, rerun the listed passing command, run the broader verification command when provided, and make the local commit shown for that task. Do not skip the red phase, do not touch real user media, do not use unsanitized live xchina pages as committed fixtures, and do not combine tasks unless the preceding task is already committed locally.
 
-**Goal:** Build the first-release local-first Docker web application described in `docs/plans/2026-07-22-xchina-organizer-design.md`: scan mounted media roots, search and scrape xchina metadata through a configurable exact FlareSolverr endpoint and optional proxy, score candidates, support manual and watched organization workflows, write Emby-compatible metadata and actor assets, journal reversible file operations, and optionally notify Emby. The application must be safe by default, keep state under `/config`, and never organize files without an immutable previewable plan.
+**Goal:** Build the first-release local-first Docker web application described in `docs/plans/2026-07-22-xona-design.md`: scan mounted media roots, search and scrape xchina metadata through a configurable exact FlareSolverr endpoint and optional proxy, score candidates, support manual and watched organization workflows, write Emby-compatible metadata and actor assets, journal reversible file operations, and optionally notify Emby. The application must be safe by default, keep state under `/config`, and never organize files without an immutable previewable plan.
 
 **Architecture:** Use a monorepo with `backend/` for a FastAPI service, `frontend/` for a React/Vite application, `tests/` for backend and integration tests, and Docker artifacts at repository root. The backend owns settings, storage-root validation, scanning, matching, xchina scraping, metadata generation, asset materialization, actor cache, operation planning/execution, durable jobs, watch rules, Emby integration, authentication, and REST APIs. The frontend consumes existing REST APIs and provides the Dashboard, Manual Organizer, Automatic Monitors, Review Queue, Task Center, Actor Library, History/Rollback, and Settings pages. SQLite in WAL mode under `/config` is the source of truth. File operations run through a persistent single-worker queue and an operation journal.
 
@@ -14,7 +14,7 @@
 
 - Keep each task dependency-aware: start only after all prior tasks pass and are committed.
 - Keep first release scope only. Do not add deferred AI face cropping, watermarking, translation, extra metadata providers, or mobile apps.
-- For live network smoke tests, require explicit environment variables and use disposable roots under `/tmp/xchina-organizer-smoke-*`; default test runs must not use the network.
+- For live network smoke tests, require explicit environment variables and use disposable roots under `/tmp/xona-smoke-*`; default test runs must not use the network.
 - Use `/config` in production and `tmp_path` or a test-specific temporary directory in tests.
 - Treat configured FlareSolverr URLs as complete endpoints. If the user stores `http://host:8191/v1`, call exactly that URL. If the user stores `http://host:8191/custom`, call exactly that URL. Never append `/v1`.
 - Redact secrets in logs, API responses, task events, migration errors, Docker logs, test diagnostics, and UI output. Redacted values should appear as `********` or omit the field.
@@ -56,7 +56,7 @@
 
 1. Add a backend health test that imports `create_app` from `backend.app.main`, calls `GET /healthz`, and expects `{"status": "ok"}`.
 2. Add an installed-package test that runs `import backend.app.main` after `python -m pip install -e .`.
-3. Add a frontend shell test that renders `App` and expects a heading named `XChina Organizer`.
+3. Add a frontend shell test that renders `App` and expects a heading named `Xona`.
 
 **Red command and expected failure:**
 
@@ -113,7 +113,7 @@ git add pyproject.toml .python-version .gitignore backend/__init__.py backend/ap
 
 **Failing-test steps:**
 
-1. Test default `config_dir` is `/config` and default database URL is `sqlite:////config/xchina-organizer.db`.
+1. Test default `config_dir` is `/config` and default database URL is `sqlite:////config/xona.db`.
 2. Test `STORAGE_ROOTS=/a:/storage/media` parses as immutable bootstrap roots `["/a", "/storage/media"]`.
 3. Test the FlareSolverr endpoint is stored exactly, including a custom path, with no normalization that appends `/v1`.
 4. Test proxy URLs, Emby API keys, app secrets, cookies, and credentials are redacted in public settings and log payloads.
@@ -131,7 +131,7 @@ Expected failure before implementation: `ModuleNotFoundError: No module named 'b
 
 - Implement `Settings` with `pydantic_settings.BaseSettings`.
 - Include fields for `config_dir`, `database_url`, `storage_roots`, `flaresolverr_url`, `proxy_url`, `emby_server_url`, `emby_api_key`, `auth_enabled`, `worker_enabled`, and `monitor_enabled`.
-- Add `effective_database_url` returning `sqlite:///{config_dir}/xchina-organizer.db` unless explicitly configured.
+- Add `effective_database_url` returning `sqlite:///{config_dir}/xona.db` unless explicitly configured.
 - Normalize bootstrap storage roots to absolute `Path` values without resolving symlinks.
 - Implement `ensure_app_secret(config_dir: Path) -> str` using `secrets.token_urlsafe(48)` and no regeneration when the file already exists.
 - Implement a shared redaction utility that redacts URL credentials, cookies, API keys, bearer tokens, passwords, and known secret field names.
@@ -972,7 +972,7 @@ Expected failure before implementation: missing executor, recovery, rollback, TO
 - Implement `OperationExecutor.execute(plan, journal)`.
 - Implement `OperationJournal` methods for plan start, step start, step completion, and step failure.
 - Implement `resolve_for_step` that validates source, target, target parent, temp parent, symlink ancestors, and root containment immediately before each filesystem action.
-- Use destination-directory temp files named `.xchina-organizer.<plan_id>.<step_id>.tmp`.
+- Use destination-directory temp files named `.xona.<plan_id>.<step_id>.tmp`.
 - For cross-filesystem operations, catch `errno.EXDEV`, copy to temp, verify SHA-256 and size, fsync file and directory, atomic rename into place, fsync directory again, and only then remove the source when the plan requires source removal.
 - Store size, mtime, and SHA-256 in the journal for every completed file-affecting step.
 - Implement recovery and rollback verification with refusal reasons that are safe to expose through APIs.
@@ -1647,7 +1647,7 @@ git add frontend/src/pages/AutomaticMonitorsPage.tsx frontend/src/pages/ActorLib
 
 ```bash
 python -m pytest tests/integration/test_container_config.py tests/integration/test_container_uid_gid.py
-docker build -t xchina-organizer:test .
+docker build -t xona:test .
 ```
 
 Expected failure before implementation: missing Docker artifacts, missing migration invocation, or process UID/GID mismatch.
@@ -1666,12 +1666,12 @@ Expected failure before implementation: missing Docker artifacts, missing migrat
 
 ```bash
 python -m pytest tests/integration/test_container_config.py tests/integration/test_container_uid_gid.py
-docker build -t xchina-organizer:test .
+docker build -t xona:test .
 CONFIG_ROOT="$(mktemp -d)"
 MEDIA_ROOT="$(mktemp -d)"
-docker run --rm -d --name xchina-organizer-test -p 8732:8732 -e PUID="$(id -u)" -e PGID="$(id -g)" -e STORAGE_ROOTS=/a -v "$CONFIG_ROOT":/config -v "$MEDIA_ROOT":/a xchina-organizer:test
+docker run --rm -d --name xona-test -p 8732:8732 -e PUID="$(id -u)" -e PGID="$(id -g)" -e STORAGE_ROOTS=/a -v "$CONFIG_ROOT":/config -v "$MEDIA_ROOT":/a xona:test
 python docker/healthcheck.py
-docker rm -f xchina-organizer-test
+docker rm -f xona-test
 ```
 
 Expected pass: image builds, migrations run, service starts, healthcheck succeeds, and container UID/GID ownership is correct.
@@ -1808,7 +1808,7 @@ git add frontend/package.json frontend/playwright.config.ts frontend/e2e/manual-
 **Failing-test steps:**
 
 1. Test disposable smoke canonicalizes and resolves all paths, rejects symlinks, rejects non-existent paths where existence is required, and rejects ambiguous equivalent paths.
-2. Test disposable root must be under an explicitly generated temporary directory matching `/tmp/xchina-organizer-smoke-*`.
+2. Test disposable root must be under an explicitly generated temporary directory matching `/tmp/xona-smoke-*`.
 3. Test disposable smoke cannot read or write outside its generated temp root and cannot touch user media roots.
 4. Test real xchina smoke is opt-in through explicit environment variables, read-only, and performs no file organization against xchina results.
 5. Test real smoke refuses symlinked paths, home-directory paths, broad roots such as `/`, and any path not under its generated disposable root.
@@ -1910,7 +1910,7 @@ git add pyproject.toml frontend/package.json tests/backend/api/test_openapi_cont
 **Files to create/modify/test:**
 
 - Create `scripts/release_gate.sh`
-- Create `docs/plans/2026-07-22-xchina-organizer-release-gates.md`
+- Create `docs/plans/2026-07-22-xona-release-gates.md`
 - Modify `README.md`
 
 **Failing-test steps:**
@@ -1964,7 +1964,7 @@ Expected pass: backend and integration tests, backend lint/type check, frontend 
 **Local commit command:**
 
 ```bash
-git add scripts/release_gate.sh docs/plans/2026-07-22-xchina-organizer-release-gates.md README.md && git commit -m "Add release gate script"
+git add scripts/release_gate.sh docs/plans/2026-07-22-xona-release-gates.md README.md && git commit -m "Add release gate script"
 ```
 
 ## Dependency and API Order Audit
