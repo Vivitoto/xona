@@ -38,15 +38,11 @@ def run_migrations(
 
 
 def _alembic_config(database_url: str) -> Config:
-    config = Config(str(_repo_root() / "alembic.ini"))
+    config = Config()
     config.set_main_option("script_location", str(_alembic_directory()))
     config.set_main_option("sqlalchemy.url", database_url)
     config.attributes["database_url"] = database_url
     return config
-
-
-def _repo_root() -> Path:
-    return Path(__file__).resolve().parents[3]
 
 
 def _alembic_directory() -> Path:
