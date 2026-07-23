@@ -101,8 +101,16 @@ def _job_summary(session: Session, job: Job) -> JobSummaryRead:
     payload = redact_payload(job.payload or {})
     manual = payload.get("manual") if isinstance(payload, dict) else None
     manual = manual if isinstance(manual, dict) else {}
+    auto = payload.get("auto") if isinstance(payload, dict) else None
+    auto = auto if isinstance(auto, dict) else {}
     plan_id = manual.get("plan_id") or _latest_plan_id(session, job.id)
-    gate_reasons = manual.get("selection_refusal_reasons") or manual.get("gate_reasons") or []
+    plan_id = plan_id or auto.get("plan_id")
+    gate_reasons = (
+        manual.get("selection_refusal_reasons")
+        or manual.get("gate_reasons")
+        or auto.get("gate_reasons")
+        or []
+    )
     return JobSummaryRead(
         id=job.id,
         state=job.state,

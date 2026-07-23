@@ -53,7 +53,14 @@ def create_app(
             if settings.worker_enabled:
                 from backend.app.services.worker import Worker
 
-                app.state.worker = Worker(app.state.sessionmaker)
+                xchina_adapter = getattr(app.state, "xchina_adapter", None)
+                app.state.worker = Worker(
+                    app.state.sessionmaker,
+                    settings=settings,
+                    search_adapter=xchina_adapter,
+                    asset_adapter=xchina_adapter,
+                    emby_client=getattr(app.state, "emby_client", None),
+                )
                 worker_task = asyncio.create_task(app.state.worker.run_forever())
                 app.state.worker_task = worker_task
             if settings.monitor_enabled:
