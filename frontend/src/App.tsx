@@ -1,6 +1,7 @@
 import { useState } from "react";
 
 import { AppLayout, type PageId } from "./components/AppLayout";
+import { ImageSafetyModeProvider } from "./components/ImageSafetyMode";
 import { ActorLibraryPage } from "./pages/ActorLibraryPage";
 import { AutomaticMonitorsPage } from "./pages/AutomaticMonitorsPage";
 import { DashboardPage } from "./pages/DashboardPage";
@@ -13,11 +14,17 @@ import "./styles.css";
 
 export default function App() {
   const [activePage, setActivePage] = useState<PageId>("dashboard");
+  const [imageSafetyModeEnabled, setImageSafetyModeEnabled] = useState(true);
 
   return (
-    <AppLayout activePage={activePage} onNavigate={setActivePage}>
-      {renderPage(activePage)}
-    </AppLayout>
+    <ImageSafetyModeProvider
+      enabled={imageSafetyModeEnabled}
+      onChange={setImageSafetyModeEnabled}
+    >
+      <AppLayout activePage={activePage} onNavigate={setActivePage}>
+        {renderPage(activePage)}
+      </AppLayout>
+    </ImageSafetyModeProvider>
   );
 }
 

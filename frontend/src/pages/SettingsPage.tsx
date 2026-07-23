@@ -30,7 +30,7 @@ export function SettingsPage() {
       })
       .catch((exc) => {
         if (active) {
-          setError(exc instanceof Error ? exc.message : "Unable to load settings");
+          setError(exc instanceof Error ? exc.message : "无法加载设置");
         }
       });
     return () => {
@@ -48,9 +48,9 @@ export function SettingsPage() {
         body: buildSettingsPayload(settings),
       });
       setSettings(normalizeSettings(updated));
-      setStatus("Settings saved");
+      setStatus("设置已保存");
     } catch (exc) {
-      setError(exc instanceof Error ? exc.message : "Unable to save settings");
+      setError(exc instanceof Error ? exc.message : "无法保存设置");
     }
   }
 
@@ -120,7 +120,7 @@ export function SettingsPage() {
         }
       />
       <div className="sticky-actions">
-        <button type="submit">Save settings</button>
+        <button type="submit">保存设置</button>
         {status ? <p className="status">{status}</p> : null}
         {error ? <p className="status error">{error}</p> : null}
       </div>

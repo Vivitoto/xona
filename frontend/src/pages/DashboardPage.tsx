@@ -23,22 +23,22 @@ export function DashboardPage() {
   return (
     <div className="page-stack">
       <section className="section">
-        <h2>Dashboard</h2>
+        <h2>仪表盘</h2>
         <div className="metric-grid">
-          <Metric label="Review required" value={reviewCount} />
-          <Metric label="Watch rules" value={ruleCount} />
-          <Metric label="Actors cached" value={actorCount} />
+          <Metric label="待复核" value={reviewCount} />
+          <Metric label="监控规则" value={ruleCount} />
+          <Metric label="已缓存演员" value={actorCount} />
         </div>
       </section>
       <section className="section">
-        <h2>Current Workflow</h2>
+        <h2>当前流程</h2>
         <div className="workflow-strip">
-          <span>Scan</span>
-          <span>Search</span>
-          <span>Review</span>
-          <span>Preview</span>
-          <span>Execute</span>
-          <span>Rollback</span>
+          <span>扫描</span>
+          <span>搜索</span>
+          <span>复核</span>
+          <span>预览</span>
+          <span>执行</span>
+          <span>回滚</span>
         </div>
       </section>
     </div>

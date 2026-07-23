@@ -45,7 +45,7 @@ export function ActorLibraryPage() {
         ),
       );
     } catch (exc) {
-      setError(exc instanceof Error ? exc.message : "Unable to load actors");
+      setError(exc instanceof Error ? exc.message : "无法加载演员");
     }
   }
 
@@ -61,7 +61,7 @@ export function ActorLibraryPage() {
       },
     });
     replaceActor(response);
-    setStatus(`Aliases saved for ${response.canonical_name}`);
+    setStatus(`已保存 ${response.canonical_name} 的别名`);
   }
 
   async function mergeDuplicate(duplicateActorId: number) {
@@ -78,9 +78,9 @@ export function ActorLibraryPage() {
       );
       replaceActor(response);
       setMergeActor(null);
-      setStatus(`Merged actor ${duplicateActorId}`);
+      setStatus(`已合并演员 ${duplicateActorId}`);
     } catch (exc) {
-      setError(exc instanceof Error ? exc.message : "Actor merge failed");
+      setError(exc instanceof Error ? exc.message : "演员合并失败");
     }
   }
 
@@ -97,7 +97,7 @@ export function ActorLibraryPage() {
       },
     );
     replaceActor(response.actor);
-    setStatus(`Portrait replaced (${response.size_bytes} bytes)`);
+    setStatus(`头像已替换（${response.size_bytes} 字节）`);
   }
 
   async function refreshActor(actor: ActorRead) {
@@ -106,7 +106,7 @@ export function ActorLibraryPage() {
       { method: "POST" },
     );
     replaceActor(response.actor);
-    setStatus(`Actor refreshed ${redactText(response.diagnostics)}`);
+    setStatus(`演员已刷新 ${redactText(response.diagnostics)}`);
   }
 
   async function loadWorks(actor: ActorRead) {
@@ -123,7 +123,7 @@ export function ActorLibraryPage() {
     );
     replaceActor(response.actor);
     setStatus(
-      `Emby sync ${response.uploaded_portrait ? "uploaded portrait" : "linked"} ${redactText(
+      `Emby 同步${response.uploaded_portrait ? "已上传头像" : "已关联"} ${redactText(
         response.diagnostics,
       )}`,
     );
@@ -145,34 +145,34 @@ export function ActorLibraryPage() {
 
   return (
     <div className="page-stack">
-      <Section title="Actor Library">
+      <Section title="演员库">
         <div className="grid four">
-          <FormField label="Actor search">
+          <FormField label="演员搜索">
             <input value={search} onChange={(event) => setSearch(event.target.value)} />
           </FormField>
           <CheckboxField
             checked={missingImage}
-            label="Missing-image only"
+            label="仅缺少图片"
             onChange={setMissingImage}
           />
-          <FormField label="Replacement portrait file">
+          <FormField label="替换头像文件">
             <input accept="image/*" type="file" onChange={portraitChange} />
           </FormField>
           <button type="button" onClick={loadActors}>
-            Filter actors
+            筛选演员
           </button>
         </div>
 
         <table>
-          <caption>Actors</caption>
+          <caption>演员</caption>
           <thead>
             <tr>
-              <th>Portrait</th>
-              <th>Name</th>
-              <th>Aliases</th>
-              <th>Linked works</th>
+              <th>头像</th>
+              <th>名称</th>
+              <th>别名</th>
+              <th>关联作品</th>
               <th>Emby</th>
-              <th>Actions</th>
+              <th>操作</th>
             </tr>
           </thead>
           <tbody>
@@ -188,7 +188,7 @@ export function ActorLibraryPage() {
                   </td>
                   <td>
                     <textarea
-                      aria-label={`Aliases for ${actor.canonical_name}`}
+                      aria-label={`${actor.canonical_name} 的别名`}
                       value={aliasDrafts[actor.id] ?? ""}
                       onChange={(event) =>
                         setAliasDrafts((current) => ({
@@ -200,7 +200,7 @@ export function ActorLibraryPage() {
                   </td>
                   <td>
                     <button type="button" onClick={() => loadWorks(actor)}>
-                      Linked works
+                      关联作品
                     </button>
                     <ul className="dense-list">
                       {(works[actor.id] ?? actor.linked_works ?? []).map((work, index) => (
@@ -208,23 +208,23 @@ export function ActorLibraryPage() {
                       ))}
                     </ul>
                   </td>
-                  <td>{actor.emby_person_id ?? "Not linked"}</td>
+                  <td>{actor.emby_person_id ?? "未关联"}</td>
                   <td>
                     <div className="button-column">
                       <button type="button" onClick={() => saveAliases(actor)}>
-                        Save aliases
+                        保存别名
                       </button>
                       <button type="button" onClick={() => setMergeActor(actor)}>
-                        Merge
+                        合并
                       </button>
                       <button type="button" onClick={() => replacePortrait(actor)}>
-                        Replace image
+                        替换图片
                       </button>
                       <button type="button" onClick={() => refreshActor(actor)}>
-                        Refresh
+                        刷新
                       </button>
                       <button type="button" onClick={() => syncEmby(actor)}>
-                        Sync Emby
+                        同步 Emby
                       </button>
                     </div>
                   </td>
@@ -232,7 +232,7 @@ export function ActorLibraryPage() {
               ))
             ) : (
               <tr>
-                <td colSpan={6}>No actors found.</td>
+                <td colSpan={6}>未找到演员。</td>
               </tr>
             )}
           </tbody>

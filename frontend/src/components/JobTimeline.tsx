@@ -5,7 +5,7 @@ export function JobTimeline({ events }: { events: JobEventRead[] }) {
   const sorted = [...events].sort((left, right) => left.id - right.id);
 
   return (
-    <ol className="timeline" aria-label="Job timeline">
+    <ol className="timeline" aria-label="任务时间线">
       {sorted.map((event) => (
         <li key={event.id}>
           <div className="timeline-state">

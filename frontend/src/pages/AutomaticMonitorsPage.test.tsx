@@ -48,46 +48,46 @@ describe("AutomaticMonitorsPage", () => {
 
     expect(await screen.findByText("rule-1")).toBeTruthy();
     for (const label of [
-      "Source directory",
-      "Destination directory",
-      "Recursive",
-      "Polling interval seconds",
-      "Stability duration seconds",
-      "Stable check count",
-      "Confidence threshold",
-      "Asset policy",
-      "Folder templates",
-      "Filename template",
-      "Include patterns",
-      "Exclude patterns",
-      "Excluded destination prefixes",
+      "源目录",
+      "目标目录",
+      "递归",
+      "轮询间隔",
+      "稳定等待时间",
+      "稳定检查次数",
+      "置信度阈值",
+      "资源策略",
+      "文件夹模板",
+      "文件名模板",
+      "包含模式",
+      "排除模式",
+      "已排除目标前缀",
     ]) {
       expect(screen.getByLabelText(new RegExp(label, "i"))).toBeTruthy();
     }
-    expect(screen.getByRole("button", { name: "Real-time" })).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Polling" })).toBeTruthy();
-    expect(screen.getByRole("button", { name: "copy" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "实时" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "轮询" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "复制" })).toBeTruthy();
 
-    fireEvent.change(screen.getByLabelText(/Source directory/i), {
+    fireEvent.change(screen.getByLabelText(/源目录/i), {
       target: { value: "/media/incoming" },
     });
-    fireEvent.change(screen.getByLabelText(/Destination directory/i), {
+    fireEvent.change(screen.getByLabelText(/目标目录/i), {
       target: { value: "/media/incoming/organized" },
     });
 
     expect(
-      await screen.findByText(/Destination is inside the watched source/i),
+      await screen.findByText(/目标目录位于被监控源目录内/i),
     ).toBeTruthy();
     await waitFor(() =>
-      expect(screen.getByLabelText(/Excluded destination prefixes/i)).toHaveValue(
+      expect(screen.getByLabelText(/已排除目标前缀/i)).toHaveValue(
         "/media/incoming/organized",
       ),
     );
 
-    fireEvent.click(screen.getByRole("button", { name: "Browse storage roots" }));
+    fireEvent.click(screen.getByRole("button", { name: "浏览存储根" }));
     expect(await screen.findByText("incoming")).toBeTruthy();
 
-    fireEvent.click(screen.getByRole("button", { name: "Create watch rule" }));
+    fireEvent.click(screen.getByRole("button", { name: "创建监控规则" }));
     await waitFor(() =>
       expect(calls.some((call) => call.method === "POST" && call.url === "/api/watch-rules")).toBe(
         true,
@@ -101,9 +101,9 @@ describe("AutomaticMonitorsPage", () => {
         .excluded_destination_prefixes,
     ).toContain("/media/incoming/organized");
 
-    fireEvent.click(screen.getByRole("button", { name: "Edit" }));
-    fireEvent.click(screen.getByRole("button", { name: "Update watch rule" }));
-    fireEvent.click(screen.getByRole("button", { name: "Scan now" }));
+    fireEvent.click(screen.getByRole("button", { name: "编辑" }));
+    fireEvent.click(screen.getByRole("button", { name: "更新监控规则" }));
+    fireEvent.click(screen.getByRole("button", { name: "立即扫描" }));
 
     await waitFor(() => {
       expect(calls.some((call) => call.method === "PUT" && call.url === "/api/watch-rules/rule-1")).toBe(

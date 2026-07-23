@@ -5,7 +5,7 @@ import uuid
 from collections.abc import Callable
 from copy import deepcopy
 from pathlib import Path
-from typing import Any, Protocol
+from typing import Any, Protocol, cast
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session, sessionmaker
@@ -25,7 +25,7 @@ from backend.app.schemas.assets import AssetMaterializationPolicy, MaterializedA
 from backend.app.schemas.matching import CandidateMetadata, ExecutionSafety, MatchInput
 from backend.app.schemas.media import MediaScanItem, MediaSidecarScanItem
 from backend.app.schemas.metadata import MetadataRecordData
-from backend.app.schemas.operations import GeneratedArtifact, OperationPlan
+from backend.app.schemas.operations import GeneratedArtifact, OperationPlan, OrganizationMode
 from backend.app.schemas.source import SourceSearchResult, SourceVideoDetail
 from backend.app.schemas.templates import TemplateContext
 from backend.app.services.asset_materializer import AssetAdapter, AssetMaterializer
@@ -158,6 +158,7 @@ class Worker:
         return DEFAULT_TRANSITIONS.get(job.state)
 
     async def _auto_target_state(self, session: Session, job: Job) -> str | None:
+        self._require_settings()
         if job.state == "discovered":
             return "waiting_stable"
         if job.state == "waiting_stable":
@@ -188,12 +189,13 @@ class Worker:
         session: Session,
         job: Job,
     ) -> str:
+        settings = self._require_settings()
         rule = _rule_for_job(session, job)
         payload = _payload(job)
         media_path = Path(str(payload.get("last_seen_path") or ""))
         media_item = _persist_media_item(
             session,
-            self._settings,
+            settings,
             media_path,
             media_identity=job.media_identity,
         )
@@ -268,13 +270,13 @@ class Worker:
             job.payload = redact_payload(payload)
             return "review_required"
 
-        row = rows_by_source_id.get(decision.selected.source_id)
-        if row is None:
+        selected_row = rows_by_source_id.get(decision.selected.source_id)
+        if selected_row is None:
             auto_payload["gate_reasons"] = ["selected_candidate_missing"]
             job.payload = redact_payload(payload)
             return "review_required"
 
-        detail = await self._search_adapter.fetch_video_detail(row.source_url)
+        detail = await self._search_adapter.fetch_video_detail(selected_row.source_url)
         record = normalize_source_video(detail)
         selection = select_assets(record)
         strict_assets_missing = rule.asset_policy == "strict" and bool(
@@ -327,7 +329,7 @@ class Worker:
         auto_payload.update(
             {
                 "gate_reasons": [],
-                "selected_candidate_id": row.id,
+                "selected_candidate_id": selected_row.id,
                 "selected_source_url": detail.source_url,
                 "selected_detail": detail.model_dump(mode="json"),
                 "metadata_record_id": metadata_row.id,
@@ -344,6 +346,7 @@ class Worker:
         return "matched"
 
     def _create_operation_plan(self, session: Session, job: Job) -> None:
+        settings = self._require_settings()
         rule = _rule_for_job(session, job)
         payload = _payload(job)
         auto = _auto_payload(payload)
@@ -369,9 +372,9 @@ class Worker:
         ]
         plan = OrganizerPlanService(
             session,
-            StorageRootService(self._settings, session),
+            StorageRootService(settings, session),
         ).create_plan(
-            mode=rule.organization_mode,
+            mode=_organization_mode(rule.organization_mode),
             media_items=media_items,
             destination_root=Path(rule.destination_directory),
             template_preview=template,
@@ -384,6 +387,7 @@ class Worker:
         job.payload = redact_payload(payload)
 
     def _execute_operation_plan(self, session: Session, job: Job) -> None:
+        settings = self._require_settings()
         payload = _payload(job)
         auto = _auto_payload(payload)
         plan_id = str(auto.get("plan_id") or "")
@@ -405,7 +409,7 @@ class Worker:
             update={"database_id": row.id}
         )
         OperationExecutor(
-            StorageRootService(self._settings, session),
+            StorageRootService(settings, session),
             journal=OperationJournal(session),
         ).execute(plan)
         row.status = "completed"
@@ -415,6 +419,11 @@ class Worker:
         ]
         payload["local_operations_complete"] = True
         job.payload = redact_payload(payload)
+
+    def _require_settings(self) -> Settings:
+        if self._settings is None:
+            raise RuntimeError("worker_settings_required")
+        return self._settings
 
     async def _notify_emby(self, session: Session, job: Job) -> None:
         if not _emby_enabled(session, job):
@@ -465,6 +474,12 @@ def _rule_for_job(session: Session, job: Job) -> WatchRule:
     if rule is None:
         raise RuntimeError("watch_rule_missing")
     return rule
+
+
+def _organization_mode(value: str) -> OrganizationMode:
+    if value not in {"preview", "in_place", "move", "copy", "hardlink", "symlink"}:
+        raise RuntimeError("invalid_organization_mode")
+    return cast(OrganizationMode, value)
 
 
 def _persist_media_item(

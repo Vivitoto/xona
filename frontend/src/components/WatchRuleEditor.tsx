@@ -90,13 +90,13 @@ export function WatchRuleEditor({
   return (
     <div className="editor-grid">
       <div className="grid three">
-        <FormField label="Source directory">
+        <FormField label="源目录">
           <input
             value={draft.source_directory}
             onChange={(event) => patch({ source_directory: event.target.value })}
           />
         </FormField>
-        <FormField label="Destination directory">
+        <FormField label="目标目录">
           <input
             value={draft.destination_directory}
             onChange={(event) =>
@@ -105,46 +105,46 @@ export function WatchRuleEditor({
           />
         </FormField>
         <button type="button" onClick={onBrowse}>
-          Browse storage roots
+          浏览存储根
         </button>
       </div>
 
       {destinationInsideSource ? (
         <p className="status warning">
-          Destination is inside the watched source. Xona will auto-exclude{" "}
-          {draft.destination_directory}.
+          目标目录位于被监控源目录内。Xona 将自动排除{" "}
+          {draft.destination_directory}。
         </p>
       ) : null}
 
-      <div className="segmented" aria-label="Monitor mode">
+      <div className="segmented" aria-label="监控模式">
         <button
           aria-pressed={draft.realtime}
           type="button"
           onClick={() => patch({ realtime: true })}
         >
-          Real-time
+          实时
         </button>
         <button
           aria-pressed={!draft.realtime}
           type="button"
           onClick={() => patch({ realtime: false })}
         >
-          Polling
+          轮询
         </button>
       </div>
 
       <div className="grid four">
         <CheckboxField
           checked={draft.enabled}
-          label="Enabled"
+          label="启用"
           onChange={(enabled) => patch({ enabled })}
         />
         <CheckboxField
           checked={draft.recursive}
-          label="Recursive"
+          label="递归"
           onChange={(recursive) => patch({ recursive })}
         />
-        <FormField label="Polling interval seconds">
+        <FormField label="轮询间隔（秒）">
           <input
             min={1}
             type="number"
@@ -154,7 +154,7 @@ export function WatchRuleEditor({
             }
           />
         </FormField>
-        <FormField label="Stability duration seconds">
+        <FormField label="稳定等待时间（秒）">
           <input
             min={0}
             type="number"
@@ -164,7 +164,7 @@ export function WatchRuleEditor({
             }
           />
         </FormField>
-        <FormField label="Stable check count">
+        <FormField label="稳定检查次数">
           <input
             min={1}
             type="number"
@@ -174,7 +174,7 @@ export function WatchRuleEditor({
             }
           />
         </FormField>
-        <FormField label="Confidence threshold">
+        <FormField label="置信度阈值">
           <input
             max={100}
             min={0}
@@ -185,18 +185,18 @@ export function WatchRuleEditor({
             }
           />
         </FormField>
-        <FormField label="Asset policy">
+        <FormField label="资源策略">
           <select
             value={draft.asset_policy}
             onChange={(event) => patch({ asset_policy: event.target.value })}
           >
-            <option value="strict">Strict</option>
-            <option value="lenient">Lenient</option>
+            <option value="strict">严格</option>
+            <option value="lenient">宽松</option>
           </select>
         </FormField>
       </div>
 
-      <div className="segmented" aria-label="Organization mode">
+      <div className="segmented" aria-label="整理模式">
         {modeOptions.map((mode) => (
           <button
             aria-pressed={draft.organization_mode === mode}
@@ -204,13 +204,13 @@ export function WatchRuleEditor({
             type="button"
             onClick={() => patch({ organization_mode: mode })}
           >
-            {mode}
+            {organizationModeLabel(mode)}
           </button>
         ))}
       </div>
 
       <div className="grid two">
-        <FormField label="Folder templates">
+        <FormField label="文件夹模板">
           <textarea
             value={draft.folder_templates.join("\n")}
             onChange={(event) =>
@@ -220,7 +220,7 @@ export function WatchRuleEditor({
             }
           />
         </FormField>
-        <FormField label="Filename template">
+        <FormField label="文件名模板">
           <input
             value={draft.filename_template}
             onChange={(event) => patch({ filename_template: event.target.value })}
@@ -231,50 +231,50 @@ export function WatchRuleEditor({
       <div className="grid three">
         <CheckboxField
           checked={Boolean(draft.metadata_options.write_nfo)}
-          label="Write metadata NFO"
+          label="写入 .nfo 元数据"
           onChange={(checked) => patchMetadata("write_nfo", checked)}
         />
         <CheckboxField
           checked={Boolean(draft.metadata_options.poster)}
-          label="Download poster image"
+          label="下载海报图片"
           onChange={(checked) => patchMetadata("poster", checked)}
         />
         <CheckboxField
           checked={Boolean(draft.metadata_options.fanart)}
-          label="Download fanart image"
+          label="下载 fanart 图片"
           onChange={(checked) => patchMetadata("fanart", checked)}
         />
         <CheckboxField
           checked={Boolean(draft.metadata_options.actor_outputs)}
-          label="Write .actors outputs"
+          label="写入 .actors 输出"
           onChange={(checked) => patchMetadata("actor_outputs", checked)}
         />
         <CheckboxField
           checked={Boolean(draft.emby_options.notify)}
-          label="Notify Emby after local completion"
+          label="本地完成后通知 Emby"
           onChange={(checked) => patchEmby("notify", checked)}
         />
         <CheckboxField
           checked={Boolean(draft.emby_options.retry_on_failure)}
-          label="Retry Emby notification"
+          label="重试 Emby 通知"
           onChange={(checked) => patchEmby("retry_on_failure", checked)}
         />
       </div>
 
       <div className="grid three">
-        <FormField label="Include patterns">
+        <FormField label="包含模式">
           <textarea
             value={draft.include_patterns.join("\n")}
             onChange={(event) => patch({ include_patterns: lines(event.target.value) })}
           />
         </FormField>
-        <FormField label="Exclude patterns">
+        <FormField label="排除模式">
           <textarea
             value={draft.exclude_patterns.join("\n")}
             onChange={(event) => patch({ exclude_patterns: lines(event.target.value) })}
           />
         </FormField>
-        <FormField label="Excluded destination prefixes">
+        <FormField label="已排除目标前缀">
           <textarea
             value={draft.excluded_destination_prefixes.join("\n")}
             onChange={(event) =>
@@ -285,10 +285,27 @@ export function WatchRuleEditor({
       </div>
 
       <button type="button" onClick={onSubmit}>
-        {draft.rule_id ? "Update watch rule" : "Create watch rule"}
+        {draft.rule_id ? "更新监控规则" : "创建监控规则"}
       </button>
     </div>
   );
+}
+
+function organizationModeLabel(mode: OrganizationMode): string {
+  switch (mode) {
+    case "copy":
+      return "复制";
+    case "move":
+      return "移动";
+    case "hardlink":
+      return "硬链接";
+    case "symlink":
+      return "符号链接";
+    case "in_place":
+      return "原地处理";
+    case "preview":
+      return "预览";
+  }
 }
 
 function lines(value: string): string[] {

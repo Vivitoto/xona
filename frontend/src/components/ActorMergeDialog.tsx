@@ -21,9 +21,9 @@ export function ActorMergeDialog({
   return (
     <div aria-modal="true" className="dialog-backdrop" role="dialog">
       <div className="dialog">
-        <h2>Merge Actor</h2>
-        <p className="muted">Merge a duplicate profile into {actor.canonical_name}.</p>
-        <FormField label="Duplicate actor ID">
+        <h2>合并演员</h2>
+        <p className="muted">将重复档案合并到 {actor.canonical_name}。</p>
+        <FormField label="重复演员 ID">
           <input
             inputMode="numeric"
             type="number"
@@ -36,10 +36,10 @@ export function ActorMergeDialog({
             type="button"
             onClick={() => onMerge(Number.parseInt(duplicateId, 10))}
           >
-            Merge
+            合并
           </button>
           <button className="secondary" type="button" onClick={onClose}>
-            Cancel
+            取消
           </button>
         </div>
       </div>

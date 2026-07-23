@@ -83,7 +83,7 @@ def _deep_merge(base: Mapping[str, Any], patch: Mapping[str, Any]) -> dict[str, 
             isinstance(value, Mapping)
             and isinstance(result.get(key), Mapping)
         ):
-            result[key] = _deep_merge(result[key], value)  # type: ignore[arg-type]
+            result[key] = _deep_merge(result[key], value)
         else:
             result[key] = deepcopy(value)
     return result

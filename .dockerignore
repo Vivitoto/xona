@@ -1,0 +1,43 @@
+# Git and local metadata
+.git
+.gitignore
+.github
+
+# Python caches/build output
+.venv
+__pycache__
+*.py[cod]
+*.egg-info
+build
+dist
+.pytest_cache
+.mypy_cache
+.ruff_cache
+.coverage
+htmlcov
+
+# Frontend local dependencies/build/test output
+frontend/node_modules
+frontend/dist
+frontend/coverage
+frontend/playwright-report
+frontend/test-results
+frontend/*.tsbuildinfo
+frontend/vite.config.d.ts
+frontend/vite.config.js
+
+# Local runtime data; never bake config/media/secrets into images
+config
+media
+*.db
+*.sqlite
+*.sqlite3
+.env
+.env.*
+!.env.example
+
+# Editor / OS noise
+.DS_Store
+.idea
+.vscode
+*.swp

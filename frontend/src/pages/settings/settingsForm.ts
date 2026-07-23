@@ -127,7 +127,7 @@ export function parseJsonObject(value: string): Record<string, unknown> {
   }
   const parsed = JSON.parse(value) as unknown;
   if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
-    throw new Error("Expected a JSON object");
+    throw new Error("需要输入 JSON 对象");
   }
   return parsed as Record<string, unknown>;
 }

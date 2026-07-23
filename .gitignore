@@ -5,6 +5,20 @@ __pycache__/
 build/
 dist/
 .pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Local runtime data; never commit config/media/secrets
+config/
+media/
+*.db
+*.sqlite
+*.sqlite3
+.env
+.env.*
+!.env.example
 
 frontend/node_modules/
 frontend/dist/

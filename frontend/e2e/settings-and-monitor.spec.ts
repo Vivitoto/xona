@@ -11,7 +11,7 @@ interface FixturePaths {
 
 const backendURL = `http://127.0.0.1:${process.env.XONA_E2E_BACKEND_PORT ?? 8765}`;
 
-test("Settings saves exact connector, mapping, template, threshold, and asset policy values", async ({
+test("设置 saves exact connector, mapping, template, threshold, and asset policy values", async ({
   page,
   request,
 }) => {
@@ -20,81 +20,81 @@ test("Settings saves exact connector, mapping, template, threshold, and asset po
   const proxyURL = "socks5://proxy.fixture.local:9050";
 
   await page.goto("/");
-  await page.getByRole("button", { name: "Settings" }).click();
-  await expect(activePage(page).getByRole("heading", { name: "Settings" })).toBeVisible();
+  await page.getByRole("button", { name: "设置" }).click();
+  await expect(activePage(page).getByRole("heading", { name: "设置" })).toBeVisible();
 
-  await page.getByRole("textbox", { name: /Storage roots/ }).fill(fixture.media_root);
-  await page.getByLabel("Exact FlareSolverr endpoint").fill(flareSolverrEndpoint);
-  await page.getByLabel("Proxy URL").fill(proxyURL);
-  await page.getByLabel("XChina cache directory").fill(fixture.xchina_cache_dir);
-  await page.getByLabel("Enable Emby notification").check();
-  await page.getByLabel("Emby server URL").fill("http://emby.fixture.local:8096");
+  await page.getByRole("textbox", { name: /存储根/ }).fill(fixture.media_root);
+  await page.getByLabel("精确 FlareSolverr 端点").fill(flareSolverrEndpoint);
+  await page.getByLabel("代理 URL").fill(proxyURL);
+  await page.getByLabel("XChina 缓存目录").fill(fixture.xchina_cache_dir);
+  await page.getByLabel("启用 Emby 通知").check();
+  await page.getByLabel("Emby 服务器 URL").fill("http://emby.fixture.local:8096");
   await page.getByLabel("Emby API key").fill("emby-fixture-key");
-  await page.getByRole("button", { name: "Add mapping" }).click();
-  await page.getByLabel("Container root").fill(fixture.media_root);
-  await page.getByLabel("Emby visible root").fill("/emby/fixture-media");
-  await page.getByLabel("Folder templates").fill("{studio}\n{series}\n{title}");
-  await page.getByLabel("Filename template").fill("{xchina_id} - {title} [{release_date}]");
-  await page.getByLabel("Asset policy").selectOption("strict");
-  await page.getByLabel("Confidence threshold").fill("87");
-  await page.getByLabel("Safety cache directory").fill(fixture.safety_cache_dir);
-  await page.getByRole("button", { name: "Save settings" }).click();
+  await page.getByRole("button", { name: "添加映射" }).click();
+  await page.getByLabel("容器根目录").fill(fixture.media_root);
+  await page.getByLabel("Emby 可见根目录").fill("/emby/fixture-media");
+  await page.getByLabel("文件夹模板").fill("{studio}\n{series}\n{title}");
+  await page.getByLabel("文件名模板").fill("{xchina_id} - {title} [{release_date}]");
+  await page.getByLabel("资源策略").selectOption("strict");
+  await page.getByLabel("置信度阈值").fill("87");
+  await page.getByLabel("安全缓存目录").fill(fixture.safety_cache_dir);
+  await page.getByRole("button", { name: "保存设置" }).click();
 
-  await expect(page.getByText("Settings saved")).toBeVisible();
-  await page.getByRole("button", { name: "Dashboard" }).click();
-  await page.getByRole("button", { name: "Settings" }).click();
+  await expect(page.getByText("设置已保存")).toBeVisible();
+  await page.getByRole("button", { name: "仪表盘" }).click();
+  await page.getByRole("button", { name: "设置" }).click();
 
-  await expect(page.getByLabel("Exact FlareSolverr endpoint")).toHaveValue(
+  await expect(page.getByLabel("精确 FlareSolverr 端点")).toHaveValue(
     flareSolverrEndpoint,
   );
-  await expect(page.getByLabel("Proxy URL")).toHaveValue(proxyURL);
-  await expect(page.getByLabel("Container root")).toHaveValue(fixture.media_root);
-  await expect(page.getByLabel("Emby visible root")).toHaveValue("/emby/fixture-media");
-  await expect(page.getByLabel("Folder templates")).toHaveValue(
+  await expect(page.getByLabel("代理 URL")).toHaveValue(proxyURL);
+  await expect(page.getByLabel("容器根目录")).toHaveValue(fixture.media_root);
+  await expect(page.getByLabel("Emby 可见根目录")).toHaveValue("/emby/fixture-media");
+  await expect(page.getByLabel("文件夹模板")).toHaveValue(
     "{studio}\n{series}\n{title}",
   );
-  await expect(page.getByLabel("Filename template")).toHaveValue(
+  await expect(page.getByLabel("文件名模板")).toHaveValue(
     "{xchina_id} - {title} [{release_date}]",
   );
-  await expect(page.getByLabel("Asset policy")).toHaveValue("strict");
-  await expect(page.getByLabel("Confidence threshold")).toHaveValue("87");
+  await expect(page.getByLabel("资源策略")).toHaveValue("strict");
+  await expect(page.getByLabel("置信度阈值")).toHaveValue("87");
   await expectNoClippedCriticalText(page);
 });
 
-test("Automatic Monitors creates a rule, excludes nested destinations, scans now, and shows review-required items", async ({
+test("自动监控 creates a rule, excludes nested destinations, scans now, and shows review-required items", async ({
   page,
   request,
 }) => {
   const fixture = await resetFixture(request);
 
   await page.goto("/");
-  await page.getByRole("button", { name: "Automatic Monitors" }).click();
-  await expect(activePage(page).getByRole("heading", { name: "Automatic Monitors" })).toBeVisible();
+  await page.getByRole("button", { name: "自动监控" }).click();
+  await expect(activePage(page).getByRole("heading", { name: "自动监控" })).toBeVisible();
 
-  await page.getByLabel("Source directory").fill(fixture.source_dir);
-  await page.getByLabel("Destination directory").fill(fixture.nested_destination_dir);
+  await page.getByLabel("源目录").fill(fixture.source_dir);
+  await page.getByLabel("目标目录").fill(fixture.nested_destination_dir);
   await expect(
-    page.getByText(/Destination is inside the watched source/),
+    page.getByText(/目标目录位于被监控源目录内/),
   ).toBeVisible();
-  await expect(page.getByLabel("Excluded destination prefixes")).toHaveValue(
+  await expect(page.getByLabel("已排除目标前缀")).toHaveValue(
     fixture.nested_destination_dir,
   );
 
-  await page.getByLabel("Confidence threshold").fill("88");
-  await page.getByLabel("Asset policy").selectOption("strict");
-  await page.getByRole("button", { name: "Create watch rule" }).click();
-  await expect(page.getByText("Watch rule rule-1 saved")).toBeVisible();
-  await expect(page.getByRole("table", { name: "Automatic monitor rules" })).toContainText(
+  await page.getByLabel("置信度阈值").fill("88");
+  await page.getByLabel("资源策略").selectOption("strict");
+  await page.getByRole("button", { name: "创建监控规则" }).click();
+  await expect(page.getByText("监控规则 rule-1 已保存")).toBeVisible();
+  await expect(page.getByRole("table", { name: "自动监控规则" })).toContainText(
     fixture.nested_destination_dir,
   );
 
-  await page.getByRole("button", { name: "Scan now" }).click();
-  await expect(page.getByText(/Scan queued for rule-1:/)).toBeVisible();
+  await page.getByRole("button", { name: "立即扫描" }).click();
+  await expect(page.getByText(/已为 rule-1 加入扫描队列：/)).toBeVisible();
   await expect(
-    page.getByRole("table", { name: "Monitor review-required jobs" }),
+    page.getByRole("table", { name: "监控器需复核任务" }),
   ).toContainText("Monitor review item");
   await expect(
-    page.getByRole("table", { name: "Monitor review-required jobs" }),
+    page.getByRole("table", { name: "监控器需复核任务" }),
   ).toContainText("strict_assets_missing");
   await expectNoOverlappingControls(page);
 });
@@ -104,14 +104,14 @@ test("critical controls remain readable on current viewport", async ({ page, req
   await page.goto("/");
 
   for (const name of [
-    "Dashboard",
-    "Manual Organizer",
-    "Automatic Monitors",
-    "Review Queue",
-    "Task Center",
-    "Actor Library",
-    "History/Rollback",
-    "Settings",
+    "仪表盘",
+    "手动整理",
+    "自动监控",
+    "复核队列",
+    "任务中心",
+    "演员库",
+    "历史/回滚",
+    "设置",
   ]) {
     await page.getByRole("button", { name }).click();
     await expect(activePage(page).getByRole("heading", { name })).toBeVisible();

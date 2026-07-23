@@ -41,17 +41,17 @@ export function EmbySettings({
       <div className="grid three">
         <CheckboxField
           checked={settings.enabled}
-          label="Enable Emby notification"
+          label="启用 Emby 通知"
           onChange={(enabled) => onChange({ enabled })}
         />
-        <FormField label="Emby server URL">
+        <FormField label="Emby 服务器 URL">
           <input
             value={settings.server_url ?? ""}
             onChange={(event) => onChange({ server_url: event.target.value })}
           />
         </FormField>
         <FormField
-          description="Leave the redacted placeholder unchanged to keep the saved key."
+          description="保持脱敏占位符不变即可保留已保存的密钥。"
           label="Emby API key"
         >
           <input
@@ -64,14 +64,14 @@ export function EmbySettings({
       </div>
       <CheckboxField
         checked={settings.upload_actor_portraits}
-        label="Upload actor portraits during Emby sync"
+        label="Emby 同步时上传演员头像"
         onChange={(upload_actor_portraits) =>
           onChange({ upload_actor_portraits })
         }
       />
       <div className="subsection">
         <div className="row row-between">
-          <h3>Emby path mappings</h3>
+          <h3>Emby 路径映射</h3>
           <button
             type="button"
             onClick={() =>
@@ -83,13 +83,13 @@ export function EmbySettings({
               })
             }
           >
-            Add mapping
+            添加映射
           </button>
         </div>
         {settings.path_mappings.length ? (
           settings.path_mappings.map((mapping, index) => (
             <div className="grid two mapping-row" key={index}>
-              <FormField label="Container root">
+              <FormField label="容器根目录">
                 <input
                   value={mapping.container_root}
                   onChange={(event) =>
@@ -97,7 +97,7 @@ export function EmbySettings({
                   }
                 />
               </FormField>
-              <FormField label="Emby visible root">
+              <FormField label="Emby 可见根目录">
                 <input
                   value={mapping.emby_root}
                   onChange={(event) =>
@@ -108,11 +108,11 @@ export function EmbySettings({
             </div>
           ))
         ) : (
-          <p className="muted">No path mappings configured.</p>
+          <p className="muted">尚未配置路径映射。</p>
         )}
       </div>
       <button type="button" onClick={testConnection}>
-        Test Emby
+        测试 Emby
       </button>
       {diagnostic ? <pre className="diagnostic">{diagnostic}</pre> : null}
     </Section>

@@ -79,5 +79,5 @@ function formatDetail(detail: unknown): string {
   ) {
     return detail.detail;
   }
-  return "API request failed";
+  return "API 请求失败";
 }

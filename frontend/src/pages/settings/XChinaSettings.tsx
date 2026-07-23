@@ -44,15 +44,15 @@ export function XChinaSettings({
   return (
     <Section title="XChina">
       <div className="grid three">
-        <FormField label="XChina base URL">
+        <FormField label="XChina 基础 URL">
           <input
             value={settings.base_url}
             onChange={(event) => onChange({ base_url: event.target.value })}
           />
         </FormField>
         <FormField
-          description="Stored and called exactly as entered. The client never appends /v1."
-          label="Exact FlareSolverr endpoint"
+          description="按输入原样保存和调用。客户端不会追加 /v1。"
+          label="精确 FlareSolverr 端点"
         >
           <input
             placeholder="http://solver:8191/v1"
@@ -63,8 +63,8 @@ export function XChinaSettings({
           />
         </FormField>
         <FormField
-          description="May include credentials. Redacted placeholders are display-only."
-          label="Proxy URL"
+          description="可包含凭据。脱敏占位符仅用于显示。"
+          label="代理 URL"
         >
           <input
             value={settings.proxy_url ?? ""}
@@ -73,13 +73,13 @@ export function XChinaSettings({
         </FormField>
       </div>
       <div className="grid three">
-        <FormField label="XChina cache directory">
+        <FormField label="XChina 缓存目录">
           <input
             value={settings.cache_dir ?? ""}
             onChange={(event) => onChange({ cache_dir: event.target.value })}
           />
         </FormField>
-        <FormField label="XChina test query">
+        <FormField label="XChina 测试查询">
           <input
             value={testQuery}
             onChange={(event) => setTestQuery(event.target.value)}
@@ -87,16 +87,16 @@ export function XChinaSettings({
         </FormField>
         <CheckboxField
           checked={useProxyForTest}
-          label="Use proxy for connector test"
+          label="连接测试使用代理"
           onChange={setUseProxyForTest}
         />
       </div>
       <div className="button-row">
         <button type="button" onClick={testFlareSolverr}>
-          Test FlareSolverr
+          测试 FlareSolverr
         </button>
         <button type="button" onClick={testXChina}>
-          Test XChina
+          测试 XChina
         </button>
       </div>
       {diagnostic ? <pre className="diagnostic">{diagnostic}</pre> : null}

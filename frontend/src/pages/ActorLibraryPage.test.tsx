@@ -65,14 +65,14 @@ describe("ActorLibraryPage", () => {
 
     expect(await screen.findByText("Actor One")).toBeTruthy();
     expect(
-      screen.getByRole("img", { name: "Actor One portrait missing" }),
+      screen.getByRole("img", { name: "Actor One 缺少头像" }),
     ).toBeTruthy();
 
-    fireEvent.change(screen.getByLabelText(/Actor search/i), {
+    fireEvent.change(screen.getByLabelText(/演员搜索/i), {
       target: { value: "Actor" },
     });
-    fireEvent.click(screen.getByLabelText(/Missing-image only/i));
-    fireEvent.click(screen.getByRole("button", { name: "Filter actors" }));
+    fireEvent.click(screen.getByLabelText(/仅缺少图片/i));
+    fireEvent.click(screen.getByRole("button", { name: "筛选演员" }));
     await waitFor(() =>
       expect(
         calls.some(
@@ -81,31 +81,31 @@ describe("ActorLibraryPage", () => {
       ).toBe(true),
     );
 
-    fireEvent.change(screen.getByLabelText(/Aliases for Actor One/i), {
+    fireEvent.change(screen.getByLabelText(/Actor One 的别名/i), {
       target: { value: "Alias One\nAlias Two" },
     });
-    fireEvent.click(screen.getByRole("button", { name: "Save aliases" }));
-    expect(await screen.findByText(/Aliases saved/)).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "保存别名" }));
+    expect(await screen.findByText(/已保存/)).toBeTruthy();
 
-    fireEvent.click(screen.getByRole("button", { name: "Merge" }));
-    fireEvent.change(screen.getByLabelText(/Duplicate actor ID/i), {
+    fireEvent.click(screen.getByRole("button", { name: "合并" }));
+    fireEvent.change(screen.getByLabelText(/重复演员 ID/i), {
       target: { value: "2" },
     });
-    fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Merge" }));
-    expect(await screen.findByText(/Merged actor 2/)).toBeTruthy();
+    fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: "合并" }));
+    expect(await screen.findByText(/已合并演员 2/)).toBeTruthy();
 
-    fireEvent.click(screen.getByRole("button", { name: "Replace image" }));
-    expect(await screen.findByText(/Portrait replaced/)).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "替换图片" }));
+    expect(await screen.findByText(/头像已替换/)).toBeTruthy();
 
-    fireEvent.click(screen.getByRole("button", { name: "Refresh" }));
-    expect(await screen.findByText(/Actor refreshed/)).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "刷新" }));
+    expect(await screen.findByText(/演员已刷新/)).toBeTruthy();
     expect(screen.queryByText("secret")).toBeNull();
 
-    fireEvent.click(screen.getByRole("button", { name: "Linked works" }));
+    fireEvent.click(screen.getByRole("button", { name: "关联作品" }));
     expect(await screen.findByText("Sample Work")).toBeTruthy();
 
-    fireEvent.click(screen.getByRole("button", { name: "Sync Emby" }));
-    expect(await screen.findByText(/Emby sync uploaded portrait/)).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "同步 Emby" }));
+    expect(await screen.findByText(/Emby 同步已上传头像/)).toBeTruthy();
     expect(screen.queryByText("secret")).toBeNull();
 
     await waitFor(() => {

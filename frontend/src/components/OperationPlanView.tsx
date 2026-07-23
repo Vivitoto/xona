@@ -25,83 +25,83 @@ export function OperationPlanView({
   );
 
   if (!resolvedPlan && !refusalReasons.length) {
-    return <p className="muted">No operation preview yet.</p>;
+    return <p className="muted">尚无操作预览。</p>;
   }
 
   return (
-    <section className="plan-view" aria-label="Operation plan">
+    <section className="plan-view" aria-label="操作计划">
       {resolvedPlan ? (
         <div className="plan-summary">
-          <span>Plan {resolvedPlan.plan_id}</span>
-          <span>Mode {resolvedPlan.mode}</span>
-          <span>Target {resolvedPlan.target_directory}</span>
+          <span>计划 {resolvedPlan.plan_id}</span>
+          <span>模式 {resolvedPlan.mode}</span>
+          <span>目标 {resolvedPlan.target_directory}</span>
         </div>
       ) : null}
 
       <PlanList
-        empty="No refusal reasons."
-        heading="Refusal reasons"
+        empty="无拒绝原因。"
+        heading="拒绝原因"
         items={refusalReasons.map((reason) => ({ key: reason, label: reason }))}
       />
       <PlanList
-        empty="No conflicts."
-        heading="Conflicts"
+        empty="无冲突。"
+        heading="冲突"
         items={(resolvedPlan?.conflicts ?? []).map((conflict) => ({
           key: `${conflict.target_path}:${conflict.reason}`,
           label: `${conflict.target_path} - ${conflict.reason}`,
         }))}
       />
       <PlanList
-        empty="No planned steps."
-        heading="Planned steps"
+        empty="无计划步骤。"
+        heading="计划步骤"
         items={steps.map((step) => ({
           key: step.step_id,
           label: `${step.operation} ${step.source_path ?? ""} -> ${step.target_path}`,
         }))}
       />
       <PlanList
-        empty="No target paths."
-        heading="Target paths"
+        empty="无目标路径。"
+        heading="目标路径"
         items={steps.map((step) => ({
           key: `target:${step.step_id}`,
           label: step.target_path,
         }))}
       />
       <PlanList
-        empty="No materialized assets."
-        heading="Materialized assets"
+        empty="无已缓存资源。"
+        heading="已缓存资源"
         items={materializedAssets.map((asset, index) => ({
           key: `asset:${index}`,
           label: stringifyAsset(asset),
         }))}
       />
       <PlanList
-        empty="No missing assets."
-        heading="Missing assets"
+        empty="无缺失资源。"
+        heading="缺失资源"
         items={missingAssets.map((asset, index) => ({
           key: `missing:${index}`,
           label: stringifyAsset(asset),
         }))}
       />
       <PlanList
-        empty="No .actors outputs."
-        heading=".actors outputs"
+        empty="无 .actors 输出。"
+        heading=".actors 输出"
         items={actorOutputs.map((step) => ({
           key: `actor:${step.step_id}`,
           label: step.target_path,
         }))}
       />
       <PlanList
-        empty="No generated files."
-        heading="Generated files"
+        empty="无生成文件。"
+        heading="生成文件"
         items={generatedFiles.map((step) => ({
           key: `generated:${step.step_id}`,
           label: step.target_path,
         }))}
       />
       <PlanList
-        empty="No safety warnings."
-        heading="Safety warnings"
+        empty="无安全警告。"
+        heading="安全警告"
         items={(resolvedPlan?.safety_warnings ?? []).map((warning) => ({
           key: `${warning.code}:${warning.path ?? ""}`,
           label: `${warning.code}: ${warning.message}${warning.path ? ` (${warning.path})` : ""}`,

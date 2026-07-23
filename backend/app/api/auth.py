@@ -94,7 +94,7 @@ async def login(
         path="/",
         secure=settings.auth_cookie_secure,
         httponly=True,
-        samesite="Lax",
+        samesite="Lax",  # type: ignore[arg-type]
     )
     return {"authenticated": True, "username": configured_username}
 
@@ -107,7 +107,7 @@ async def logout(request: Request, response: Response) -> dict[str, bool]:
         path="/",
         secure=settings.auth_cookie_secure,
         httponly=True,
-        samesite="Lax",
+        samesite="Lax",  # type: ignore[arg-type]
     )
     return {"authenticated": False}
 

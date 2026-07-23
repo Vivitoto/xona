@@ -38,7 +38,7 @@ class Settings(BaseSettings):
         if value is None or value == "":
             return ()
         if isinstance(value, str):
-            values = tuple(part for part in value.split(os.pathsep) if part)
+            values: tuple[Any, ...] = tuple(part for part in value.split(os.pathsep) if part)
         elif isinstance(value, Path):
             values = (value,)
         else:

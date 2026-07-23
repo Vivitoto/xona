@@ -45,8 +45,8 @@ describe("HistoryRollbackPage", () => {
     expect(await screen.findByText("externally_modified")).toBeTruthy();
     expect(screen.getAllByText("/media/organized/Movie/Movie.mkv").length).toBeGreaterThan(0);
 
-    fireEvent.click(screen.getByRole("button", { name: "Rollback" }));
-    expect(await screen.findByText(/Rollback refused: target externally modified/)).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "回滚" }));
+    expect(await screen.findByText(/回滚被拒绝：target externally modified/)).toBeTruthy();
     expect(
       calls.some(
         (call) =>

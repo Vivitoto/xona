@@ -7,7 +7,7 @@ interface FixturePaths {
 
 const backendURL = `http://127.0.0.1:${process.env.XONA_E2E_BACKEND_PORT ?? 8765}`;
 
-test("Review Queue, Task Center, and History/Rollback use jobs/history APIs and render redacted events", async ({
+test("复核队列, 任务中心, and 历史/回滚 use jobs/history APIs and render redacted events", async ({
   page,
   request,
 }) => {
@@ -21,37 +21,37 @@ test("Review Queue, Task Center, and History/Rollback use jobs/history APIs and 
   });
 
   await page.goto("/");
-  await page.getByRole("button", { name: "Review Queue" }).click();
-  await expect(page.getByRole("table", { name: "Review required jobs" })).toContainText(
+  await page.getByRole("button", { name: "复核队列" }).click();
+  await expect(page.getByRole("table", { name: "需复核任务" })).toContainText(
     "Review.Required.Work.2026",
   );
-  await expect(page.getByRole("table", { name: "Review required jobs" })).toContainText(
+  await expect(page.getByRole("table", { name: "需复核任务" })).toContainText(
     "confidence_below_threshold",
   );
 
-  await page.getByRole("button", { name: "Task Center" }).click();
-  await page.getByLabel("Job ID").fill(String(fixture.review_job_id));
-  await page.getByRole("button", { name: "Load job" }).click();
-  await expect(page.getByLabel("Job timeline")).toContainText("review_required");
-  await expect(page.getByLabel("Job timeline")).toContainText("********");
+  await page.getByRole("button", { name: "任务中心" }).click();
+  await page.getByLabel("任务 ID").fill(String(fixture.review_job_id));
+  await page.getByRole("button", { name: "加载任务" }).click();
+  await expect(page.getByLabel("任务时间线")).toContainText("review_required");
+  await expect(page.getByLabel("任务时间线")).toContainText("********");
   await expect(page.getByText("super-secret-token")).toHaveCount(0);
   await expect(page.getByText("emby-secret-key")).toHaveCount(0);
 
-  await page.getByRole("button", { name: "Retry", exact: true }).click();
-  await expect(page.getByText("Job loaded")).toBeVisible();
-  await expect(page.getByLabel("Job timeline").getByText("searching")).toBeVisible();
+  await page.getByRole("button", { name: "重试", exact: true }).click();
+  await expect(page.getByText("任务已加载")).toBeVisible();
+  await expect(page.getByLabel("任务时间线").getByText("searching")).toBeVisible();
 
-  await page.getByRole("button", { name: "History/Rollback" }).click();
-  await expect(page.getByRole("table", { name: "Operation history" })).toContainText(
+  await page.getByRole("button", { name: "历史/回滚" }).click();
+  await expect(page.getByRole("table", { name: "操作历史" })).toContainText(
     fixture.history_plan_id,
   );
-  await expect(page.getByLabel("Operation plan")).toContainText("Archived Work");
+  await expect(page.getByLabel("操作计划")).toContainText("Archived Work");
   const rollbackResponsePromise = page.waitForResponse(
     (response) =>
       response.url().includes(`/api/plans/${fixture.history_plan_id}/rollback`) &&
       response.request().method() === "POST",
   );
-  await page.getByRole("button", { name: "Rollback", exact: true }).click();
+  await page.getByRole("button", { name: "回滚", exact: true }).click();
   const rollbackResponse = await rollbackResponsePromise;
   expect(rollbackResponse.ok()).toBeTruthy();
   expect(await rollbackResponse.json()).toMatchObject({

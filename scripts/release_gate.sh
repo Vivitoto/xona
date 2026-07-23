@@ -46,6 +46,22 @@ run_step() {
   "$@" 2>&1 | redact_stream
 }
 
+wait_for_container_health() {
+  local attempts=30
+  local delay_seconds=2
+  local attempt=1
+  while (( attempt <= attempts )); do
+    if python docker/healthcheck.py; then
+      return 0
+    fi
+    printf '[release-gate] healthcheck attempt %s/%s failed; retrying in %ss\n' \
+      "${attempt}" "${attempts}" "${delay_seconds}" >&2
+    sleep "${delay_seconds}"
+    (( attempt += 1 ))
+  done
+  python docker/healthcheck.py
+}
+
 cleanup() {
   local status=$?
   trap - EXIT
@@ -78,8 +94,8 @@ cd ..
 COMPOSE_TOUCHED=1
 run_step "Docker Compose build" docker compose build
 run_step "Docker Compose up" docker compose up -d
+run_step "Container healthcheck" wait_for_container_health
 run_step "In-container migrations" docker compose exec -T app python -m backend.app.db.migrations
-run_step "Container healthcheck" python docker/healthcheck.py
 
 run_step "Disposable media smoke script" python scripts/disposable_smoke.py
 run_step "Disposable media and fixture privacy tests" python -m pytest tests/smoke/test_disposable_media_smoke.py tests/backend/fixtures/test_fixture_privacy.py

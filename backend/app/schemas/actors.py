@@ -5,9 +5,11 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from backend.app.schemas.operations import OperationName
+
 
 class ActorOutputPlan(BaseModel):
-    operation: str
+    operation: OperationName
     source_path: Path
     destination_path: Path
     relative_path: Path

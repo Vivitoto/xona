@@ -23,7 +23,6 @@ from backend.app.schemas.assets import (
     AssetMaterializationPolicy,
     AssetSelection,
     LogicalAsset,
-    MaterializedAssetSet,
     MissingAsset,
 )
 from backend.app.schemas.manual import (
@@ -274,7 +273,6 @@ class ManualOrganizerService:
     ) -> ManualPreviewResponse:
         job = self._jobs.get_job(job_id)
         record = _selected_metadata(job)
-        detail = _selected_detail(job)
         media_items = _media_items_from_payload(job)
         if not media_items:
             raise ManualOrganizerError("media_required_for_preview")

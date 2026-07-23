@@ -3,7 +3,7 @@ from __future__ import annotations
 import hashlib
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Protocol
+from typing import Protocol, cast
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -14,6 +14,7 @@ from backend.app.integrations.xchina import FetchedAsset
 from backend.app.schemas.actors import ActorOutputPlan
 from backend.app.schemas.assets import MaterializedAsset
 from backend.app.schemas.metadata import MetadataRecordData
+from backend.app.schemas.operations import OperationName
 from backend.app.schemas.source import SourceActorDetail
 from backend.app.services.normalization import sanitize_path_component
 
@@ -142,12 +143,12 @@ class ActorCacheService:
 
     def set_aliases(self, actor_id: int, aliases: list[str]) -> Actor:
         actor = self._get_actor(actor_id)
-        for alias in list(actor.aliases):
-            self._session.delete(alias)
+        for existing_alias in list(actor.aliases):
+            self._session.delete(existing_alias)
         actor.aliases.clear()
         self._session.flush()
-        for alias in aliases:
-            self.add_alias(actor, alias)
+        for alias_name in aliases:
+            self.add_alias(actor, alias_name)
         self._session.flush()
         return actor
 
@@ -395,7 +396,7 @@ def plan_movie_actor_outputs(
         destination = root / relative_path
         plans.append(
             ActorOutputPlan(
-                operation=mode,
+                operation=cast(OperationName, mode),
                 source_path=asset.cache_path,
                 destination_path=destination,
                 relative_path=relative_path,

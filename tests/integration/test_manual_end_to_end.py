@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-from pathlib import Path
-
 from backend.app.db.models import OperationPlan, OperationStep
 
 from conftest import (

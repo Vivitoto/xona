@@ -54,7 +54,7 @@ class AssetMaterializer:
 
             cached = self._cached_asset(asset, policy)
             if cached is not None:
-                if cached == "cache_integrity_failed":
+                if isinstance(cached, str):
                     missing.append(_missing(asset, cached))
                     continue
                 materialized.append(cached)

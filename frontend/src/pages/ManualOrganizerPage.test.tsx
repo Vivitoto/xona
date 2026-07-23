@@ -119,43 +119,43 @@ describe("ManualOrganizerPage", () => {
 
     render(<ManualOrganizerPage />);
 
-    expect(screen.getByLabelText(/Source directory/i)).toBeTruthy();
-    expect(screen.getByLabelText(/Pasted filename search/i)).toBeTruthy();
-    expect(screen.getByLabelText(/Editable normalized query/i)).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Batch search" })).toBeDisabled();
-    expect(screen.getByRole("button", { name: "Execute approved preview" })).toBeDisabled();
+    expect(screen.getByLabelText(/源目录/i)).toBeTruthy();
+    expect(screen.getByLabelText(/粘贴文件名搜索/i)).toBeTruthy();
+    expect(screen.getByLabelText(/可编辑的标准化查询/i)).toBeTruthy();
+    expect(screen.getByRole("button", { name: "批量搜索" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "执行已批准预览" })).toBeDisabled();
 
-    fireEvent.click(screen.getByRole("button", { name: "Browse source" }));
+    fireEvent.click(screen.getByRole("button", { name: "浏览源目录" }));
     expect(await screen.findByText(/incoming/)).toBeTruthy();
 
-    fireEvent.change(screen.getByLabelText(/Source directory/i), {
+    fireEvent.change(screen.getByLabelText(/源目录/i), {
       target: { value: "/media/incoming" },
     });
-    fireEvent.click(screen.getByRole("button", { name: "Scan source" }));
+    fireEvent.click(screen.getByRole("button", { name: "扫描源目录" }));
     expect(await screen.findByText("sample-work")).toBeTruthy();
 
-    fireEvent.change(screen.getByLabelText(/Pasted filename search/i), {
+    fireEvent.change(screen.getByLabelText(/粘贴文件名搜索/i), {
       target: { value: "Sample.Work.mkv" },
     });
-    fireEvent.change(screen.getByLabelText(/Editable normalized query/i), {
+    fireEvent.change(screen.getByLabelText(/可编辑的标准化查询/i), {
       target: { value: "Sample Work" },
     });
-    fireEvent.click(screen.getByRole("button", { name: "Search" }));
+    fireEvent.click(screen.getByRole("button", { name: "搜索" }));
     expect(await screen.findByRole("heading", { name: "Sample Work" })).toBeTruthy();
     expect(screen.getByText("Actor One")).toBeTruthy();
     expect(screen.getByText("title: 80")).toBeTruthy();
 
-    fireEvent.click(screen.getByRole("button", { name: "Select candidate" }));
+    fireEvent.click(screen.getByRole("button", { name: "选择候选项" }));
     expect(await screen.findByText("destination_collision")).toBeTruthy();
     expect(screen.getByText("unresolved_multipart")).toBeTruthy();
     expect(screen.getByText("incomplete_metadata")).toBeTruthy();
     expect(screen.getByText("unsafe_path")).toBeTruthy();
     expect(screen.getByText("strict_assets_missing")).toBeTruthy();
 
-    fireEvent.change(screen.getByLabelText(/Destination root/i), {
+    fireEvent.change(screen.getByLabelText(/目标根目录/i), {
       target: { value: "/media/organized" },
     });
-    fireEvent.click(screen.getByRole("button", { name: "Preview operation plan" }));
+    fireEvent.click(screen.getByRole("button", { name: "预览操作计划" }));
     expect(await screen.findByText(/copy \/media\/incoming\/Sample.Work.mkv/)).toBeTruthy();
     expect(screen.getByText("/config/assets/poster.jpg")).toBeTruthy();
     expect(screen.getByText("fanart")).toBeTruthy();
@@ -166,8 +166,8 @@ describe("ManualOrganizerPage", () => {
       screen.getAllByText("/media/organized/Studio One/Sample Work/movie.nfo").length,
     ).toBeGreaterThan(0);
 
-    fireEvent.click(screen.getByRole("button", { name: "Execute approved preview" }));
-    expect(await screen.findByText(/Plan plan-1 is completed/)).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "执行已批准预览" }));
+    expect(await screen.findByText(/计划 plan-1 状态为 completed/)).toBeTruthy();
 
     expect(
       calls.some(

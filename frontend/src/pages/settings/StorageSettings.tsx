@@ -28,16 +28,16 @@ export function StorageSettings({
         await apiFetch<BrowseResponse>(`/api/storage-roots/browse?${query}`),
       );
     } catch (exc) {
-      setError(exc instanceof Error ? exc.message : "Browse failed");
+      setError(exc instanceof Error ? exc.message : "浏览失败");
     }
   }
 
   return (
-    <Section title="Storage Roots">
+    <Section title="存储根">
       <div className="grid two">
         <FormField
-          description="One mounted root per line. Roots are validated by the backend before use."
-          label="Storage roots"
+          description="每行一个挂载根目录。后端会在使用前验证这些根目录。"
+          label="存储根"
         >
           <textarea
             value={listToLines(settings.roots)}
@@ -47,16 +47,16 @@ export function StorageSettings({
           />
         </FormField>
         <div className="inline-panel">
-          <h3>Source Browse</h3>
+          <h3>源浏览</h3>
           <div className="grid two">
-            <FormField label="Root ID">
+            <FormField label="根 ID">
               <input
                 inputMode="numeric"
                 value={browseRootId}
                 onChange={(event) => setBrowseRootId(event.target.value)}
               />
             </FormField>
-            <FormField label="Relative path">
+            <FormField label="相对路径">
               <input
                 value={browsePath}
                 onChange={(event) => setBrowsePath(event.target.value)}
@@ -64,11 +64,11 @@ export function StorageSettings({
             </FormField>
           </div>
           <button type="button" onClick={browse}>
-            Browse source
+            浏览源目录
           </button>
           {error ? <p className="status error">{error}</p> : null}
           {browseResult ? (
-            <ul className="dense-list" aria-label="Browse entries">
+            <ul className="dense-list" aria-label="浏览条目">
               {browseResult.entries.map((entry) => (
                 <li key={entry.path}>
                   <button
@@ -77,7 +77,7 @@ export function StorageSettings({
                     type="button"
                     onClick={() => setBrowsePath(entry.path)}
                   >
-                    {entry.is_dir ? "Directory" : "File"} {entry.name}
+                    {entry.is_dir ? "目录" : "文件"} {entry.name}
                   </button>
                 </li>
               ))}

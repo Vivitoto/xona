@@ -9,9 +9,9 @@ export function ConfidenceSafetySettings({
   onChange: (patch: Partial<AppSettings["confidence_safety"]>) => void;
 }) {
   return (
-    <Section title="Confidence/Safety">
+    <Section title="置信度/安全">
       <div className="grid four">
-        <FormField label="Confidence threshold">
+        <FormField label="置信度阈值">
           <input
             max={100}
             min={0}
@@ -24,19 +24,19 @@ export function ConfidenceSafetySettings({
         </FormField>
         <CheckboxField
           checked={settings.refuse_destination_collisions}
-          label="Refuse destination collisions"
+          label="拒绝目标冲突"
           onChange={(refuse_destination_collisions) =>
             onChange({ refuse_destination_collisions })
           }
         />
         <CheckboxField
           checked={settings.refuse_unresolved_multipart}
-          label="Refuse unresolved multipart"
+          label="拒绝未解决分段文件"
           onChange={(refuse_unresolved_multipart) =>
             onChange({ refuse_unresolved_multipart })
           }
         />
-        <FormField label="Safety cache directory">
+        <FormField label="安全缓存目录">
           <input
             value={settings.cache_dir ?? ""}
             onChange={(event) => onChange({ cache_dir: event.target.value })}

@@ -141,7 +141,7 @@ def parse_search_results(html: str, *, base_url: str) -> list[SourceSearchResult
             continue
         title_link = _select_one(card, ".title")
         title = _text(title_link)
-        href = title_link.get("href") if title_link else None
+        href = _attr(title_link, "href")
         source_id = str(card.get("data-source-id") or "").strip()
         if not source_id or not title or not href:
             continue

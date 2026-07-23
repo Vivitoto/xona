@@ -22,8 +22,8 @@ The script runs these gates in order:
 8. Frontend Playwright: `cd frontend && npx playwright test`
 9. Docker image build: `docker compose build`
 10. Docker app startup: `docker compose up -d`
-11. In-container migration upgrade: `docker compose exec -T app python -m backend.app.db.migrations`
-12. Container healthcheck: `python docker/healthcheck.py`
+11. Container healthcheck: `python docker/healthcheck.py`（release gate 会等待健康，确保 entrypoint 自动迁移完成）
+12. In-container migration idempotency check: `docker compose exec -T app python -m backend.app.db.migrations`
 13. Disposable synthetic media smoke: `python scripts/disposable_smoke.py`
 14. Disposable media and fixture privacy tests: `python -m pytest tests/smoke/test_disposable_media_smoke.py tests/backend/fixtures/test_fixture_privacy.py`
 15. Standalone fixture privacy check: `python scripts/check_plan_fixture_privacy.py`

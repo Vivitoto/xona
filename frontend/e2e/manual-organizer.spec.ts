@@ -8,53 +8,53 @@ interface FixturePaths {
 
 const backendURL = `http://127.0.0.1:${process.env.XONA_E2E_BACKEND_PORT ?? 8765}`;
 
-test("Manual Organizer scans, searches, previews assets, and executes preview/copy modes", async ({
+test("手动整理 scans, searches, previews assets, and executes preview/copy modes", async ({
   page,
   request,
 }) => {
   const fixture = await resetFixture(request);
 
   await page.goto("/");
-  await page.getByRole("button", { name: "Manual Organizer" }).click();
-  await expect(activePage(page).getByRole("heading", { name: "Manual Organizer" })).toBeVisible();
+  await page.getByRole("button", { name: "手动整理" }).click();
+  await expect(activePage(page).getByRole("heading", { name: "手动整理" })).toBeVisible();
 
-  await page.getByLabel("Source directory").fill(fixture.source_dir);
-  await page.getByRole("button", { name: "Scan source" }).click();
-  await expect(page.getByText("Scanned 1 item(s)")).toBeVisible();
-  await expect(page.getByRole("table", { name: "Scanned jobs" })).toContainText(
+  await page.getByLabel("源目录").fill(fixture.source_dir);
+  await page.getByRole("button", { name: "扫描源目录" }).click();
+  await expect(page.getByText("已扫描 1 项")).toBeVisible();
+  await expect(page.getByRole("table", { name: "已扫描任务" })).toContainText(
     "Sample Work Alpha",
   );
 
-  await page.getByLabel("Pasted filename search").fill("Sample.Work.Alpha.2026.mkv");
-  await page.getByRole("button", { name: "Search", exact: true }).click();
-  await expect(page.getByText("Found 2 candidate(s)")).toBeVisible();
+  await page.getByLabel("粘贴文件名搜索").fill("Sample.Work.Alpha.2026.mkv");
+  await page.getByRole("button", { name: "搜索", exact: true }).click();
+  await expect(page.getByText("找到 2 个候选项")).toBeVisible();
   await expect(page.getByRole("heading", { name: "Sample Work Alpha" })).toBeVisible();
   const firstCandidate = page.locator(".candidate-card", { hasText: "Sample Work Alpha" }).first();
-  await expect(firstCandidate.getByLabel("Score breakdown")).toContainText("title: 60");
-  await expect(firstCandidate.getByLabel("Score breakdown")).toContainText("actors: 20");
+  await expect(firstCandidate.getByLabel("评分明细")).toContainText("title: 60");
+  await expect(firstCandidate.getByLabel("评分明细")).toContainText("actors: 20");
 
-  await page.getByRole("button", { name: "Select candidate" }).first().click();
-  await expect(page.getByText("Candidate accepted")).toBeVisible();
+  await page.getByRole("button", { name: "选择候选项" }).first().click();
+  await expect(page.getByText("候选项已接受")).toBeVisible();
 
-  await page.getByLabel("Destination root").fill(fixture.destination_dir);
-  await page.getByLabel("Organization mode").selectOption("preview");
-  await page.getByRole("button", { name: "Preview operation plan" }).click();
-  await expect(page.getByLabel("Operation plan")).toContainText("Mode preview");
-  await expect(page.getByLabel("Operation plan")).toContainText("Materialized assets");
-  await expect(page.getByLabel("Operation plan")).toContainText("poster.png");
+  await page.getByLabel("目标根目录").fill(fixture.destination_dir);
+  await page.getByLabel("整理模式").selectOption("preview");
+  await page.getByRole("button", { name: "预览操作计划" }).click();
+  await expect(page.getByLabel("操作计划")).toContainText("模式 preview");
+  await expect(page.getByLabel("操作计划")).toContainText("已缓存资源");
+  await expect(page.getByLabel("操作计划")).toContainText("poster.png");
 
-  await page.getByRole("button", { name: "Execute approved preview" }).click();
-  await expect(page.getByText(/Plan fixture-plan-\d+ is previewed/)).toBeVisible();
+  await page.getByRole("button", { name: "执行已批准预览" }).click();
+  await expect(page.getByText(/计划 fixture-plan-\d+ 状态为 previewed/)).toBeVisible();
 
-  await page.getByLabel("Organization mode").selectOption("copy");
-  await page.getByRole("button", { name: "Preview operation plan" }).click();
-  await expect(page.getByLabel("Operation plan")).toContainText("Mode copy");
-  await expect(page.getByLabel("Operation plan")).toContainText(
+  await page.getByLabel("整理模式").selectOption("copy");
+  await page.getByRole("button", { name: "预览操作计划" }).click();
+  await expect(page.getByLabel("操作计划")).toContainText("模式 copy");
+  await expect(page.getByLabel("操作计划")).toContainText(
     "XC-001 - Sample Work Alpha.mkv",
   );
 
-  await page.getByRole("button", { name: "Execute approved preview" }).click();
-  await expect(page.getByText(/Plan fixture-plan-\d+ is completed/)).toBeVisible();
+  await page.getByRole("button", { name: "执行已批准预览" }).click();
+  await expect(page.getByText(/计划 fixture-plan-\d+ 状态为 completed/)).toBeVisible();
   await expectNoOverlappingControls(page);
 });
 

@@ -23,7 +23,7 @@ export function HistoryRollbackPage() {
       setPlans(response.plans);
       setSelectedPlanId((current) => current ?? response.plans[0]?.plan_id ?? null);
     } catch (exc) {
-      setError(exc instanceof Error ? exc.message : "Unable to load history");
+      setError(exc instanceof Error ? exc.message : "无法加载历史记录");
     }
   }
 
@@ -40,14 +40,14 @@ export function HistoryRollbackPage() {
         { method: "POST" },
       );
       setStatus(
-        `Rollback ${response.status}; reversed ${response.reversed_steps.length} step(s)`,
+        `回滚 ${response.status}；已反转 ${response.reversed_steps.length} 个步骤`,
       );
       await loadHistory();
     } catch (exc) {
       if (exc instanceof ApiError && isRollbackRefusal(exc.detail)) {
-        setError(`Rollback refused: ${exc.detail.detail.reason}`);
+        setError(`回滚被拒绝：${exc.detail.detail.reason}`);
       } else {
-        setError(exc instanceof Error ? exc.message : "Rollback failed");
+        setError(exc instanceof Error ? exc.message : "回滚失败");
       }
     }
   }
@@ -56,18 +56,18 @@ export function HistoryRollbackPage() {
 
   return (
     <div className="page-stack">
-      <Section title="History/Rollback">
+      <Section title="历史/回滚">
         <table>
-          <caption>Operation history</caption>
+          <caption>操作历史</caption>
           <thead>
             <tr>
-              <th>Plan</th>
-              <th>Job</th>
-              <th>Mode</th>
-              <th>Status</th>
-              <th>Verification</th>
-              <th>Targets</th>
-              <th>Action</th>
+              <th>计划</th>
+              <th>任务</th>
+              <th>模式</th>
+              <th>状态</th>
+              <th>校验</th>
+              <th>目标</th>
+              <th>操作</th>
             </tr>
           </thead>
           <tbody>
@@ -83,21 +83,21 @@ export function HistoryRollbackPage() {
                       {plan.plan_id}
                     </button>
                   </td>
-                  <td>{plan.job_id ?? "Manual"}</td>
+                  <td>{plan.job_id ?? "手动"}</td>
                   <td>{plan.mode}</td>
                   <td>{plan.status}</td>
                   <td>{plan.verification_status}</td>
                   <td>{plan.target_paths.join(", ")}</td>
                   <td>
                     <button type="button" onClick={() => rollback(plan.plan_id)}>
-                      Rollback
+                      回滚
                     </button>
                   </td>
                 </tr>
               ))
             ) : (
               <tr>
-                <td colSpan={7}>No operation history.</td>
+                <td colSpan={7}>暂无操作历史。</td>
               </tr>
             )}
           </tbody>

@@ -70,5 +70,9 @@ export function Section({
 }
 
 function slug(value: string): string {
-  return value.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "");
+  const normalized = value
+    .toLowerCase()
+    .replace(/[^\p{Letter}\p{Number}]+/gu, "-")
+    .replace(/(^-|-$)/g, "");
+  return normalized || "section";
 }

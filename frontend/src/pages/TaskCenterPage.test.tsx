@@ -36,8 +36,8 @@ describe("TaskCenterPage", () => {
     ]);
 
     render(<TaskCenterPage />);
-    fireEvent.change(screen.getByLabelText(/Job ID/i), { target: { value: "42" } });
-    fireEvent.click(screen.getByRole("button", { name: "Load job" }));
+    fireEvent.change(screen.getByLabelText(/任务 ID/i), { target: { value: "42" } });
+    fireEvent.click(screen.getByRole("button", { name: "加载任务" }));
 
     expect(await screen.findByText("media-42")).toBeTruthy();
     expect(screen.getAllByText("review_required").length).toBeGreaterThan(0);
@@ -46,9 +46,9 @@ describe("TaskCenterPage", () => {
     expect(screen.queryByText(/user:pass/)).toBeNull();
     expect(screen.getByText(/\*{8}/)).toBeTruthy();
 
-    fireEvent.click(screen.getByRole("button", { name: "Retry" }));
-    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
-    fireEvent.click(screen.getByRole("button", { name: "Retry Emby" }));
+    fireEvent.click(screen.getByRole("button", { name: "重试" }));
+    fireEvent.click(screen.getByRole("button", { name: "取消" }));
+    fireEvent.click(screen.getByRole("button", { name: "重试 Emby" }));
 
     await waitFor(() => {
       expect(calls.some((call) => call.url === "/api/jobs/42/retry")).toBe(true);

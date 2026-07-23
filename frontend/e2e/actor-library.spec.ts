@@ -2,41 +2,41 @@ import { expect, test, type APIRequestContext, type Page } from "@playwright/tes
 
 const backendURL = `http://127.0.0.1:${process.env.XONA_E2E_BACKEND_PORT ?? 8765}`;
 
-test("Actor Library filters missing images, edits aliases, uploads portrait bytes, and syncs Emby", async ({
+test("演员库 filters missing images, edits aliases, uploads portrait bytes, and syncs Emby", async ({
   page,
   request,
 }) => {
   await resetFixture(request);
 
   await page.goto("/");
-  await page.getByRole("button", { name: "Actor Library" }).click();
-  await expect(activePage(page).getByRole("heading", { name: "Actor Library" })).toBeVisible();
+  await page.getByRole("button", { name: "演员库" }).click();
+  await expect(activePage(page).getByRole("heading", { name: "演员库" })).toBeVisible();
 
-  await page.getByLabel("Missing-image only").check();
-  await page.getByRole("button", { name: "Filter actors" }).click();
-  const actorsTable = page.getByRole("table", { name: "Actors" });
+  await page.getByLabel("仅缺少图片").check();
+  await page.getByRole("button", { name: "筛选演员" }).click();
+  const actorsTable = page.getByRole("table", { name: "演员" });
   await expect(actorsTable).toContainText("Aiko Fixture");
   await expect(actorsTable).not.toContainText("Mina Complete");
-  await expect(page.getByLabel("Aiko Fixture portrait missing")).toBeVisible();
+  await expect(page.getByLabel("Aiko Fixture 缺少头像")).toBeVisible();
 
   const actorRow = page.getByRole("row", { name: /Aiko Fixture/ });
-  await actorRow.getByLabel("Aliases for Aiko Fixture").fill("A. Fixture\nAiko Test Alias");
-  await actorRow.getByRole("button", { name: "Save aliases" }).click();
-  await expect(page.getByText("Aliases saved for Aiko Fixture")).toBeVisible();
-  await expect(actorRow.getByLabel("Aliases for Aiko Fixture")).toHaveValue(
+  await actorRow.getByLabel("Aiko Fixture 的别名").fill("A. Fixture\nAiko Test Alias");
+  await actorRow.getByRole("button", { name: "保存别名" }).click();
+  await expect(page.getByText("已保存 Aiko Fixture 的别名")).toBeVisible();
+  await expect(actorRow.getByLabel("Aiko Fixture 的别名")).toHaveValue(
     "A. Fixture\nAiko Test Alias",
   );
 
-  await page.getByLabel("Replacement portrait file").setInputFiles({
+  await page.getByLabel("替换头像文件").setInputFiles({
     name: "portrait-fixture.png",
     mimeType: "image/png",
     buffer: Buffer.from("synthetic portrait fixture bytes"),
   });
-  await actorRow.getByRole("button", { name: "Replace image" }).click();
-  await expect(page.getByText("Portrait replaced (32 bytes)")).toBeVisible();
+  await actorRow.getByRole("button", { name: "替换图片" }).click();
+  await expect(page.getByText("头像已替换（32 字节）")).toBeVisible();
 
-  await actorRow.getByRole("button", { name: "Sync Emby" }).click();
-  await expect(page.getByText(/Emby sync uploaded portrait/)).toBeVisible();
+  await actorRow.getByRole("button", { name: "同步 Emby" }).click();
+  await expect(page.getByText(/Emby 同步已上传头像/)).toBeVisible();
   await expect(page.getByText("emby-secret-key")).toHaveCount(0);
   await expect(actorRow).toContainText("emby-person-1");
   await expectNoOverlappingControls(page);

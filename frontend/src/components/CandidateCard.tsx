@@ -1,4 +1,5 @@
 import type { ManualCandidateCard as ManualCandidate } from "../api/types";
+import { useImageSafetyMode } from "./ImageSafetyMode";
 
 export function CandidateCard({
   candidate,
@@ -10,15 +11,31 @@ export function CandidateCard({
   onSelect: (candidate: ManualCandidate) => void;
 }) {
   const breakdown = Object.entries(candidate.score_breakdown);
+  const { imageSafetyModeEnabled } = useImageSafetyMode();
+  const safetyLabel = imageSafetyModeEnabled
+    ? `${candidate.title} 候选图片，安全模式已模糊，悬停、聚焦或轻点可临时查看`
+    : `${candidate.title} 候选图片`;
 
   return (
     <article className={`candidate-card${selected ? " is-selected" : ""}`}>
       <div className="candidate-image">
         {candidate.image_url ? (
-          <img alt="" src={candidate.image_url} />
+          <img
+            alt={`${candidate.title} 候选图片`}
+            aria-label={safetyLabel}
+            className={`safety-image${imageSafetyModeEnabled ? " is-blurred" : ""}`}
+            data-image-safety={imageSafetyModeEnabled ? "blurred" : "visible"}
+            src={candidate.image_url}
+            tabIndex={imageSafetyModeEnabled ? 0 : undefined}
+            title={
+              imageSafetyModeEnabled
+                ? "安全模式已开启，悬停、聚焦或轻点图片可临时查看。"
+                : "安全模式已关闭。"
+            }
+          />
         ) : (
-          <span aria-label={`${candidate.title} image missing`} role="img">
-            No image
+          <span aria-label={`${candidate.title} 缺少图片`} role="img">
+            无图片
           </span>
         )}
       </div>
@@ -29,20 +46,20 @@ export function CandidateCard({
         </div>
         <dl className="metadata-list compact">
           <div>
-            <dt>Actors</dt>
-            <dd>{candidate.actors.join(", ") || "Unknown"}</dd>
+            <dt>演员</dt>
+            <dd>{candidate.actors.join(", ") || "未知"}</dd>
           </div>
           <div>
-            <dt>Studio</dt>
-            <dd>{candidate.studio || "Unknown"}</dd>
+            <dt>制作方</dt>
+            <dd>{candidate.studio || "未知"}</dd>
           </div>
           <div>
-            <dt>Series</dt>
-            <dd>{candidate.series || "None"}</dd>
+            <dt>系列</dt>
+            <dd>{candidate.series || "无"}</dd>
           </div>
           <div>
-            <dt>Date</dt>
-            <dd>{candidate.release_date || "Unknown"}</dd>
+            <dt>日期</dt>
+            <dd>{candidate.release_date || "未知"}</dd>
           </div>
           <div>
             <dt>URL</dt>
@@ -51,7 +68,7 @@ export function CandidateCard({
             </dd>
           </div>
         </dl>
-        <div className="breakdown" aria-label="Score breakdown">
+        <div className="breakdown" aria-label="评分明细">
           {breakdown.length ? (
             breakdown.map(([key, value]) => (
               <span key={key}>
@@ -59,11 +76,11 @@ export function CandidateCard({
               </span>
             ))
           ) : (
-            <span>No breakdown</span>
+            <span>无明细</span>
           )}
         </div>
         <button type="button" onClick={() => onSelect(candidate)}>
-          {selected ? "Selected" : "Select candidate"}
+          {selected ? "已选择" : "选择候选项"}
         </button>
       </div>
     </article>

@@ -18,7 +18,7 @@ export function TaskCenterPage() {
 
   async function loadJob() {
     setError("");
-    setStatus("Loading job");
+    setStatus("正在加载任务");
     try {
       const [jobResponse, eventResponse] = await Promise.all([
         apiFetch<JobSummaryRead>(`/api/jobs/${jobId}`),
@@ -26,9 +26,9 @@ export function TaskCenterPage() {
       ]);
       setJob(jobResponse);
       setEvents(eventResponse.events);
-      setStatus("Job loaded");
+      setStatus("任务已加载");
     } catch (exc) {
-      setError(exc instanceof Error ? exc.message : "Unable to load job");
+      setError(exc instanceof Error ? exc.message : "无法加载任务");
     }
   }
 
@@ -45,31 +45,31 @@ export function TaskCenterPage() {
       );
       if ("job" in response) {
         setJob(response.job);
-        setStatus(`Job ${response.job.state}`);
+        setStatus(`任务状态 ${response.job.state}`);
       } else {
-        setStatus(`Job ${response.state}`);
+        setStatus(`任务状态 ${response.state}`);
       }
       await loadJob();
     } catch (exc) {
-      setError(exc instanceof Error ? exc.message : "Job action failed");
+      setError(exc instanceof Error ? exc.message : "任务操作失败");
     }
   }
 
   return (
     <div className="page-stack">
-      <Section title="Task Center">
+      <Section title="任务中心">
         <div className="grid four">
-          <FormField label="Job ID">
+          <FormField label="任务 ID">
             <input value={jobId} onChange={(event) => setJobId(event.target.value)} />
           </FormField>
           <button type="button" onClick={loadJob}>
-            Load job
+            加载任务
           </button>
           <button disabled={!job?.retryable} type="button" onClick={() => action("retry")}>
-            Retry
+            重试
           </button>
           <button type="button" onClick={() => action("cancel")}>
-            Cancel
+            取消
           </button>
         </div>
         <button
@@ -77,27 +77,27 @@ export function TaskCenterPage() {
           type="button"
           onClick={() => action("retry-emby")}
         >
-          Retry Emby
+          重试 Emby
         </button>
         {job ? (
           <dl className="metadata-list">
             <div>
-              <dt>State</dt>
+              <dt>状态</dt>
               <dd>{job.state}</dd>
             </div>
             <div>
-              <dt>Media identity</dt>
+              <dt>媒体标识</dt>
               <dd>{job.media_identity}</dd>
             </div>
             <div>
-              <dt>Attempts</dt>
+              <dt>尝试次数</dt>
               <dd>
                 {job.attempts}/{job.max_attempts}
               </dd>
             </div>
             <div>
-              <dt>Last error</dt>
-              <dd>{job.last_error_code ?? "None"}</dd>
+              <dt>最近错误</dt>
+              <dd>{job.last_error_code ?? "无"}</dd>
             </div>
           </dl>
         ) : null}

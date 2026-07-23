@@ -34,7 +34,7 @@ export function AutomaticMonitorsPage() {
       const response = await apiFetch<WatchRuleList>("/api/watch-rules");
       setRules(response.rules);
     } catch (exc) {
-      setError(exc instanceof Error ? exc.message : "Unable to load watch rules");
+      setError(exc instanceof Error ? exc.message : "无法加载监控规则");
     }
   }
 
@@ -47,7 +47,7 @@ export function AutomaticMonitorsPage() {
       setReviewJobs(response.jobs);
     } catch (exc) {
       setError(
-        exc instanceof Error ? exc.message : "Unable to load review-required jobs",
+        exc instanceof Error ? exc.message : "无法加载需复核任务",
       );
     }
   }
@@ -85,10 +85,10 @@ export function AutomaticMonitorsPage() {
         },
       });
       setDraft({ ...response });
-      setStatus(`Watch rule ${response.rule_id} saved`);
+      setStatus(`监控规则 ${response.rule_id} 已保存`);
       await loadRules();
     } catch (exc) {
-      setError(exc instanceof Error ? exc.message : "Unable to save watch rule");
+      setError(exc instanceof Error ? exc.message : "无法保存监控规则");
     }
   }
 
@@ -100,11 +100,11 @@ export function AutomaticMonitorsPage() {
         { method: "POST" },
       );
       setStatus(
-        `Scan queued for ${response.rule_id}: ${response.enqueued_jobs.join(", ") || "no jobs"}`,
+        `已为 ${response.rule_id} 加入扫描队列：${response.enqueued_jobs.join(", ") || "无任务"}`,
       );
       await loadReviewItems();
     } catch (exc) {
-      setError(exc instanceof Error ? exc.message : "Unable to scan watch rule");
+      setError(exc instanceof Error ? exc.message : "无法扫描监控规则");
     }
   }
 
@@ -113,13 +113,13 @@ export function AutomaticMonitorsPage() {
     try {
       setBrowse(await apiFetch<BrowseResponse>("/api/storage-roots/browse?root_id=1"));
     } catch (exc) {
-      setError(exc instanceof Error ? exc.message : "Unable to browse storage roots");
+      setError(exc instanceof Error ? exc.message : "无法浏览存储根");
     }
   }
 
   return (
     <div className="page-stack">
-      <Section title="Automatic Monitors">
+      <Section title="自动监控">
         <WatchRuleEditor
           draft={draft}
           onBrowse={browseStorageRoots}
@@ -127,24 +127,24 @@ export function AutomaticMonitorsPage() {
           onSubmit={saveRule}
         />
         {browse ? (
-          <ul className="dense-list" aria-label="Storage root browse entries">
+          <ul className="dense-list" aria-label="存储根浏览条目">
             {browse.entries.map((entry) => (
               <li key={entry.path}>{entry.name}</li>
             ))}
           </ul>
         ) : null}
       </Section>
-      <Section title="Watch Rules">
+      <Section title="监控规则">
         <table>
-          <caption>Automatic monitor rules</caption>
+          <caption>自动监控规则</caption>
           <thead>
             <tr>
-              <th>Rule</th>
-              <th>Source</th>
-              <th>Destination</th>
-              <th>Mode</th>
-              <th>Enabled</th>
-              <th>Actions</th>
+              <th>规则</th>
+              <th>源目录</th>
+              <th>目标目录</th>
+              <th>模式</th>
+              <th>启用</th>
+              <th>操作</th>
             </tr>
           </thead>
           <tbody>
@@ -155,14 +155,14 @@ export function AutomaticMonitorsPage() {
                   <td>{rule.source_directory}</td>
                   <td>{rule.destination_directory}</td>
                   <td>{rule.organization_mode}</td>
-                  <td>{rule.enabled ? "Yes" : "No"}</td>
+                  <td>{rule.enabled ? "是" : "否"}</td>
                   <td>
                     <div className="button-row">
                       <button type="button" onClick={() => setDraft({ ...rule })}>
-                        Edit
+                        编辑
                       </button>
                       <button type="button" onClick={() => scanNow(rule.rule_id)}>
-                        Scan now
+                        立即扫描
                       </button>
                     </div>
                   </td>
@@ -170,7 +170,7 @@ export function AutomaticMonitorsPage() {
               ))
             ) : (
               <tr>
-                <td colSpan={6}>No watch rules configured.</td>
+                <td colSpan={6}>尚未配置监控规则。</td>
               </tr>
             )}
           </tbody>
@@ -178,16 +178,16 @@ export function AutomaticMonitorsPage() {
         {status ? <p className="status">{status}</p> : null}
         {error ? <p className="status error">{error}</p> : null}
       </Section>
-      <Section title="Review Required Items">
+      <Section title="需复核项目">
         <table>
-          <caption>Monitor review-required jobs</caption>
+          <caption>监控器需复核任务</caption>
           <thead>
             <tr>
-              <th>Job</th>
-              <th>Rule</th>
-              <th>Identity</th>
-              <th>Reasons</th>
-              <th>Candidate</th>
+              <th>任务</th>
+              <th>规则</th>
+              <th>标识</th>
+              <th>原因</th>
+              <th>候选项</th>
             </tr>
           </thead>
           <tbody>
@@ -195,15 +195,15 @@ export function AutomaticMonitorsPage() {
               reviewJobs.map((job) => (
                 <tr key={job.id}>
                   <td>{job.id}</td>
-                  <td>{job.rule_id ?? "Manual"}</td>
+                  <td>{job.rule_id ?? "手动"}</td>
                   <td>{job.media_identity}</td>
-                  <td>{job.gate_reasons.join(", ") || "Review required"}</td>
+                  <td>{job.gate_reasons.join(", ") || "需要复核"}</td>
                   <td>{candidateTitle(job.selected_candidate)}</td>
                 </tr>
               ))
             ) : (
               <tr>
-                <td colSpan={5}>No review-required monitor items.</td>
+                <td colSpan={5}>没有需复核的监控项目。</td>
               </tr>
             )}
           </tbody>
@@ -215,7 +215,7 @@ export function AutomaticMonitorsPage() {
 
 function candidateTitle(candidate: Record<string, unknown> | null): string {
   if (!candidate) {
-    return "No candidate";
+    return "无候选项";
   }
-  return typeof candidate.title === "string" ? candidate.title : "Candidate selected";
+  return typeof candidate.title === "string" ? candidate.title : "已选择候选项";
 }

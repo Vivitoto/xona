@@ -18,25 +18,25 @@ describe("SettingsPage", () => {
 
     render(<SettingsPage />);
 
-    expect(await screen.findByRole("heading", { name: "Storage Roots" })).toBeTruthy();
+    expect(await screen.findByRole("heading", { name: "存储根" })).toBeTruthy();
     for (const heading of [
       "XChina",
       "Emby",
-      "Naming Templates",
-      "Metadata/Assets",
-      "Confidence/Safety",
-      "Authentication",
+      "命名模板",
+      "元数据/资源",
+      "置信度/安全",
+      "认证",
     ]) {
       expect(screen.getByRole("heading", { name: heading })).toBeTruthy();
     }
 
     expect(
-      screen.getByLabelText(/Exact FlareSolverr endpoint/i),
+      screen.getByLabelText(/精确 FlareSolverr 端点/i),
     ).toHaveValue("http://solver:8191/custom");
     expect(
-      screen.getByText(/client never appends \/v1/i),
+      screen.getByText(/客户端不会追加 \/v1/i),
     ).toBeTruthy();
-    expect(screen.getByLabelText(/Proxy URL/i)).toHaveValue(
+    expect(screen.getByLabelText(/代理 URL/i)).toHaveValue(
       "http://********:********@proxy.test:8080",
     );
   });
@@ -50,7 +50,7 @@ describe("SettingsPage", () => {
     render(<SettingsPage />);
 
     await screen.findByLabelText(/Emby API key/i);
-    fireEvent.click(screen.getByRole("button", { name: "Save settings" }));
+    fireEvent.click(screen.getByRole("button", { name: "保存设置" }));
 
     await waitFor(() =>
       expect(calls.some((call) => call.method === "PUT")).toBe(true),
@@ -63,10 +63,10 @@ describe("SettingsPage", () => {
     fireEvent.change(screen.getByLabelText(/Emby API key/i), {
       target: { value: "new-emby-key" },
     });
-    fireEvent.change(screen.getByLabelText(/Proxy URL/i), {
+    fireEvent.change(screen.getByLabelText(/代理 URL/i), {
       target: { value: "http://user:pass@proxy.test:8080" },
     });
-    fireEvent.click(screen.getByRole("button", { name: "Save settings" }));
+    fireEvent.click(screen.getByRole("button", { name: "保存设置" }));
 
     await waitFor(() =>
       expect(calls.filter((call) => call.method === "PUT")).toHaveLength(2),
@@ -94,8 +94,8 @@ describe("SettingsPage", () => {
     ]);
 
     render(<SettingsPage />);
-    await screen.findByLabelText(/Filename template/i);
-    fireEvent.click(screen.getByRole("button", { name: "Preview naming template" }));
+    await screen.findByLabelText(/文件名模板/i);
+    fireEvent.click(screen.getByRole("button", { name: "预览命名模板" }));
 
     expect(await screen.findByText("XC-001 - Sample Work")).toBeTruthy();
     expect(

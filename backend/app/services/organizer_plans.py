@@ -5,6 +5,7 @@ import uuid
 from collections.abc import Sequence
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import cast
 
 from sqlalchemy.orm import Session
 
@@ -13,11 +14,13 @@ from backend.app.db.models import OperationPlan as OperationPlanModel
 from backend.app.db.models import OperationStep as OperationStepModel
 from backend.app.schemas.actors import ActorOutputPlan
 from backend.app.schemas.assets import MaterializedAsset, MaterializedAssetSet
-from backend.app.schemas.media import MediaScanItem, MediaSidecarScanItem
+from backend.app.schemas.media import MediaScanItem
 from backend.app.schemas.operations import (
     GeneratedArtifact,
     OperationConflict,
+    OperationCategory,
     OperationFileSnapshot,
+    OperationName,
     OperationPlan,
     OperationSafetyWarning,
     OperationStep,
@@ -323,8 +326,8 @@ def _step(
     plan_id: str | None,
     ordinal: int,
     mode: OrganizationMode,
-    operation: str,
-    category: str,
+    operation: OperationName,
+    category: OperationCategory,
     source_path: Path | None,
     target_path: Path,
     storage_roots: StorageRootService,
@@ -339,7 +342,7 @@ def _step(
     allow_existing_generated_replacement: bool = False,
     metadata: dict[str, object] | None = None,
 ) -> OperationStep:
-    effective_operation = "preview" if mode == "preview" else operation
+    effective_operation: OperationName = "preview" if mode == "preview" else operation
     if source_path is not None:
         _validate_storage_path(storage_roots, source_path, "source path")
     _validate_storage_path(storage_roots, target_path, "target path")
@@ -349,7 +352,7 @@ def _step(
     return OperationStep(
         step_id=f"{step_plan_id}:{ordinal:04d}",
         operation=effective_operation,
-        category=category,  # type: ignore[arg-type]
+        category=category,
         source_path=source_path,
         target_path=target_path,
         temp_parent_path=target_path.parent,
@@ -373,29 +376,29 @@ def _with_final_step_id(step: OperationStep, plan_id: str) -> OperationStep:
     return step.model_copy(update={"step_id": f"{plan_id}:{ordinal}"})
 
 
-def _media_operation(mode: OrganizationMode) -> str:
-    return {
+def _media_operation(mode: OrganizationMode) -> OperationName:
+    return cast(OperationName, {
         "preview": "preview",
         "in_place": "rename",
         "move": "move",
         "copy": "copy",
         "hardlink": "hardlink",
         "symlink": "symlink",
-    }[mode]
+    }[mode])
 
 
-def _asset_operation(mode: OrganizationMode) -> str:
-    return {
+def _asset_operation(mode: OrganizationMode) -> OperationName:
+    return cast(OperationName, {
         "preview": "preview",
         "in_place": "copy",
         "move": "copy",
         "copy": "copy",
         "hardlink": "hardlink",
         "symlink": "symlink",
-    }[mode]
+    }[mode])
 
 
-def _actor_operation(mode: OrganizationMode, requested: str) -> str:
+def _actor_operation(mode: OrganizationMode, requested: OperationName) -> OperationName:
     if mode == "preview":
         return "preview"
     if mode in {"hardlink", "symlink"}:

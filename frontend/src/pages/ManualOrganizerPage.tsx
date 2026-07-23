@@ -17,11 +17,11 @@ import { OperationPlanView } from "../components/OperationPlanView";
 import { linesToList, listToLines } from "./settings/settingsForm";
 
 const safetyLabels = [
-  ["file_conflict", "Collision refusal"],
-  ["unresolved_multipart", "Unresolved multipart"],
-  ["incomplete_metadata", "Incomplete metadata"],
-  ["unsafe_path", "Unsafe paths"],
-  ["strict_assets_missing", "Strict asset failures"],
+  ["file_conflict", "文件冲突拒绝"],
+  ["unresolved_multipart", "未解决的分段文件"],
+  ["incomplete_metadata", "元数据不完整"],
+  ["unsafe_path", "不安全路径"],
+  ["strict_assets_missing", "严格资源失败"],
 ] as const;
 
 type SafetyKey = (typeof safetyLabels)[number][0];
@@ -70,13 +70,13 @@ export function ManualOrganizerPage() {
     try {
       setBrowse(await apiFetch<BrowseResponse>(`/api/storage-roots/browse?${query}`));
     } catch (exc) {
-      setError(exc instanceof Error ? exc.message : "Browse failed");
+      setError(exc instanceof Error ? exc.message : "浏览失败");
     }
   }
 
   async function scan(event?: FormEvent) {
     event?.preventDefault();
-    setStatus("Scanning");
+    setStatus("正在扫描");
     setError("");
     try {
       const response = await apiFetch<ManualScanResponse>("/api/manual/scan", {
@@ -91,14 +91,14 @@ export function ManualOrganizerPage() {
       if (response.jobs[0]) {
         setJobId(String(response.jobs[0].job_id));
       }
-      setStatus(`Scanned ${response.scanned_count} item(s)`);
+      setStatus(`已扫描 ${response.scanned_count} 项`);
     } catch (exc) {
-      setError(exc instanceof Error ? exc.message : "Scan failed");
+      setError(exc instanceof Error ? exc.message : "扫描失败");
     }
   }
 
   async function search(jobOverride?: number) {
-    setStatus("Searching");
+    setStatus("正在搜索");
     setError("");
     try {
       const response = await apiFetch<ManualSearchResponse>("/api/manual/search", {
@@ -112,9 +112,9 @@ export function ManualOrganizerPage() {
       setJobId(String(response.job_id));
       setNormalizedQuery(response.normalized_query);
       setCandidates(response.candidates);
-      setStatus(`Found ${response.candidates.length} candidate(s)`);
+      setStatus(`找到 ${response.candidates.length} 个候选项`);
     } catch (exc) {
-      setError(exc instanceof Error ? exc.message : "Search failed");
+      setError(exc instanceof Error ? exc.message : "搜索失败");
     }
   }
 
@@ -127,11 +127,11 @@ export function ManualOrganizerPage() {
   async function selectCandidate(candidate: ManualCandidate | null = selected) {
     const activeJobId = numericJobId();
     if (!activeJobId) {
-      setError("Select or enter a job before choosing a candidate.");
+      setError("请先选择或输入任务再选择候选项。");
       return;
     }
     setError("");
-    setStatus("Selecting candidate");
+    setStatus("正在选择候选项");
     try {
       const response = await apiFetch<{
         accepted: boolean;
@@ -148,20 +148,20 @@ export function ManualOrganizerPage() {
       });
       setSelected(response.selected_candidate ?? candidate);
       setRefusalReasons(response.reasons);
-      setStatus(response.accepted ? "Candidate accepted" : "Review required");
+      setStatus(response.accepted ? "候选项已接受" : "需要复核");
     } catch (exc) {
-      setError(exc instanceof Error ? exc.message : "Candidate selection failed");
+      setError(exc instanceof Error ? exc.message : "候选项选择失败");
     }
   }
 
   async function previewPlan() {
     const activeJobId = numericJobId();
     if (!activeJobId) {
-      setError("A job is required before preview.");
+      setError("预览前需要任务。");
       return;
     }
     setError("");
-    setStatus("Building preview");
+    setStatus("正在生成预览");
     try {
       const response = await apiFetch<ManualPreviewResponse>(
         `/api/manual/jobs/${activeJobId}/preview`,
@@ -178,9 +178,9 @@ export function ManualOrganizerPage() {
         },
       );
       setPreview(response);
-      setStatus("Preview ready");
+      setStatus("预览已就绪");
     } catch (exc) {
-      setError(exc instanceof Error ? exc.message : "Preview failed");
+      setError(exc instanceof Error ? exc.message : "预览失败");
     }
   }
 
@@ -189,7 +189,7 @@ export function ManualOrganizerPage() {
       return;
     }
     setError("");
-    setStatus("Executing");
+    setStatus("正在执行");
     try {
       const response = await apiFetch<ManualExecutePlanResponse>(
         `/api/manual/plans/${preview.plan_id}/execute`,
@@ -202,9 +202,9 @@ export function ManualOrganizerPage() {
         },
       );
       setExecuteResult(response);
-      setStatus(`Execution ${response.state}`);
+      setStatus(`执行状态 ${response.state}`);
     } catch (exc) {
-      setError(exc instanceof Error ? exc.message : "Execute failed");
+      setError(exc instanceof Error ? exc.message : "执行失败");
     }
   }
 
@@ -224,33 +224,33 @@ export function ManualOrganizerPage() {
 
   return (
     <div className="page-stack">
-      <Section title="Source Browse/Scan">
+      <Section title="源浏览/扫描">
         <form className="grid three" onSubmit={scan}>
-          <FormField label="Source directory">
+          <FormField label="源目录">
             <input value={directory} onChange={(event) => setDirectory(event.target.value)} />
           </FormField>
-          <CheckboxField checked={recursive} label="Recursive scan" onChange={setRecursive} />
-          <FormField label="Ignore patterns">
+          <CheckboxField checked={recursive} label="递归扫描" onChange={setRecursive} />
+          <FormField label="忽略模式">
             <textarea
               value={ignorePatterns}
               onChange={(event) => setIgnorePatterns(event.target.value)}
             />
           </FormField>
-          <button type="submit">Scan source</button>
+          <button type="submit">扫描源目录</button>
         </form>
         <div className="grid three">
-          <FormField label="Browse root ID">
+          <FormField label="浏览根 ID">
             <input value={browseRootId} onChange={(event) => setBrowseRootId(event.target.value)} />
           </FormField>
-          <FormField label="Browse path">
+          <FormField label="浏览路径">
             <input value={browsePath} onChange={(event) => setBrowsePath(event.target.value)} />
           </FormField>
           <button type="button" onClick={browseSource}>
-            Browse source
+            浏览源目录
           </button>
         </div>
         {browse ? (
-          <ul className="dense-list" aria-label="Source browse results">
+          <ul className="dense-list" aria-label="源浏览结果">
             {browse.entries.map((entry) => (
               <li key={entry.path}>
                 <button
@@ -265,7 +265,7 @@ export function ManualOrganizerPage() {
                     }
                   }}
                 >
-                  {entry.name} {entry.is_dir ? "(directory)" : "(file)"}
+                  {entry.name} {entry.is_dir ? "（目录）" : "（文件）"}
                 </button>
               </li>
             ))}
@@ -273,15 +273,15 @@ export function ManualOrganizerPage() {
         ) : null}
       </Section>
 
-      <Section title="Search">
+      <Section title="搜索">
         <div className="grid four">
-          <FormField label="Job ID">
+          <FormField label="任务 ID">
             <input value={jobId} onChange={(event) => setJobId(event.target.value)} />
           </FormField>
-          <FormField label="Pasted filename search">
+          <FormField label="粘贴文件名搜索">
             <input value={filename} onChange={(event) => setFilename(event.target.value)} />
           </FormField>
-          <FormField label="Editable normalized query">
+          <FormField label="可编辑的标准化查询">
             <input
               value={normalizedQuery}
               onChange={(event) => setNormalizedQuery(event.target.value)}
@@ -289,22 +289,22 @@ export function ManualOrganizerPage() {
           </FormField>
           <div className="button-column">
             <button type="button" onClick={() => search()}>
-              Search
+              搜索
             </button>
             <button disabled={!jobs.length} type="button" onClick={batchSearch}>
-              Batch search
+              批量搜索
             </button>
           </div>
         </div>
         {jobs.length ? (
           <table>
-            <caption>Scanned jobs</caption>
+            <caption>已扫描任务</caption>
             <thead>
               <tr>
-                <th>Job</th>
-                <th>State</th>
-                <th>Identity</th>
-                <th>Files</th>
+                <th>任务</th>
+                <th>状态</th>
+                <th>标识</th>
+                <th>文件</th>
               </tr>
             </thead>
             <tbody>
@@ -321,17 +321,17 @@ export function ManualOrganizerPage() {
         ) : null}
       </Section>
 
-      <Section title="Candidate Selection">
+      <Section title="候选项选择">
         <div className="grid three">
-          <FormField label="Detail URL">
+          <FormField label="详情 URL">
             <input value={detailUrl} onChange={(event) => setDetailUrl(event.target.value)} />
           </FormField>
-          <CheckboxField checked={strictAssets} label="Strict assets" onChange={setStrictAssets} />
+          <CheckboxField checked={strictAssets} label="严格资源" onChange={setStrictAssets} />
           <button type="button" onClick={() => selectCandidate()}>
-            Select detail URL
+            选择详情 URL
           </button>
         </div>
-        <div className="safety-grid" aria-label="Safety gates">
+        <div className="safety-grid" aria-label="安全门禁">
           {safetyLabels.map(([key, label]) => (
             <CheckboxField
               key={key}
@@ -358,44 +358,44 @@ export function ManualOrganizerPage() {
         </div>
       </Section>
 
-      <Section title="Preview/Execute">
+      <Section title="预览/执行">
         <div className="grid four">
-          <FormField label="Destination root">
+          <FormField label="目标根目录">
             <input
               value={destinationRoot}
               onChange={(event) => setDestinationRoot(event.target.value)}
             />
           </FormField>
-          <FormField label="Organization mode">
+          <FormField label="整理模式">
             <select value={mode} onChange={(event) => setMode(event.target.value as OrganizationMode)}>
-              <option value="preview">Preview</option>
-              <option value="copy">Copy</option>
-              <option value="move">Move</option>
-              <option value="hardlink">Hardlink</option>
-              <option value="symlink">Symlink</option>
-              <option value="in_place">In place</option>
+              <option value="preview">预览</option>
+              <option value="copy">复制</option>
+              <option value="move">移动</option>
+              <option value="hardlink">硬链接</option>
+              <option value="symlink">符号链接</option>
+              <option value="in_place">原地处理</option>
             </select>
           </FormField>
-          <FormField label="Asset policy">
+          <FormField label="资源策略">
             <select value={assetPolicy} onChange={(event) => setAssetPolicy(event.target.value)}>
-              <option value="lenient">Lenient</option>
-              <option value="strict">Strict</option>
+              <option value="lenient">宽松</option>
+              <option value="strict">严格</option>
             </select>
           </FormField>
           <CheckboxField
             checked={includeSourceSnapshot}
-            label="Include source snapshot"
+            label="包含源快照"
             onChange={setIncludeSourceSnapshot}
           />
         </div>
         <div className="grid two">
-          <FormField label="Folder templates">
+          <FormField label="文件夹模板">
             <textarea
               value={folderTemplates}
               onChange={(event) => setFolderTemplates(event.target.value)}
             />
           </FormField>
-          <FormField label="Filename template">
+          <FormField label="文件名模板">
             <input
               value={filenameTemplate}
               onChange={(event) => setFilenameTemplate(event.target.value)}
@@ -404,15 +404,17 @@ export function ManualOrganizerPage() {
         </div>
         <div className="button-row">
           <button type="button" onClick={previewPlan}>
-            Preview operation plan
+            预览操作计划
           </button>
           <button disabled={!preview} type="button" onClick={executePlan}>
-            Execute approved preview
+            执行已批准预览
           </button>
         </div>
         <OperationPlanView preview={preview} refusalReasons={refusalReasons} />
         {executeResult ? (
-          <p className="status">Plan {executeResult.plan_id} is {executeResult.state}</p>
+          <p className="status">
+            计划 {executeResult.plan_id} 状态为 {executeResult.state}
+          </p>
         ) : null}
       </Section>
 

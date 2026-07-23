@@ -52,11 +52,11 @@ def test_release_gate_runs_required_commands_in_order() -> None:
             "COMPOSE_TOUCHED=1",
             'run_step "Docker Compose build" docker compose build',
             'run_step "Docker Compose up" docker compose up -d',
+            'run_step "Container healthcheck" wait_for_container_health',
             (
                 'run_step "In-container migrations" docker compose exec -T app '
                 "python -m backend.app.db.migrations"
             ),
-            'run_step "Container healthcheck" python docker/healthcheck.py',
             'run_step "Disposable media smoke script" python scripts/disposable_smoke.py',
             (
                 'run_step "Disposable media and fixture privacy tests" python -m pytest '
@@ -204,4 +204,4 @@ def test_release_gate_trap_cleans_up_after_compose_failure(tmp_path: Path) -> No
     assert "docker compose build" in commands
     assert "docker compose up -d" in commands
     assert commands[-1] == "docker compose down"
-    assert "python docker/healthcheck.py" not in commands
+    assert "docker compose exec -T app python -m backend.app.db.migrations" not in commands
