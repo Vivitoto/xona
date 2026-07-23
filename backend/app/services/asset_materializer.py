@@ -1,0 +1,235 @@
+from __future__ import annotations
+
+import hashlib
+import mimetypes
+from pathlib import Path
+from typing import Protocol
+
+from sqlalchemy.orm import Session
+
+from backend.app.db.models import AssetMaterialization
+from backend.app.integrations.xchina import FetchedAsset
+from backend.app.schemas.assets import (
+    AssetMaterializationPolicy,
+    AssetSelection,
+    LogicalAsset,
+    MaterializedAsset,
+    MaterializedAssetSet,
+    MissingAsset,
+)
+from backend.app.services.normalization import sanitize_path_component
+
+
+class AssetAdapter(Protocol):
+    async def fetch_asset(self, url: str) -> FetchedAsset:
+        ...
+
+
+class AssetMaterializer:
+    def __init__(
+        self,
+        adapter: AssetAdapter,
+        config_dir: Path | str,
+        *,
+        session: Session | None = None,
+    ) -> None:
+        self._adapter = adapter
+        self._config_dir = Path(config_dir)
+        self._session = session
+
+    async def materialize(
+        self,
+        selection: AssetSelection,
+        policy: AssetMaterializationPolicy,
+        *,
+        plan_id: str | None = None,
+    ) -> MaterializedAssetSet:
+        materialized: list[MaterializedAsset] = []
+        missing: list[MissingAsset] = list(selection.missing_required)
+
+        for asset in selection.assets:
+            if asset.missing_reason or (not asset.source_url and asset.inline_bytes is None):
+                missing.append(_missing(asset, asset.missing_reason or "missing_source_url"))
+                continue
+
+            cached = self._cached_asset(asset, policy)
+            if cached is not None:
+                if cached == "cache_integrity_failed":
+                    missing.append(_missing(asset, cached))
+                    continue
+                materialized.append(cached)
+                continue
+
+            result = await self._download_or_inline(asset, policy)
+            if isinstance(result, MissingAsset):
+                missing.append(result)
+                self._record_refusal(asset, result.reason)
+                continue
+
+            cache_path = self._cache_path(asset, plan_id=plan_id)
+            cache_path.parent.mkdir(parents=True, exist_ok=True)
+            cache_path.write_bytes(result.content)
+            sha256 = hashlib.sha256(result.content).hexdigest()
+            materialized_asset = MaterializedAsset(
+                kind=asset.kind,
+                relative_path=asset.relative_path,
+                source_url=asset.source_url,
+                cache_path=cache_path,
+                content_type=result.content_type,
+                size_bytes=len(result.content),
+                sha256=sha256,
+                actor_name=asset.actor_name,
+                actor_source_id=asset.actor_source_id,
+            )
+            materialized.append(materialized_asset)
+            self._record_success(asset, materialized_asset)
+
+        failed = policy.strict and any(item.required for item in missing)
+        if self._session is not None:
+            self._session.flush()
+        return MaterializedAssetSet(assets=materialized, missing=missing, failed=failed)
+
+    def _cached_asset(
+        self,
+        asset: LogicalAsset,
+        policy: AssetMaterializationPolicy,
+    ) -> MaterializedAsset | str | None:
+        if self._session is None or not asset.source_url:
+            return None
+        record = (
+            self._session.query(AssetMaterialization)
+            .filter(
+                AssetMaterialization.source_url == asset.source_url,
+                AssetMaterialization.relative_path == asset.relative_path,
+                AssetMaterialization.status == "materialized",
+            )
+            .order_by(AssetMaterialization.id.desc())
+            .first()
+        )
+        if record is None:
+            return None
+        cache_path = Path(record.cache_path)
+        if not _valid_cached_file(cache_path, record.size_bytes, record.sha256):
+            return "cache_integrity_failed"
+        if not _content_type_allowed(record.content_type, policy):
+            return "cache_integrity_failed"
+        return MaterializedAsset(
+            kind=record.kind,
+            relative_path=record.relative_path,
+            source_url=record.source_url,
+            cache_path=cache_path,
+            content_type=record.content_type,
+            size_bytes=record.size_bytes,
+            sha256=record.sha256,
+            actor_name=record.actor_name,
+            actor_source_id=record.actor_source_id,
+        )
+
+    async def _download_or_inline(
+        self,
+        asset: LogicalAsset,
+        policy: AssetMaterializationPolicy,
+    ) -> FetchedAsset | MissingAsset:
+        if asset.inline_bytes is not None:
+            fetched = FetchedAsset(
+                url=asset.source_url or f"inline:{asset.kind}",
+                content=asset.inline_bytes,
+                content_type=asset.content_type or _guess_content_type(asset.relative_path),
+            )
+        else:
+            assert asset.source_url is not None
+            fetched = await self._adapter.fetch_asset(asset.source_url)
+        content_type = fetched.content_type.split(";", 1)[0].strip().lower()
+        if not _content_type_allowed(content_type, policy):
+            return _missing(asset, "content_type_not_allowed")
+        if len(fetched.content) > policy.max_bytes:
+            return _missing(asset, "download_too_large")
+        if hashlib.sha256(fetched.content).hexdigest() == hashlib.sha256(b"").hexdigest():
+            return _missing(asset, "empty_download")
+        return FetchedAsset(url=fetched.url, content=fetched.content, content_type=content_type)
+
+    def _cache_path(self, asset: LogicalAsset, *, plan_id: str | None) -> Path:
+        filename = sanitize_path_component(Path(asset.relative_path).name)
+        if asset.kind == "actor_portrait":
+            actor_key = sanitize_path_component(
+                asset.actor_source_id
+                or asset.actor_name
+                or hashlib.sha256((asset.source_url or filename).encode("utf-8")).hexdigest()[:16]
+            )
+            return self._config_dir / "actor-cache" / "xchina" / actor_key / filename
+        if plan_id:
+            parts = [sanitize_path_component(part) for part in Path(asset.relative_path).parts]
+            return self._config_dir / "asset-cache" / "plans" / sanitize_path_component(plan_id) / Path(*parts)
+        source = "xchina"
+        digest = hashlib.sha256((asset.source_url or asset.relative_path).encode("utf-8")).hexdigest()
+        return self._config_dir / "asset-cache" / source / digest[:2] / digest / filename
+
+    def _record_success(self, asset: LogicalAsset, materialized: MaterializedAsset) -> None:
+        if self._session is None:
+            return
+        self._session.add(
+            AssetMaterialization(
+                kind=asset.kind,
+                relative_path=asset.relative_path,
+                source_url=asset.source_url,
+                cache_path=str(materialized.cache_path),
+                content_type=materialized.content_type,
+                expected_size_bytes=None,
+                observed_size_bytes=materialized.size_bytes,
+                size_bytes=materialized.size_bytes,
+                sha256=materialized.sha256,
+                status="materialized",
+                actor_name=asset.actor_name,
+                actor_source_id=asset.actor_source_id,
+            )
+        )
+
+    def _record_refusal(self, asset: LogicalAsset, reason: str) -> None:
+        if self._session is None:
+            return
+        self._session.add(
+            AssetMaterialization(
+                kind=asset.kind,
+                relative_path=asset.relative_path,
+                source_url=asset.source_url,
+                cache_path="",
+                content_type=asset.content_type or "",
+                expected_size_bytes=None,
+                observed_size_bytes=0,
+                size_bytes=0,
+                sha256="",
+                status="missing",
+                missing_reason=reason,
+                actor_name=asset.actor_name,
+                actor_source_id=asset.actor_source_id,
+            )
+        )
+
+
+def _missing(asset: LogicalAsset | MissingAsset, reason: str) -> MissingAsset:
+    return MissingAsset(
+        kind=asset.kind,
+        relative_path=asset.relative_path,
+        required=asset.required,
+        reason=reason,
+    )
+
+
+def _valid_cached_file(path: Path, expected_size: int, expected_sha256: str) -> bool:
+    if not path.is_file():
+        return False
+    content = path.read_bytes()
+    return (
+        len(content) == expected_size
+        and hashlib.sha256(content).hexdigest() == expected_sha256
+    )
+
+
+def _content_type_allowed(content_type: str, policy: AssetMaterializationPolicy) -> bool:
+    normalized = content_type.split(";", 1)[0].strip().lower()
+    return normalized in {item.lower() for item in policy.allowed_content_types}
+
+
+def _guess_content_type(path: str) -> str:
+    guessed, _encoding = mimetypes.guess_type(path)
+    return guessed or "application/octet-stream"

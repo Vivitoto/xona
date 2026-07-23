@@ -1,9 +1,10 @@
 from __future__ import annotations
 
+import asyncio
 from pathlib import Path
 
+import httpx
 import pytest
-from fastapi.testclient import TestClient
 
 from backend.app.api import auth as auth_module
 from backend.app.api.auth import PasswordHasher
@@ -27,17 +28,45 @@ def _settings(tmp_path: Path, *, enabled: bool = True, secure: bool = False) -> 
     )
 
 
-def _client(settings: Settings, *, base_url: str = ORIGIN) -> TestClient:
+class LocalClient:
+    def __init__(self, settings: Settings, *, base_url: str = ORIGIN) -> None:
+        self.app = create_app(settings)
+        self.base_url = base_url
+        self.cookies = httpx.Cookies()
+
+    def get(self, url: str, **kwargs: object) -> httpx.Response:
+        return self._request("GET", url, **kwargs)
+
+    def post(self, url: str, **kwargs: object) -> httpx.Response:
+        return self._request("POST", url, **kwargs)
+
+    def _request(self, method: str, url: str, **kwargs: object) -> httpx.Response:
+        async def run() -> httpx.Response:
+            async with httpx.AsyncClient(
+                transport=httpx.ASGITransport(app=self.app),
+                base_url=self.base_url,
+                cookies=self.cookies,
+            ) as client:
+                response = await client.request(method, url, **kwargs)
+                self.cookies = httpx.Cookies(client.cookies)
+                return response
+
+        return asyncio.run(run())
+
+
+def _client(settings: Settings, *, base_url: str = ORIGIN) -> LocalClient:
     app = create_app(settings)
 
     @app.api_route("/api/probe", methods=["GET", "POST"])
-    def api_probe() -> dict[str, bool]:
+    async def api_probe() -> dict[str, bool]:
         return {"ok": True}
 
-    return TestClient(app, base_url=base_url)
+    client = LocalClient(settings, base_url=base_url)
+    client.app = app
+    return client
 
 
-def _login(client: TestClient) -> None:
+def _login(client: LocalClient) -> None:
     response = client.post(
         "/api/auth/login",
         json={"username": USERNAME, "password": PASSWORD},

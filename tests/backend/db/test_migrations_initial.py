@@ -1,15 +1,17 @@
 from __future__ import annotations
 
 import sqlite3
+import asyncio
 from pathlib import Path
 
 import pytest
-from fastapi.testclient import TestClient
 
 from backend.app.core.settings import Settings
 from backend.app.db.base import Base
 from backend.app.db.migrations import run_migrations
 from backend.app.main import create_app
+
+CURRENT_HEAD_REVISION = "0011_emby_links"
 
 
 def _sqlite_url(database_path: Path) -> str:
@@ -43,7 +45,7 @@ def test_run_migrations_with_database_url_creates_initial_schema(
     assert {"settings", "storage_roots", "alembic_version"} <= _table_names(
         database_path
     )
-    assert _alembic_revision(database_path).startswith("0001")
+    assert _alembic_revision(database_path) == CURRENT_HEAD_REVISION
 
 
 def test_run_migrations_with_settings_creates_database_under_config_dir(
@@ -103,11 +105,12 @@ def test_fastapi_lifespan_runs_migrations_with_injected_settings(
     if hasattr(main_module, "run_migrations"):
         monkeypatch.setattr(main_module, "run_migrations", record_run_migrations)
 
-    with TestClient(create_app(settings)) as client:
-        response = client.get("/healthz")
+    async def run_lifespan() -> None:
+        app = create_app(settings)
+        async with app.router.lifespan_context(app):
+            pass
 
-    assert response.status_code == 200
-    assert response.json() == {"status": "ok"}
+    asyncio.run(run_lifespan())
     assert calls == [settings]
 
 

@@ -68,7 +68,7 @@ def authenticated_username(request: Request, settings: Settings) -> str | None:
 
 
 @router.post("/login")
-def login(
+async def login(
     credentials: LoginRequest, request: Request, response: Response
 ) -> dict[str, Any]:
     settings: Settings = request.app.state.settings
@@ -100,7 +100,7 @@ def login(
 
 
 @router.post("/logout")
-def logout(request: Request, response: Response) -> dict[str, bool]:
+async def logout(request: Request, response: Response) -> dict[str, bool]:
     settings: Settings = request.app.state.settings
     response.delete_cookie(
         COOKIE_NAME,
@@ -113,7 +113,7 @@ def logout(request: Request, response: Response) -> dict[str, bool]:
 
 
 @router.get("/status")
-def status_endpoint(request: Request) -> dict[str, Any]:
+async def status_endpoint(request: Request) -> dict[str, Any]:
     settings: Settings = request.app.state.settings
     username = (
         authenticated_username(request, settings) if settings.auth_enabled else None

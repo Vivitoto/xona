@@ -12,7 +12,7 @@ from pathlib import Path
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[3]
-INITIAL_REVISION = "0001_initial_settings_storage"
+CURRENT_HEAD_REVISION = "0011_emby_links"
 
 
 def _sqlite_url(database_path: Path) -> str:
@@ -255,4 +255,4 @@ def test_installed_wheel_runs_packaged_alembic_migrations(tmp_path: Path) -> Non
         database_path
     )
     revision = _alembic_revision(database_path)
-    assert revision == INITIAL_REVISION or revision.startswith(INITIAL_REVISION)
+    assert revision == CURRENT_HEAD_REVISION
