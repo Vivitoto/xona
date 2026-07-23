@@ -16,6 +16,10 @@ describe("AutomaticMonitorsPage", () => {
         response: { rules: [watchRuleFixture()] },
       },
       {
+        path: "/api/jobs?state=review_required",
+        response: { jobs: [] },
+      },
+      {
         path: "/api/storage-roots/browse?root_id=1",
         response: {
           root: { id: 1, path: "/media", source: "runtime", enabled: true },

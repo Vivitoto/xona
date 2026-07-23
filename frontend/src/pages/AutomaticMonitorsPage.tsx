@@ -1,7 +1,14 @@
 import { useCallback, useEffect, useState } from "react";
 
 import { apiFetch } from "../api/client";
-import type { BrowseResponse, ScanNowResponse, WatchRule, WatchRuleList } from "../api/types";
+import type {
+  BrowseResponse,
+  JobListResponse,
+  JobSummaryRead,
+  ScanNowResponse,
+  WatchRule,
+  WatchRuleList,
+} from "../api/types";
 import { Section } from "../components/FormField";
 import {
   WatchRuleDraft,
@@ -11,6 +18,7 @@ import {
 
 export function AutomaticMonitorsPage() {
   const [rules, setRules] = useState<WatchRule[]>([]);
+  const [reviewJobs, setReviewJobs] = useState<JobSummaryRead[]>([]);
   const [draft, setDraft] = useState<WatchRuleDraft>(emptyWatchRuleDraft);
   const [browse, setBrowse] = useState<BrowseResponse | null>(null);
   const [status, setStatus] = useState("");
@@ -30,8 +38,23 @@ export function AutomaticMonitorsPage() {
     }
   }
 
+  async function loadReviewItems() {
+    setError("");
+    try {
+      const response = await apiFetch<JobListResponse>(
+        "/api/jobs?state=review_required",
+      );
+      setReviewJobs(response.jobs);
+    } catch (exc) {
+      setError(
+        exc instanceof Error ? exc.message : "Unable to load review-required jobs",
+      );
+    }
+  }
+
   useEffect(() => {
     void loadRules();
+    void loadReviewItems();
   }, []);
 
   async function saveRule() {
@@ -79,6 +102,7 @@ export function AutomaticMonitorsPage() {
       setStatus(
         `Scan queued for ${response.rule_id}: ${response.enqueued_jobs.join(", ") || "no jobs"}`,
       );
+      await loadReviewItems();
     } catch (exc) {
       setError(exc instanceof Error ? exc.message : "Unable to scan watch rule");
     }
@@ -154,6 +178,44 @@ export function AutomaticMonitorsPage() {
         {status ? <p className="status">{status}</p> : null}
         {error ? <p className="status error">{error}</p> : null}
       </Section>
+      <Section title="Review Required Items">
+        <table>
+          <caption>Monitor review-required jobs</caption>
+          <thead>
+            <tr>
+              <th>Job</th>
+              <th>Rule</th>
+              <th>Identity</th>
+              <th>Reasons</th>
+              <th>Candidate</th>
+            </tr>
+          </thead>
+          <tbody>
+            {reviewJobs.length ? (
+              reviewJobs.map((job) => (
+                <tr key={job.id}>
+                  <td>{job.id}</td>
+                  <td>{job.rule_id ?? "Manual"}</td>
+                  <td>{job.media_identity}</td>
+                  <td>{job.gate_reasons.join(", ") || "Review required"}</td>
+                  <td>{candidateTitle(job.selected_candidate)}</td>
+                </tr>
+              ))
+            ) : (
+              <tr>
+                <td colSpan={5}>No review-required monitor items.</td>
+              </tr>
+            )}
+          </tbody>
+        </table>
+      </Section>
     </div>
   );
+}
+
+function candidateTitle(candidate: Record<string, unknown> | null): string {
+  if (!candidate) {
+    return "No candidate";
+  }
+  return typeof candidate.title === "string" ? candidate.title : "Candidate selected";
 }

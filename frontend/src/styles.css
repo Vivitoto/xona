@@ -606,8 +606,38 @@ nav {
     grid-template-columns: 1fr;
   }
 
+  .sticky-actions {
+    position: static;
+    flex-wrap: wrap;
+  }
+
+  table,
+  thead,
+  tbody,
+  tr,
+  th,
+  td {
+    display: block;
+    width: 100%;
+  }
+
+  thead {
+    height: 1px;
+    overflow: hidden;
+    position: absolute;
+    width: 1px;
+  }
+
+  tbody tr {
+    margin-bottom: 0.75rem;
+    border: 1px solid #d9dfdc;
+    border-radius: 6px;
+    background: #ffffff;
+  }
+
   th,
   td {
     padding: 0.42rem;
+    overflow-wrap: anywhere;
   }
 }
