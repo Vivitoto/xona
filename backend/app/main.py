@@ -1,10 +1,12 @@
 import asyncio
+import mimetypes
+import os
 from collections.abc import AsyncIterator
-from contextlib import asynccontextmanager
-from contextlib import suppress
+from contextlib import asynccontextmanager, suppress
+from pathlib import Path
 from urllib.parse import urlsplit
 
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from starlette.requests import Request
 from starlette.responses import JSONResponse, Response
 from starlette.types import ASGIApp, Receive, Scope, Send
@@ -29,9 +31,14 @@ AUTH_ENDPOINT_PATHS = {
     "/api/auth/status",
 }
 UNSAFE_API_METHODS = {"POST", "PUT", "PATCH", "DELETE"}
+STATIC_DIR_ENV = "XONA_STATIC_DIR"
 
 
-def create_app(settings: Settings | None = None) -> FastAPI:
+def create_app(
+    settings: Settings | None = None,
+    *,
+    static_dir: str | Path | None = None,
+) -> FastAPI:
     settings = settings or Settings()
 
     @asynccontextmanager
@@ -81,7 +88,105 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(settings_router)
     app.include_router(actors_router)
 
+    mount_static_frontend(app, static_dir=static_dir)
+
     return app
+
+
+def mount_static_frontend(
+    app: FastAPI,
+    *,
+    static_dir: str | Path | None = None,
+) -> None:
+    static_path = _resolve_static_dir(static_dir)
+    if static_path is None:
+        return
+
+    app.state.static_dir = static_path
+
+    @app.api_route("/", methods=["GET", "HEAD"], include_in_schema=False)
+    async def serve_frontend_root(request: Request) -> Response:
+        return _static_frontend_response(
+            static_path,
+            request_path=request.url.path,
+            frontend_path="",
+        )
+
+    @app.api_route(
+        "/{frontend_path:path}",
+        methods=["GET", "HEAD"],
+        include_in_schema=False,
+    )
+    async def serve_frontend_path(request: Request, frontend_path: str) -> Response:
+        return _static_frontend_response(
+            static_path,
+            request_path=request.url.path,
+            frontend_path=frontend_path,
+        )
+
+
+def _resolve_static_dir(static_dir: str | Path | None) -> Path | None:
+    configured = static_dir if static_dir is not None else os.environ.get(STATIC_DIR_ENV)
+    if configured is None or configured == "":
+        return None
+
+    path = Path(configured)
+    if not path.is_dir():
+        raise RuntimeError(f"Static frontend directory does not exist: {path}")
+    if not (path / "index.html").is_file():
+        raise RuntimeError(f"Static frontend index.html does not exist: {path}")
+
+    return path
+
+
+def _static_frontend_response(
+    static_dir: Path,
+    *,
+    request_path: str,
+    frontend_path: str,
+) -> Response:
+    if _is_api_path(request_path):
+        raise HTTPException(status_code=404)
+
+    file_path = _static_file_path(static_dir, frontend_path)
+    if file_path is None:
+        file_path = static_dir / "index.html"
+
+    media_type, _ = mimetypes.guess_type(file_path.name)
+    return Response(
+        content=file_path.read_bytes(),
+        media_type=media_type or "application/octet-stream",
+    )
+
+
+def _static_file_path(static_dir: Path, frontend_path: str) -> Path | None:
+    if frontend_path in {"", "."}:
+        return None
+
+    relative_path = Path(frontend_path)
+    if relative_path.is_absolute() or ".." in relative_path.parts:
+        return None
+
+    root = static_dir.resolve()
+    candidate = (root / relative_path).resolve()
+    try:
+        candidate.relative_to(root)
+    except ValueError:
+        return None
+
+    if candidate.is_dir():
+        candidate = (candidate / "index.html").resolve()
+        try:
+            candidate.relative_to(root)
+        except ValueError:
+            return None
+    if candidate.is_file():
+        return candidate
+    return None
+
+
+def _is_api_path(path: str) -> bool:
+    return path == "/api" or path.startswith("/api/")
 
 
 class ApiAuthMiddleware:

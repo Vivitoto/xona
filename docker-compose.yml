@@ -1,0 +1,21 @@
+services:
+  app:
+    build:
+      context: .
+    image: xona:test
+    ports:
+      - "${XONA_PORT:-8732}:8732"
+    environment:
+      CONFIG_DIR: /config
+      PUID: "${PUID:-1000}"
+      PGID: "${PGID:-1000}"
+      STORAGE_ROOTS: "${STORAGE_ROOTS:-/a}"
+    volumes:
+      - "${CONFIG_ROOT:-./config}:/config"
+      - "${MEDIA_ROOT:-./media}:/a"
+    healthcheck:
+      test: ["CMD", "python", "/usr/local/bin/xona-healthcheck.py"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
