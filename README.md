@@ -16,9 +16,9 @@ Xona 是一个本地优先的 Docker Web 应用，用于扫描挂载的媒体目
 发布后可使用以下镜像：
 
 ```bash
-vivitoto/xona:1.0.0
+vivitoto/xona:1.0.1
 vivitoto/xona:latest
-ghcr.io/vivitoto/xona:1.0.0
+ghcr.io/vivitoto/xona:1.0.1
 ghcr.io/vivitoto/xona:latest
 ```
 
@@ -31,7 +31,7 @@ ghcr.io/vivitoto/xona:latest
 ```yaml
 services:
   xona:
-    image: vivitoto/xona:1.0.0
+    image: vivitoto/xona:1.0.1
     container_name: xona
     ports:
       - "8732:8732"
@@ -184,11 +184,11 @@ python3 scripts/real_xchina_smoke.py
 
 ## GitHub Actions 发布
 
-仓库包含 Docker 发布 workflow。推送 `v1.0.0` 这类 tag 后，GitHub Actions 会构建并发布：
+仓库包含 Docker 发布 workflow。推送 `v1.0.1` 这类 tag 后，GitHub Actions 会构建并发布：
 
-- `vivitoto/xona:1.0.0`
+- `vivitoto/xona:1.0.1`
 - `vivitoto/xona:latest`
-- `ghcr.io/vivitoto/xona:1.0.0`
+- `ghcr.io/vivitoto/xona:1.0.1`
 - `ghcr.io/vivitoto/xona:latest`
 
 需要仓库配置 Docker Hub secrets：

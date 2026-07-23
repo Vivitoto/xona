@@ -1,10 +1,10 @@
 # syntax=docker/dockerfile:1
 
-FROM node:20-bookworm-slim AS frontend-build
+FROM node:22-bookworm-slim AS frontend-build
 
 WORKDIR /build/frontend
 COPY frontend/package*.json ./
-RUN if [ -f package-lock.json ]; then npm ci; else npm install; fi
+RUN npm ci
 COPY frontend/ ./
 RUN npm run build
 
@@ -12,6 +12,7 @@ FROM python:3.12-slim AS runtime
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
+    PYTHONPATH=/app \
     CONFIG_DIR=/config \
     STORAGE_ROOTS=/a \
     XONA_STATIC_DIR=/app/static
@@ -22,10 +23,9 @@ RUN apt-get update \
     && apt-get install -y --no-install-recommends ca-certificates util-linux \
     && rm -rf /var/lib/apt/lists/*
 
-COPY pyproject.toml ./
+COPY constraints.txt ./
+RUN python -m pip install --no-cache-dir -r constraints.txt
 COPY backend ./backend
-RUN python -m pip install --no-cache-dir --upgrade pip \
-    && python -m pip install --no-cache-dir . "uvicorn[standard]>=0.30.0"
 
 COPY --from=frontend-build /build/frontend/dist /app/static
 COPY docker/entrypoint.sh /usr/local/bin/xona-entrypoint
