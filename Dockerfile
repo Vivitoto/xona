@@ -14,7 +14,6 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PYTHONPATH=/app \
     CONFIG_DIR=/config \
-    STORAGE_ROOTS=/a \
     XONA_STATIC_DIR=/app/static
 
 WORKDIR /app
@@ -32,7 +31,7 @@ COPY docker/entrypoint.sh /usr/local/bin/xona-entrypoint
 COPY docker/healthcheck.py /usr/local/bin/xona-healthcheck.py
 
 RUN chmod +x /usr/local/bin/xona-entrypoint /usr/local/bin/xona-healthcheck.py \
-    && mkdir -p /config /a
+    && mkdir -p /config /media
 
 EXPOSE 8732
 

@@ -28,14 +28,14 @@ export default function App() {
           resetKey={activePage}
           onReturnHome={() => setActivePage("dashboard")}
         >
-          {renderPage(activePage)}
+          {renderPage(activePage, setActivePage)}
         </ErrorBoundary>
       </AppLayout>
     </ImageSafetyModeProvider>
   );
 }
 
-function renderPage(page: PageId) {
+function renderPage(page: PageId, onNavigate: (page: PageId) => void) {
   switch (page) {
     case "manual":
       return <ManualOrganizerPage />;
@@ -55,6 +55,6 @@ function renderPage(page: PageId) {
       return <SettingsPage />;
     case "dashboard":
     default:
-      return <DashboardPage />;
+      return <DashboardPage onNavigate={onNavigate} />;
   }
 }

@@ -15,30 +15,28 @@ test("手动整理 scans, searches, previews assets, and executes preview/copy m
   const fixture = await resetFixture(request);
 
   await page.goto("/");
-  await page.getByRole("button", { name: "手动整理" }).click();
+  await page.getByRole("navigation", { name: "主导航" }).getByRole("button", { name: "手动整理" }).click();
   await expect(activePage(page).getByRole("heading", { name: "手动整理" })).toBeVisible();
 
   await page.getByLabel("源目录").fill(fixture.source_dir);
   await page.getByRole("button", { name: "扫描源目录" }).click();
-  await expect(page.getByText("已扫描 1 项")).toBeVisible();
-  await expect(page.getByRole("table", { name: "已扫描任务" })).toContainText(
-    "Sample Work Alpha",
-  );
+  await expect(page.getByText("已扫描 1 个视频文件")).toBeVisible();
+  await expect(page.getByLabel("扫描到的视频文件")).toContainText("Sample.Work.Alpha.2026.mkv");
 
-  await page.getByLabel("粘贴文件名搜索").fill("Sample.Work.Alpha.2026.mkv");
+  await page.getByLabel("搜索关键词").fill("Sample.Work.Alpha.2026.mkv");
   await page.getByRole("button", { name: "搜索", exact: true }).click();
-  await expect(page.getByText("找到 2 个候选项")).toBeVisible();
+  await expect(page.getByText("找到 2 个候选结果")).toBeVisible();
   await expect(page.getByRole("heading", { name: "Sample Work Alpha" })).toBeVisible();
   const firstCandidate = page.locator(".candidate-card", { hasText: "Sample Work Alpha" }).first();
   await expect(firstCandidate.getByLabel("评分明细")).toContainText("title: 60");
   await expect(firstCandidate.getByLabel("评分明细")).toContainText("actors: 20");
 
   await page.getByRole("button", { name: "选择候选项" }).first().click();
-  await expect(page.getByText("候选项已接受")).toBeVisible();
+  await expect(page.getByText("已选择候选结果，可以预览整理计划")).toBeVisible();
 
-  await page.getByLabel("目标根目录").fill(fixture.destination_dir);
+  await page.getByLabel("目标目录").fill(fixture.destination_dir);
   await page.getByLabel("整理模式").selectOption("preview");
-  await page.getByRole("button", { name: "预览操作计划" }).click();
+  await page.getByRole("button", { name: "预览整理计划" }).click();
   await expect(page.getByLabel("操作计划")).toContainText("模式 preview");
   await expect(page.getByLabel("操作计划")).toContainText("已缓存资源");
   await expect(page.getByLabel("操作计划")).toContainText("poster.png");
@@ -47,7 +45,7 @@ test("手动整理 scans, searches, previews assets, and executes preview/copy m
   await expect(page.getByText(/计划 fixture-plan-\d+ 状态为 previewed/)).toBeVisible();
 
   await page.getByLabel("整理模式").selectOption("copy");
-  await page.getByRole("button", { name: "预览操作计划" }).click();
+  await page.getByRole("button", { name: "预览整理计划" }).click();
   await expect(page.getByLabel("操作计划")).toContainText("模式 copy");
   await expect(page.getByLabel("操作计划")).toContainText(
     "XC-001 - Sample Work Alpha.mkv",

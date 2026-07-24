@@ -199,18 +199,15 @@ export function ActorLibraryPage() {
               <FormField label="替换头像文件">
                 <input accept="image/*" type="file" onChange={portraitChange} />
               </FormField>
-              <button type="button" onClick={loadActors}>
-                筛选演员
-              </button>
+              <div className="field-action">
+                <button type="button" onClick={loadActors}>
+                  筛选演员
+                </button>
+              </div>
             </div>
 
             {loading ? (
-              <LoadingSkeleton
-                description="读取演员资料、头像缓存和 Emby 关联状态。"
-                rows={5}
-                title="正在加载演员库"
-                variant="table"
-              />
+              <LoadingSkeleton rows={5} title="正在加载演员库" variant="table" />
             ) : actors.length ? (
               <table>
                 <caption>演员</caption>
@@ -299,7 +296,7 @@ export function ActorLibraryPage() {
             ) : (
               <EmptyState
                 actions={[{ label: "刷新演员", onClick: loadActors }]}
-                description="演员会在元数据匹配、刷新或同步后进入本地缓存。第一次使用时，先去“手动整理”搜索作品，或在这里刷新已有缓存。"
+                description="暂无本地演员缓存。"
                 icon="◎"
                 title="未找到演员"
               />
@@ -316,12 +313,7 @@ export function ActorLibraryPage() {
               </button>
             </div>
             {loading ? (
-              <LoadingSkeleton
-                description="读取可同步演员和 Emby 关联状态。"
-                rows={4}
-                title="正在加载同步列表"
-                variant="table"
-              />
+              <LoadingSkeleton rows={4} title="正在加载同步列表" variant="table" />
             ) : actors.length ? (
               <table>
                 <caption>演员 Emby 同步</caption>

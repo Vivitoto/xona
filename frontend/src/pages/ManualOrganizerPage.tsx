@@ -1,4 +1,4 @@
-import { FormEvent, useState } from "react";
+import { FormEvent, useEffect, useMemo, useState } from "react";
 
 import { apiFetch } from "../api/client";
 import type {
@@ -14,7 +14,7 @@ import { CandidateCard } from "../components/CandidateCard";
 import { DirectoryPicker } from "../components/DirectoryPicker";
 import { CheckboxField, FormField, Section } from "../components/FormField";
 import { OperationPlanView } from "../components/OperationPlanView";
-import { Tabs, type TabItem } from "../components/Tabs";
+import { TemplateGuide } from "../components/TemplateGuide";
 import { linesToList } from "./settings/settingsForm";
 
 const safetyLabels = [
@@ -26,23 +26,16 @@ const safetyLabels = [
 ] as const;
 
 type SafetyKey = (typeof safetyLabels)[number][0];
-type ManualTab = "scan" | "match" | "execute";
-
-const manualTabs: readonly TabItem<ManualTab>[] = [
-  { id: "scan", label: "扫描" },
-  { id: "match", label: "匹配/复核" },
-  { id: "execute", label: "预览/执行" },
-];
+type QuerySource = "filename" | "parent" | "custom";
 
 export function ManualOrganizerPage() {
-  const [activeTab, setActiveTab] = useState<ManualTab>("scan");
   const [directory, setDirectory] = useState("");
   const [recursive, setRecursive] = useState(true);
   const [ignorePatterns, setIgnorePatterns] = useState("");
   const [jobs, setJobs] = useState<ManualJobSummary[]>([]);
   const [jobId, setJobId] = useState("");
-  const [filename, setFilename] = useState("");
-  const [normalizedQuery, setNormalizedQuery] = useState("");
+  const [querySource, setQuerySource] = useState<QuerySource>("filename");
+  const [searchQuery, setSearchQuery] = useState("");
   const [candidates, setCandidates] = useState<ManualCandidate[]>([]);
   const [selected, setSelected] = useState<ManualCandidate | null>(null);
   const [detailUrl, setDetailUrl] = useState("");
@@ -67,6 +60,24 @@ export function ManualOrganizerPage() {
   const [status, setStatus] = useState("");
   const [error, setError] = useState("");
 
+  const activeJob = useMemo(
+    () => jobs.find((job) => String(job.job_id) === jobId) ?? jobs[0] ?? null,
+    [jobId, jobs],
+  );
+  const activeMedia = activeJob?.media_items[0] ?? null;
+
+  useEffect(() => {
+    if (!activeJob) {
+      return;
+    }
+    setSearchQuery(defaultQuery(activeJob, querySource));
+    setCandidates([]);
+    setSelected(null);
+    setRefusalReasons([]);
+    setPreview(null);
+    setExecuteResult(null);
+  }, [activeJob?.job_id, querySource]);
+
   async function scan(event?: FormEvent) {
     event?.preventDefault();
     setStatus("正在扫描");
@@ -83,49 +94,60 @@ export function ManualOrganizerPage() {
       setJobs(response.jobs);
       if (response.jobs[0]) {
         setJobId(String(response.jobs[0].job_id));
-        setActiveTab("match");
+        setQuerySource("filename");
+        setSearchQuery(defaultQuery(response.jobs[0], "filename"));
       }
-      setStatus(`已扫描 ${response.scanned_count} 项`);
+      setStatus(`已扫描 ${response.scanned_count} 个视频文件`);
     } catch (exc) {
       setError(exc instanceof Error ? exc.message : "扫描失败");
     }
   }
 
-  async function search(jobOverride?: number) {
-    setStatus("正在搜索");
+  async function search(nextSource: QuerySource = querySource) {
+    const job = activeJob;
+    if (!job) {
+      setError("请先扫描并选择一个视频文件。");
+      return;
+    }
+    const query = nextSource === "custom" ? searchQuery : defaultQuery(job, nextSource);
+    if (!query.trim()) {
+      setError("请输入搜索关键词。");
+      return;
+    }
+    setQuerySource(nextSource);
+    setSearchQuery(query);
+    setStatus("正在搜索 XChina");
     setError("");
+    setCandidates([]);
+    setSelected(null);
+    setPreview(null);
+    setExecuteResult(null);
     try {
       const response = await apiFetch<ManualSearchResponse>("/api/manual/search", {
         method: "POST",
         body: {
-          job_id: jobOverride ?? numericJobId(),
-          filename: filename || null,
-          normalized_query: normalizedQuery || null,
+          job_id: job.job_id,
+          query,
+          normalized_query: query,
         },
       });
       setJobId(String(response.job_id));
-      setNormalizedQuery(response.normalized_query);
+      setSearchQuery(response.normalized_query);
       setCandidates(response.candidates);
-      setStatus(`找到 ${response.candidates.length} 个候选项`);
+      setStatus(`找到 ${response.candidates.length} 个候选结果`);
     } catch (exc) {
       setError(exc instanceof Error ? exc.message : "搜索失败");
     }
   }
 
-  async function batchSearch() {
-    for (const job of jobs) {
-      await search(job.job_id);
-    }
-  }
-
   async function selectCandidate(candidate: ManualCandidate | null = selected) {
-    const activeJobId = numericJobId();
+    const activeJobId = activeJob?.job_id;
     if (!activeJobId) {
-      setError("请先选择或输入任务再选择候选项。");
+      setError("请先选择一个视频文件。");
       return;
     }
     setError("");
-    setStatus("正在选择候选项");
+    setStatus("正在刮削详情并校验");
     try {
       const response = await apiFetch<{
         accepted: boolean;
@@ -142,23 +164,20 @@ export function ManualOrganizerPage() {
       });
       setSelected(response.selected_candidate ?? candidate);
       setRefusalReasons(response.reasons);
-      setStatus(response.accepted ? "候选项已接受" : "需要复核");
-      if (response.accepted) {
-        setActiveTab("execute");
-      }
+      setStatus(response.accepted ? "已选择候选结果，可以预览整理计划" : "需要人工复核");
     } catch (exc) {
       setError(exc instanceof Error ? exc.message : "候选项选择失败");
     }
   }
 
   async function previewPlan() {
-    const activeJobId = numericJobId();
+    const activeJobId = activeJob?.job_id;
     if (!activeJobId) {
-      setError("预览前需要任务。");
+      setError("预览前需要选择一个视频文件。");
       return;
     }
     setError("");
-    setStatus("正在生成预览");
+    setStatus("正在生成整理预览");
     try {
       const response = await apiFetch<ManualPreviewResponse>(
         `/api/manual/jobs/${activeJobId}/preview`,
@@ -175,7 +194,7 @@ export function ManualOrganizerPage() {
         },
       );
       setPreview(response);
-      setStatus("预览已就绪");
+      setStatus("整理预览已生成");
     } catch (exc) {
       setError(exc instanceof Error ? exc.message : "预览失败");
     }
@@ -186,7 +205,7 @@ export function ManualOrganizerPage() {
       return;
     }
     setError("");
-    setStatus("正在执行");
+    setStatus("正在执行整理计划");
     try {
       const response = await apiFetch<ManualExecutePlanResponse>(
         `/api/manual/plans/${preview.plan_id}/execute`,
@@ -205,9 +224,9 @@ export function ManualOrganizerPage() {
     }
   }
 
-  function numericJobId(): number | null {
-    const parsed = Number.parseInt(jobId, 10);
-    return Number.isFinite(parsed) ? parsed : null;
+  function pickJob(job: ManualJobSummary) {
+    setJobId(String(job.job_id));
+    setQuerySource("filename");
   }
 
   function safetyPayload(): Record<string, boolean> {
@@ -221,144 +240,126 @@ export function ManualOrganizerPage() {
 
   return (
     <div className="page-stack manual-workbench">
-      <div className="workflow-progress" aria-label="手动整理流程">
-        <WorkflowStep active={activeTab === "scan"} complete={jobs.length > 0} index={1} title="扫描" description="选择源目录并生成任务" />
-        <WorkflowStep active={activeTab === "match"} complete={Boolean(selected)} index={2} title="匹配复核" description="搜索候选项并确认" />
-        <WorkflowStep active={activeTab === "execute"} complete={Boolean(executeResult)} index={3} title="预览执行" description="生成计划后再落盘" />
-      </div>
+      <Section title="扫描目录">
+        <form className="manual-scan-bar" onSubmit={scan}>
+          <div className="path-field">
+            <FormField label="源目录">
+              <input
+                placeholder="/media/incoming"
+                value={directory}
+                onChange={(event) => setDirectory(event.target.value)}
+              />
+            </FormField>
+            <DirectoryPicker
+              initialPath={directory}
+              onSelect={setDirectory}
+              title="选择源目录"
+            />
+          </div>
+          <CheckboxField
+            checked={recursive}
+            label="递归扫描"
+            description="包含子目录中的视频文件。"
+            onChange={setRecursive}
+          />
+          <FormField
+            description="可选。每行一个 glob，用于跳过样片、系统目录等无关文件。"
+            label="忽略模式"
+          >
+            <textarea
+              placeholder={'*.sample.*\n@eaDir/**'}
+              value={ignorePatterns}
+              onChange={(event) => setIgnorePatterns(event.target.value)}
+            />
+          </FormField>
+          <div className="action-panel">
+            <button disabled={!directory} type="submit">
+              扫描源目录
+            </button>
+          </div>
+        </form>
+      </Section>
 
-      <Tabs
-        activeTab={activeTab}
-        ariaLabel="手动整理视图"
-        tabs={manualTabs}
-        onChange={setActiveTab}
-      />
+      <div className="manual-match-layout">
+        <Section title="视频文件">
+          <MediaFileList jobs={jobs} activeJobId={activeJob?.job_id ?? null} onPick={pickJob} />
+        </Section>
 
-      <div className="tab-panel" role="tabpanel">
-        {activeTab === "scan" ? (
-          <>
-            <Section title="选择源目录">
-              <form className="workbench-grid" onSubmit={scan}>
-                <div className="path-field">
-                  <FormField
-                    description="从已配置的存储根里选择源目录，或手动粘贴容器内绝对路径。"
-                    label="源目录"
-                  >
-                    <input
-                      placeholder="/downloads/incoming"
-                      value={directory}
-                      onChange={(event) => setDirectory(event.target.value)}
-                    />
-                  </FormField>
-                  <DirectoryPicker
-                    initialPath={directory}
-                    onSelect={setDirectory}
-                    title="选择源目录"
-                  />
-                </div>
-                <CheckboxField
-                  checked={recursive}
-                  label="递归扫描"
-                  description="包含子目录中的媒体文件。"
-                  onChange={setRecursive}
-                />
-                <FormField
-                  description="每行一个 glob，用于跳过样片、系统目录等无关文件。"
-                  label="忽略模式"
-                >
-                  <textarea
-                    placeholder={'*.sample.*\n@eaDir/**'}
-                    value={ignorePatterns}
-                    onChange={(event) => setIgnorePatterns(event.target.value)}
-                  />
-                </FormField>
-                <div className="action-panel">
-                  <button disabled={!directory} type="submit">
-                    扫描源目录
-                  </button>
-                  <p className="muted">扫描后会自动进入“匹配/复核”。</p>
-                </div>
-              </form>
-            </Section>
-            <JobSummary jobs={jobs} onPick={(job) => setJobId(String(job.job_id))} />
-          </>
-        ) : null}
-
-        {activeTab === "match" ? (
-          <>
-            <JobSummary jobs={jobs} onPick={(job) => setJobId(String(job.job_id))} />
-            <Section title="搜索候选项">
-              <div className="grid four">
-                <FormField label="任务 ID">
-                  <input
-                    placeholder="扫描后自动填入，例如 12"
-                    value={jobId}
-                    onChange={(event) => setJobId(event.target.value)}
-                  />
-                </FormField>
-                <FormField label="粘贴文件名搜索">
-                  <input
-                    placeholder="SSIS-001.mp4"
-                    value={filename}
-                    onChange={(event) => setFilename(event.target.value)}
-                  />
-                </FormField>
-                <FormField label="可编辑的标准化查询">
-                  <input
-                    placeholder="SSIS-001"
-                    value={normalizedQuery}
-                    onChange={(event) => setNormalizedQuery(event.target.value)}
-                  />
-                </FormField>
-                <div className="button-column">
-                  <button type="button" onClick={() => search()}>
-                    搜索
-                  </button>
-                  <button
-                    className="secondary"
-                    disabled={!jobs.length}
-                    type="button"
-                    onClick={batchSearch}
-                  >
-                    批量搜索
-                  </button>
-                </div>
+        <Section title="XChina 搜索结果">
+          {activeJob ? (
+            <div className="match-panel">
+              <div className="selected-media-card">
+                <span className="badge">当前文件</span>
+                <strong>{activeMedia ? fileName(activeMedia.path) : activeJob.media_identity}</strong>
+                <small>{activeMedia?.path ?? activeJob.media_identity}</small>
+                <small>父目录：{activeMedia ? parentName(activeMedia.path) : "未知"}</small>
               </div>
-            </Section>
 
-            <Section title="候选项选择">
-              <div className="grid three">
-                <FormField label="详情 URL">
+              <div className="query-toolbar">
+                <button className={querySource === "filename" ? "" : "secondary"} type="button" onClick={() => void search("filename")}>
+                  用文件名搜索
+                </button>
+                <button className={querySource === "parent" ? "" : "secondary"} type="button" onClick={() => void search("parent")}>
+                  用父目录搜索
+                </button>
+              </div>
+
+              <div className="manual-search-row">
+                <FormField label="搜索关键词">
+                  <input
+                    placeholder="番号、文件名或父目录名"
+                    value={searchQuery}
+                    onChange={(event) => {
+                      setQuerySource("custom");
+                      setSearchQuery(event.target.value);
+                    }}
+                  />
+                </FormField>
+                <button type="button" onClick={() => void search("custom")}>
+                  搜索
+                </button>
+              </div>
+
+              <div className="manual-detail-url">
+                <FormField
+                  description="搜索不到时可粘贴详情页 URL。"
+                  label="详情 URL"
+                >
                   <input
                     placeholder="https://www.xchina.co/movie/xxxx"
                     value={detailUrl}
                     onChange={(event) => setDetailUrl(event.target.value)}
                   />
                 </FormField>
-                <CheckboxField
-                  checked={strictAssets}
-                  label="严格资源"
-                  description="要求图片和元数据资源完整。"
-                  onChange={setStrictAssets}
-                />
-                <button type="button" onClick={() => selectCandidate()}>
-                  选择详情 URL
+                <button type="button" onClick={() => void selectCandidate()}>
+                  使用 URL 刮削
                 </button>
               </div>
-              <div className="safety-grid" aria-label="安全门禁">
-                {safetyLabels.map(([key, label]) => (
+
+              <details className="advanced-options">
+                <summary>高级安全选项</summary>
+                <div className="safety-grid" aria-label="安全门禁">
                   <CheckboxField
-                    key={key}
-                    checked={safety[key]}
-                    label={label}
-                    onChange={(checked) =>
-                      setSafety((current) => ({ ...current, [key]: checked }))
-                    }
+                    checked={strictAssets}
+                    label="严格资源"
+                    description="要求图片和元数据资源完整。"
+                    onChange={setStrictAssets}
                   />
-                ))}
-              </div>
+                  {safetyLabels.map(([key, label]) => (
+                    <CheckboxField
+                      key={key}
+                      checked={safety[key]}
+                      label={label}
+                      onChange={(checked) =>
+                        setSafety((current) => ({ ...current, [key]: checked }))
+                      }
+                    />
+                  ))}
+                </div>
+              </details>
+
               {candidates.length ? (
-                <div className="candidate-grid">
+                <div className="candidate-grid candidate-grid-compact">
                   {candidates.map((candidate) => (
                     <CandidateCard
                       key={candidate.candidate_id}
@@ -373,8 +374,8 @@ export function ManualOrganizerPage() {
                 </div>
               ) : (
                 <div className="empty-state">
-                  <strong>还没有候选项</strong>
-                  <span>先扫描任务，再用番号、文件名或详情 URL 搜索。</span>
+                  <strong>还没有候选结果</strong>
+                  <span>先在左侧选择文件，再用文件名或父目录名搜索。</span>
                 </div>
               )}
               {refusalReasons.length ? (
@@ -387,88 +388,96 @@ export function ManualOrganizerPage() {
                   </ul>
                 </div>
               ) : null}
-            </Section>
-          </>
-        ) : null}
-
-        {activeTab === "execute" ? (
-          <Section title="预览/执行">
-            <div className="grid four">
-              <div className="path-field">
-                <FormField label="目标根目录">
-                  <input
-                    placeholder="/media/jav"
-                    value={destinationRoot}
-                    onChange={(event) => setDestinationRoot(event.target.value)}
-                  />
-                </FormField>
-                <DirectoryPicker
-                  initialPath={destinationRoot}
-                  onSelect={setDestinationRoot}
-                  title="选择目标根目录"
-                />
-              </div>
-              <FormField label="整理模式">
-                <select
-                  value={mode}
-                  onChange={(event) => setMode(event.target.value as OrganizationMode)}
-                >
-                  <option value="preview">预览</option>
-                  <option value="copy">复制</option>
-                  <option value="move">移动</option>
-                  <option value="hardlink">硬链接</option>
-                  <option value="symlink">符号链接</option>
-                  <option value="in_place">原地处理</option>
-                </select>
-              </FormField>
-              <FormField label="资源策略">
-                <select
-                  value={assetPolicy}
-                  onChange={(event) => setAssetPolicy(event.target.value)}
-                >
-                  <option value="lenient">宽松</option>
-                  <option value="strict">严格</option>
-                </select>
-              </FormField>
-              <CheckboxField
-                checked={includeSourceSnapshot}
-                label="包含源快照"
-                onChange={setIncludeSourceSnapshot}
-              />
             </div>
-            <div className="grid two">
-              <FormField label="文件夹模板">
-                <textarea
-                  placeholder={'{studio}\n{title}'}
-                  value={folderTemplates}
-                  onChange={(event) => setFolderTemplates(event.target.value)}
-                />
-              </FormField>
-              <FormField label="文件名模板">
-                <input
-                  placeholder="{xchina_id} - {title}"
-                  value={filenameTemplate}
-                  onChange={(event) => setFilenameTemplate(event.target.value)}
-                />
-              </FormField>
+          ) : (
+            <div className="empty-state">
+              <strong>等待扫描</strong>
+              <span>选择源目录并扫描后，视频文件会出现在左侧。</span>
             </div>
-            <div className="button-row">
-              <button type="button" onClick={previewPlan}>
-                预览操作计划
-              </button>
-              <button disabled={!preview} type="button" onClick={executePlan}>
-                执行已批准预览
-              </button>
-            </div>
-            <OperationPlanView preview={preview} refusalReasons={refusalReasons} />
-            {executeResult ? (
-              <p className="status">
-                计划 {executeResult.plan_id} 状态为 {executeResult.state}
-              </p>
-            ) : null}
-          </Section>
-        ) : null}
+          )}
+        </Section>
       </div>
+
+      <Section title="预览/执行整理">
+        <div className="grid four">
+          <div className="path-field">
+            <FormField label="目标目录">
+              <input
+                placeholder="/media/organized"
+                value={destinationRoot}
+                onChange={(event) => setDestinationRoot(event.target.value)}
+              />
+            </FormField>
+            <DirectoryPicker
+              initialPath={destinationRoot}
+              onSelect={setDestinationRoot}
+              title="选择目标目录"
+            />
+          </div>
+          <FormField label="整理模式">
+            <select
+              value={mode}
+              onChange={(event) => setMode(event.target.value as OrganizationMode)}
+            >
+              <option value="preview">只预览</option>
+              <option value="copy">复制</option>
+              <option value="move">移动</option>
+              <option value="hardlink">硬链接</option>
+              <option value="symlink">符号链接</option>
+              <option value="in_place">原地处理</option>
+            </select>
+          </FormField>
+          <FormField label="资源策略">
+            <select
+              value={assetPolicy}
+              onChange={(event) => setAssetPolicy(event.target.value)}
+            >
+              <option value="lenient">宽松</option>
+              <option value="strict">严格</option>
+            </select>
+          </FormField>
+          <CheckboxField
+            checked={includeSourceSnapshot}
+            label="包含源快照"
+            onChange={setIncludeSourceSnapshot}
+          />
+        </div>
+        <div className="grid two">
+          <FormField label="文件夹模板">
+            <textarea
+              placeholder={'{studio}\n{xchina_id} - {title}'}
+              value={folderTemplates}
+              onChange={(event) => setFolderTemplates(event.target.value)}
+            />
+          </FormField>
+          <FormField label="文件名模板">
+            <input
+              placeholder="{xchina_id} - {title}"
+              value={filenameTemplate}
+              onChange={(event) => setFilenameTemplate(event.target.value)}
+            />
+          </FormField>
+        </div>
+        <TemplateGuide />
+        <div className="button-row">
+          <button disabled={!selected || !destinationRoot} type="button" onClick={previewPlan}>
+            预览整理计划
+          </button>
+          <button disabled={!preview} type="button" onClick={executePlan}>
+            执行已批准预览
+          </button>
+        </div>
+        {preview ? (
+          <OperationPlanView preview={preview} refusalReasons={refusalReasons} />
+        ) : (
+          <p className="muted">暂无预览。</p>
+        )}
+        {executeResult ? (
+          <p className="status">
+            计划 {executeResult.plan_id} 状态为 {executeResult.state}
+          </p>
+        ) : null}
+      </Section>
 
       {status ? <p className="status floating-status">{status}</p> : null}
       {error ? <p className="status error floating-status">{error}</p> : null}
@@ -476,75 +485,74 @@ export function ManualOrganizerPage() {
   );
 }
 
-function WorkflowStep({
-  active,
-  complete,
-  description,
-  index,
-  title,
-}: {
-  active: boolean;
-  complete: boolean;
-  description: string;
-  index: number;
-  title: string;
-}) {
-  return (
-    <div className={`progress-step${active ? " is-active" : ""}${complete ? " is-complete" : ""}`}>
-      <b>{complete ? "✓" : index}</b>
-      <span>
-        <strong>{title}</strong>
-        <small>{description}</small>
-      </span>
-    </div>
-  );
-}
-
-function JobSummary({
+function MediaFileList({
+  activeJobId,
   jobs,
   onPick,
 }: {
+  activeJobId: number | null;
   jobs: ManualJobSummary[];
   onPick: (job: ManualJobSummary) => void;
 }) {
   if (!jobs.length) {
     return (
-      <section className="empty-state">
-        <strong>还没有扫描任务</strong>
-        <span>选择源目录并扫描后，任务会显示在这里。</span>
-      </section>
+      <div className="empty-state">
+        <strong>还没有视频文件</strong>
+        <span>选择源目录并扫描后，文件会显示在这里。</span>
+      </div>
     );
   }
 
   return (
-    <Section title="已扫描任务">
-      <table>
-        <caption>已扫描任务</caption>
-        <thead>
-          <tr>
-            <th>任务</th>
-            <th>状态</th>
-            <th>标识</th>
-            <th>文件</th>
-            <th>操作</th>
-          </tr>
-        </thead>
-        <tbody>
-          {jobs.map((job) => (
-            <tr key={job.job_id}>
-              <td>{job.job_id}</td>
-              <td>{job.state}</td>
-              <td>{job.media_identity}</td>
-              <td>{job.media_items.map((item) => item.path).join(", ")}</td>
-              <td>
-                <button className="secondary" type="button" onClick={() => onPick(job)}>
-                  选择任务
-                </button>
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </Section>
+    <div className="media-file-list" aria-label="扫描到的视频文件">
+      {jobs.map((job) => {
+        const item = job.media_items[0];
+        const active = job.job_id === activeJobId;
+        return (
+          <button
+            aria-pressed={active}
+            className={`media-file-card${active ? " is-active" : ""}`}
+            key={job.job_id}
+            type="button"
+            onClick={() => onPick(job)}
+          >
+            <span className="media-file-main">
+              <strong>{item ? fileName(item.path) : job.media_identity}</strong>
+              <small>{item ? parentName(item.path) : job.media_identity}</small>
+              <small>{item?.path ?? job.media_identity}</small>
+            </span>
+            <span className="status-pill">{job.state}</span>
+          </button>
+        );
+      })}
+    </div>
   );
+}
+
+function defaultQuery(job: ManualJobSummary, source: QuerySource): string {
+  const path = job.media_items[0]?.path ?? job.media_identity;
+  if (source === "parent") {
+    return normalizeQuery(parentName(path));
+  }
+  if (source === "custom") {
+    return normalizeQuery(job.media_identity);
+  }
+  return normalizeQuery(fileStem(path));
+}
+
+function fileName(path: string): string {
+  return path.split(/[\\/]/).filter(Boolean).at(-1) ?? path;
+}
+
+function fileStem(path: string): string {
+  return fileName(path).replace(/\.[^.]+$/, "");
+}
+
+function parentName(path: string): string {
+  const parts = path.split(/[\\/]/).filter(Boolean);
+  return parts.length > 1 ? parts.at(-2) ?? "" : "";
+}
+
+function normalizeQuery(value: string): string {
+  return value.replace(/[._-]+/g, " ").replace(/\s+/g, " ").trim();
 }

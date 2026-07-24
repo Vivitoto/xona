@@ -27,6 +27,7 @@ from backend.app.core.logging import configure_logging
 from backend.app.core.settings import Settings
 from backend.app.db.migrations import run_migrations
 from backend.app.db.session import create_engine_for_settings, get_sessionmaker
+from backend.app.services.storage_roots import StorageRootService
 
 AUTH_ENDPOINT_PATHS = {
     "/api/auth/login",
@@ -53,6 +54,13 @@ def create_app(
         engine = create_engine_for_settings(settings)
         app.state.engine = engine
         app.state.sessionmaker = get_sessionmaker(engine)
+        with app.state.sessionmaker() as session:
+            storage_roots = StorageRootService(settings, session).list_roots()
+            session.commit()
+        if not storage_roots:
+            logger.error(
+                "No media mount points were discovered. Mount one or more media directories into the container, for example -v /host/media:/media, or set STORAGE_ROOTS explicitly."
+            )
         worker_task: asyncio.Task[None] | None = None
         monitor = None
         try:

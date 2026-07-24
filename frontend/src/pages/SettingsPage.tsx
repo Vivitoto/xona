@@ -32,7 +32,7 @@ type SettingsTab =
 const settingsTabs: readonly TabItem<SettingsTab>[] = [
   { id: "xchina", label: "XChina" },
   { id: "emby", label: "Emby" },
-  { id: "storage", label: "存储根" },
+  { id: "storage", label: "媒体目录" },
   { id: "naming", label: "命名模板" },
   { id: "metadata", label: "元数据/资源" },
   { id: "confidence", label: "置信度/安全" },
@@ -176,12 +176,7 @@ export function SettingsPage() {
       />
       <div className="tab-panel" role="tabpanel">
         {loading ? (
-          <LoadingSkeleton
-            description="读取 XChina、Emby、存储根、命名模板和安全策略。"
-            rows={5}
-            title="正在加载设置"
-            variant="table"
-          />
+          <LoadingSkeleton rows={5} title="正在加载设置" variant="table" />
         ) : (
           renderActiveTab()
         )}
@@ -216,9 +211,9 @@ function SettingsPreflight({
   if (!errors.length && !warnings.length && !changes.length) {
     return (
       <EmptyState
-        description="当前设置没有待保存改动。修改任意字段后，这里会显示保存前检查和改动摘要。"
+        description="当前没有待保存改动。"
         icon="✓"
-        title="保存前检查通过"
+        title="无改动"
       />
     );
   }
@@ -242,7 +237,7 @@ function SettingsPreflight({
       {warnings.length ? (
         <ErrorNotice
           title="建议确认"
-          message="这些问题不阻止保存，但可能影响首次使用体验。"
+          message="这些问题不阻止保存。"
           details={<IssueList items={warnings} />}
           tone="warning"
         />

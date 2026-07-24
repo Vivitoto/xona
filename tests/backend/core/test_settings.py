@@ -9,7 +9,7 @@ except ModuleNotFoundError:
 import pytest
 
 from backend.app.core.redaction import REDACTED
-from backend.app.core.settings import Settings
+from backend.app.core.settings import Settings, discover_container_storage_roots
 from backend.app.main import create_app
 
 
@@ -17,6 +17,7 @@ SETTINGS_ENV_VARS = (
     "CONFIG_DIR",
     "DATABASE_URL",
     "STORAGE_ROOTS",
+    "AUTO_STORAGE_ROOTS",
     "FLARESOLVERR_URL",
     "PROXY_URL",
     "EMBY_SERVER_URL",
@@ -78,6 +79,47 @@ def test_storage_roots_do_not_resolve_symlinks(
 
     assert settings.storage_roots == (tmp_path / symlink.name,)
     assert settings.storage_roots[0] != target
+
+
+def test_auto_storage_roots_discovers_container_mount_points(tmp_path: Path) -> None:
+    mountinfo = tmp_path / "mountinfo"
+    mountinfo.write_text(
+        "".join(
+            [
+                "25 31 0:23 / /sys rw - sysfs sysfs rw\n",
+                "31 1 253:0 / / rw - overlay overlay rw\n",
+                "101 31 8:1 /host/media /media rw - ext4 /dev/sda1 rw\n",
+                "102 31 8:2 /host/archive /archive rw - ext4 /dev/sdb1 rw\n",
+                "103 31 8:3 /host/config /config rw - ext4 /dev/sdc1 rw\n",
+                "104 31 8:4 /host/file /etc/hosts rw - ext4 /dev/sdd1 rw\n",
+                "105 31 8:5 /host/with\\040space /with\\040space rw - ext4 /dev/sde1 rw\n",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    roots = discover_container_storage_roots(
+        config_dir=Path("/config"),
+        mountinfo_path=mountinfo,
+        in_container=True,
+        path_is_dir=lambda path: path != Path("/etc/hosts"),
+    )
+
+    assert roots == (Path("/archive"), Path("/media"), Path("/with space"))
+
+
+def test_auto_storage_roots_ignored_outside_container(tmp_path: Path) -> None:
+    mountinfo = tmp_path / "mountinfo"
+    mountinfo.write_text(
+        "101 31 8:1 /host/media /media rw - ext4 /dev/sda1 rw\n",
+        encoding="utf-8",
+    )
+
+    assert discover_container_storage_roots(
+        config_dir=Path("/config"),
+        mountinfo_path=mountinfo,
+        in_container=False,
+    ) == ()
 
 
 def test_flaresolverr_url_is_preserved_exactly(

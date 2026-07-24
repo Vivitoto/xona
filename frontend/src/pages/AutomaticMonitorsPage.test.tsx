@@ -58,6 +58,7 @@ describe("AutomaticMonitorsPage", () => {
       expect(screen.getAllByLabelText(new RegExp(label, "i"))[0]).toBeTruthy();
     }
     expect(screen.getAllByRole("button", { name: "选择目录" }).length).toBeGreaterThanOrEqual(2);
+    expect(screen.getByRole("button", { name: "添加前缀" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "实时" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "轮询" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "复制" })).toBeTruthy();

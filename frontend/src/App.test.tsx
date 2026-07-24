@@ -50,6 +50,29 @@ describe("App", () => {
       { path: "/api/actors", response: { actors: [actorFixture()] } },
       {
         method: "POST",
+        path: "/api/manual/scan",
+        response: {
+          scanned_count: 1,
+          jobs: [
+            {
+              job_id: 7,
+              state: "discovered",
+              media_identity: "sample-work",
+              media_items: [
+                {
+                  path: "/media/incoming/Sample.Work.mkv",
+                  group_key: "sample-work",
+                  identity: "sample-work",
+                  size_bytes: 4,
+                  multipart_index: null,
+                },
+              ],
+            },
+          ],
+        },
+      },
+      {
+        method: "POST",
         path: "/api/manual/search",
         response: {
           job_id: 7,
@@ -68,10 +91,11 @@ describe("App", () => {
     expect(safetyToggle).toBeChecked();
 
     fireEvent.click(screen.getByRole("button", { name: "手动整理" }));
-    fireEvent.click(screen.getByRole("tab", { name: "匹配/复核" }));
-    fireEvent.change(screen.getByLabelText(/粘贴文件名搜索/i), {
-      target: { value: "Sample.Work.mkv" },
+    fireEvent.change(screen.getByLabelText(/源目录/i), {
+      target: { value: "/media/incoming" },
     });
+    fireEvent.click(screen.getByRole("button", { name: "扫描源目录" }));
+    await screen.findByText(/已扫描 1 个视频文件/);
     fireEvent.click(screen.getByRole("button", { name: "搜索" }));
 
     const candidateImage = await screen.findByRole("img", {

@@ -18,22 +18,22 @@ export function StorageSettings({
   }
 
   return (
-    <Section title="存储根">
+    <Section title="媒体目录">
       {settings.env_roots.length ? (
-        <div className="readonly-list" aria-label="环境变量配置的存储根">
-          <div className="readonly-list-title">环境变量配置的存储根（只读）</div>
+        <div className="readonly-list" aria-label="容器自动发现的媒体目录">
+          <div className="readonly-list-title">容器挂载的媒体目录（自动发现，只读）</div>
           {settings.env_roots.map((root) => (
             <div className="readonly-item" key={root}>
               <code>{root}</code>
-              <span className="badge">环境变量</span>
+              <span className="badge">容器挂载</span>
             </div>
           ))}
         </div>
       ) : null}
       <div className="path-field path-field-textarea">
         <FormField
-          description="每行一个用户可管理的挂载根目录。环境变量配置的根目录会在上方只读展示，不会在保存时被覆盖。"
-          label="用户存储根"
+          description="每行一个额外媒体目录。容器已挂载的目录会在上方自动发现并只读展示，不需要重复填写。"
+          label="用户媒体目录"
         >
           <textarea
             placeholder={'/media/downloads\n/mnt/archive'}
@@ -43,7 +43,7 @@ export function StorageSettings({
             }
           />
         </FormField>
-        <DirectoryPicker onSelect={addRoot} title="选择存储根目录" />
+        <DirectoryPicker onSelect={addRoot} title="选择媒体目录" />
       </div>
     </Section>
   );

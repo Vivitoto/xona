@@ -125,21 +125,18 @@ describe("ManualOrganizerPage", () => {
 
     render(<ManualOrganizerPage />);
 
-    expect(screen.getByPlaceholderText("/downloads/incoming")).toBeTruthy();
+    expect(screen.getByPlaceholderText("/media/incoming")).toBeTruthy();
     expect(screen.getByRole("button", { name: "扫描源目录" })).toBeDisabled();
-    expect(screen.getByText(/还没有扫描任务/i)).toBeTruthy();
+    expect(screen.getByText(/还没有视频文件/i)).toBeTruthy();
 
-    fireEvent.change(screen.getByPlaceholderText("/downloads/incoming"), {
+    fireEvent.change(screen.getByPlaceholderText("/media/incoming"), {
       target: { value: "/media/incoming" },
     });
     fireEvent.click(screen.getByRole("button", { name: "扫描源目录" }));
-    expect(await screen.findByText("已扫描 1 项")).toBeTruthy();
-    expect(screen.getByRole("button", { name: "批量搜索" })).toBeEnabled();
+    expect(await screen.findByText("已扫描 1 个视频文件")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "用文件名搜索" })).toBeEnabled();
 
-    fireEvent.change(screen.getByLabelText(/粘贴文件名搜索/i), {
-      target: { value: "Sample.Work.mkv" },
-    });
-    fireEvent.change(screen.getByLabelText(/可编辑的标准化查询/i), {
+    fireEvent.change(screen.getByLabelText(/搜索关键词/i), {
       target: { value: "Sample Work" },
     });
     fireEvent.click(screen.getByRole("button", { name: "搜索" }));
@@ -154,13 +151,12 @@ describe("ManualOrganizerPage", () => {
     expect(screen.getByText("unsafe_path")).toBeTruthy();
     expect(screen.getByText("strict_assets_missing")).toBeTruthy();
 
-    fireEvent.click(screen.getByText("预览/执行"));
     expect(screen.getByRole("button", { name: "执行已批准预览" })).toBeDisabled();
 
-    fireEvent.change(screen.getByLabelText(/目标根目录/i), {
+    fireEvent.change(screen.getByLabelText(/目标目录/i), {
       target: { value: "/media/organized" },
     });
-    fireEvent.click(screen.getByRole("button", { name: "预览操作计划" }));
+    fireEvent.click(screen.getByRole("button", { name: "预览整理计划" }));
     expect(await screen.findByText(/copy \/media\/incoming\/Sample.Work.mkv/)).toBeTruthy();
     expect(screen.getByText("/config/assets/poster.jpg")).toBeTruthy();
     expect(screen.getByText("fanart")).toBeTruthy();

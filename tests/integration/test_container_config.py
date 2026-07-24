@@ -32,16 +32,16 @@ def test_dockerfile_builds_frontend_and_installs_backend_package() -> None:
     ) in dockerfile
 
 
-def test_compose_defines_app_service_ports_volumes_and_bootstrap_roots() -> None:
+def test_compose_defines_app_service_ports_and_mounts_without_storage_roots_env() -> None:
     compose = _read("docker-compose.yml")
 
     assert "  app:" in compose
     assert '"${XONA_PORT:-8732}:8732"' in compose
     assert 'PUID: "${PUID:-1000}"' in compose
     assert 'PGID: "${PGID:-1000}"' in compose
-    assert 'STORAGE_ROOTS: "${STORAGE_ROOTS:-/a}"' in compose
+    assert "STORAGE_ROOTS" not in compose
     assert '"${CONFIG_ROOT:-./config}:/config"' in compose
-    assert '"${MEDIA_ROOT:-./media}:/a"' in compose
+    assert '"${MEDIA_ROOT:-./media}:/media"' in compose
 
 
 def test_healthcheck_uses_loopback_healthz_endpoint() -> None:
@@ -60,7 +60,7 @@ def test_env_example_uses_redacted_local_defaults() -> None:
     assert "XONA_PORT=8732" in env_example
     assert "PUID=1000" in env_example
     assert "PGID=1000" in env_example
-    assert "STORAGE_ROOTS=/a" in env_example
+    assert "STORAGE_ROOTS=" not in env_example
     assert "API_KEY=" not in env_example
     assert "PASSWORD=" not in env_example
     assert "COOKIE=" not in env_example

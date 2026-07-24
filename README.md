@@ -1,55 +1,47 @@
 # Xona
 
-Xona 是一个本地优先的 Docker Web 应用，用于扫描挂载的媒体目录、搜索并整理 xchina 元数据、预览安全的文件操作计划、写入 Emby 兼容的元数据/图片，并保留可回滚的操作记录。
+Xona 是一个本地优先的媒体整理 Web 应用，用来扫描挂载到容器里的视频目录，搜索 XChina 元数据，生成整理预览，并按确认后的计划复制、移动、硬链接或软链接媒体文件。
 
-## 功能概览
+它适合部署在 NAS、家庭服务器或 Docker 主机上，配合 Emby/Jellyfin 这类媒体库使用。
 
-- 本地 Web UI：手动整理、自动监控、复核队列、任务中心、演员库、历史/回滚、设置。
-- 日志页面：Web UI 可查看 Xona 应用最近日志并实时跟随；同一批应用日志会输出到 stdout，因此部署后也可通过 `docker logs` 查看。
-- 中文为主的界面；必要技术名词保留英文，例如 Xona、Emby、XChina、FlareSolverr、URL、API key。
-- 图片安全模式默认开启：候选图片和演员头像默认模糊，可在页面顶部关闭。
-- 配置保存在 `/config`，媒体目录通过 Docker volume 挂载。
-- 支持 Web 设置页配置 XChina、FlareSolverr、代理、Emby、命名模板、元数据策略、认证等。
-- 默认发布/测试流程不访问真实 xchina，不触碰用户媒体。
+## 主要功能
 
-## 镜像
+- **手动整理**：扫描目录 → 选择视频 → 搜索 XChina → 选择候选 → 预览 → 执行。
+- **自动监控**：配置监控规则后，自动发现新文件并生成整理任务。
+- **复核队列**：低置信度、路径冲突、资源缺失等情况会进入人工复核。
+- **任务中心**：查看任务状态、时间线，支持重试/取消。
+- **历史/回滚**：查看已执行计划，必要时执行回滚。
+- **演员库**：缓存演员信息和头像，可同步到 Emby。
+- **日志页面**：在 Web UI 中查看最近日志，也可用 `docker logs` 查看。
 
-发布后可使用以下镜像：
+## Docker 部署
+
+### 1. 准备目录
+
+在宿主机准备两个目录：
 
 ```bash
-vivitoto/xona:1.0.2
-vivitoto/xona:latest
-ghcr.io/vivitoto/xona:1.0.2
-ghcr.io/vivitoto/xona:latest
+mkdir -p ./config ./media
 ```
 
-> 注意：当前仓库发布前不要把真实 API key、Cookie、代理账号密码、Emby key 或用户媒体路径提交到 GitHub。
+- `./config`：保存 Xona 配置、数据库、缓存等数据。
+- `./media`：示例媒体目录；实际使用时可以换成你的下载目录或媒体库目录。
 
-## Docker Compose 示例
-
-推荐先使用本地 `./config` 和一个明确的媒体目录。下面示例已脱敏，请把 `/path/to/your/media` 替换成你的实际媒体路径。
+### 2. 创建 `docker-compose.yml`
 
 ```yaml
 services:
   xona:
-    image: vivitoto/xona:1.0.2
+    image: vivitoto/xona:latest
     container_name: xona
     ports:
       - "8732:8732"
     environment:
       PUID: "1000"
       PGID: "1000"
-      # 可选：启动时自动把容器内 /a 注册为媒体根目录。
-      # 如果删掉这行，也可以在 Web 设置页手动添加 /a。
-      STORAGE_ROOTS: /a
-      # 可选：也可以通过环境变量固定集成配置；更推荐在 Web 设置页填写。
-      # FLARESOLVERR_URL: "http://flaresolverr:8191/v1"
-      # PROXY_URL: "http://user:REDACTED@proxy:7890"
-      # EMBY_SERVER_URL: "http://emby:8096"
-      # EMBY_API_KEY: "REDACTED"
     volumes:
       - "./config:/config"
-      - "/path/to/your/media:/a"
+      - "./media:/media"
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "python", "/usr/local/bin/xona-healthcheck.py"]
@@ -59,7 +51,22 @@ services:
       start_period: 15s
 ```
 
-启动：
+如果你的媒体目录在别的位置，例如 `/mnt/downloads`，把 volume 改成：
+
+```yaml
+      - "/mnt/downloads:/media"
+```
+
+如果想保留容器内路径名，也可以直接挂成任意路径：
+
+```yaml
+      - "/mnt/downloads:/downloads"
+      - "/mnt/archive:/archive"
+```
+
+Xona 会在容器启动时自动发现这些挂载目录，并在 **设置 → 媒体目录** 中显示。没有发现任何媒体挂载目录时，容器日志会提示需要挂载媒体目录。
+
+### 3. 启动
 
 ```bash
 docker compose up -d
@@ -71,12 +78,10 @@ docker compose up -d
 http://localhost:8732
 ```
 
-健康检查：
+查看日志：
 
 ```bash
-docker exec xona python /usr/local/bin/xona-healthcheck.py
-# 或
-curl http://localhost:8732/healthz
+docker logs -f xona
 ```
 
 停止：
@@ -85,122 +90,79 @@ curl http://localhost:8732/healthz
 docker compose down
 ```
 
-## 配置说明
+## 使用说明
 
-常用环境变量：
+### 初次设置
 
-| 变量 | 用途 |
-| --- | --- |
-| `PUID` / `PGID` | 容器内进程使用的 UID/GID，默认 `1000`。 |
-| `STORAGE_ROOTS` | 启动时注册的容器内媒体根目录，例如 `/a`。 |
-| `CONFIG_DIR` | 容器内配置目录，镜像默认已是 `/config`，通常不需要写。 |
-| `DATABASE_URL` | 可选数据库 URL 覆盖。默认使用 `/config` 下的本地数据库。 |
-| `FLARESOLVERR_URL` | 可选 FlareSolverr endpoint，例如 `http://flaresolverr:8191/v1`。 |
-| `PROXY_URL` | 可选代理 URL。不要把真实账号密码提交到仓库。 |
-| `EMBY_SERVER_URL` / `EMBY_API_KEY` | 可选 Emby 集成配置。不要提交真实 API key。 |
+1. 打开 Web UI：`http://localhost:8732`
+2. 进入 **设置 → 媒体目录**，确认容器挂载目录已经自动显示。
+3. 进入 **设置 → XChina**，按需要配置：
+   - XChina 地址
+   - FlareSolverr 地址
+   - 代理 URL
+   - 缓存目录
+4. 如果需要同步媒体库，进入 **设置 → Emby**，填写 Emby 地址和 API key。
+5. 进入 **设置 → 命名模板**，确认目录和文件命名规则。
 
-优先建议：
+### 手动整理流程
 
-- 媒体目录通过 compose volume 挂载。
-- XChina、FlareSolverr、代理、Emby 等尽量在 Web 设置页填写。
-- 如果环境变量和 Web 设置都存在，环境变量可能作为运行时覆盖项，适合固定部署配置。
+1. 进入 **手动整理**。
+2. 在“源目录”选择或填写已挂载媒体目录下的路径。
+3. 点击 **扫描源目录**。
+4. 在左侧选择扫描到的视频文件。
+5. 点击 **用文件名搜索**、**用父目录搜索**，或手动填写关键词后点击 **搜索**。
+6. 选择合适的 XChina 候选结果；如果搜索不到，也可以粘贴详情页 URL 后点击 **使用 URL 刮削**。
+7. 在下方填写目标目录、整理模式、命名模板。
+8. 点击 **预览整理计划**，确认生成路径和操作内容。
+9. 确认无误后点击 **执行已批准预览**。
 
-## 本地开发
+### 命名模板
 
-### UI 规范
+文件夹模板支持多行：**一行代表一级目录**。
 
-涉及前端 UI 的新增功能、页面和表单改动，请先遵循 [`docs/ui-standards.md`](docs/ui-standards.md)。这份规范沉淀了当前 Xona 的现代控制台风格、左侧一级导航 + 右侧横向 tab、表单 placeholder、目录选择器、命名模板变量面板、卡片/弹窗/表格等标准。
+例如想生成：
 
-新增 UI 前至少检查：控件是否对齐、是否复用现有组件、路径字段是否提供目录选择器、用户是否能从 placeholder/说明理解填写格式，以及 `npm run build` 是否通过。
-
-安装后端测试工具和前端依赖：
-
-```bash
-python3 -m pip install -e ".[test]"
-cd frontend && npm install
+```text
+/media/Studio/XC-001 - Sample Title/XC-001 - Sample Title.mkv
 ```
 
-运行前端验证：
+可以这样填写：
 
-```bash
-cd frontend
-npm test -- --run
-npm run lint
-npm run typecheck
-npm run build
+**文件夹模板**
+
+```text
+{studio}
+{xchina_id} - {title}
 ```
 
-运行后端/集成验证：
+**文件名模板**
 
-```bash
-python3 -m pytest tests/backend tests/integration
-python3 -m ruff check backend tests
-python3 -m mypy backend/app
+```text
+{xchina_id} - {title}
 ```
 
-## 本地 Docker 构建
+常用变量：
 
-```bash
-docker compose build app
-docker compose up -d
-python docker/healthcheck.py
-docker compose exec -T app python -m backend.app.db.migrations
-docker compose down
-```
+- `{xchina_id}`：XChina ID
+- `{number}`：番号/作品编号
+- `{title}`：作品标题
+- `{original_title}`：原始标题
+- `{studio}`：制作商
+- `{series}`：系列
+- `{year}`：年份
+- `{release_date}`：发布日期
+- `{actors}`：演员列表
+- `{first_actor}`：第一位演员
+- `{source_filename}`：源文件名
 
-Compose service 名为 `app`；如需在容器内运行迁移：
+不要在单行模板里用 `/` 写多级目录；如果需要多级目录，请把每一级拆成多行。
 
-```bash
-docker compose exec -T app python -m backend.app.db.migrations
-```
+## 环境变量
 
-## 发布前 Gate
+| 变量 | 默认值 | 说明 |
+| --- | --- | --- |
+| `PUID` | `1000` | 容器内进程使用的用户 ID。 |
+| `PGID` | `1000` | 容器内进程使用的用户组 ID。 |
+| `CONFIG_DIR` | `/config` | 配置和数据库目录，通常无需修改。 |
 
-本地发布前推荐运行：
-
-```bash
-bash scripts/release_gate.sh
-```
-
-该脚本会 fail-fast，包含输出脱敏、Compose 清理 trap，并执行后端测试、集成测试、前端测试/构建、Playwright、Docker Compose build/up、容器健康检查、容器内迁移幂等检查、synthetic disposable media smoke、fixture 隐私检查等。默认不会 push, publish, upload，也不会运行真实 xchina smoke。
-
-如果 Playwright 需要系统浏览器，可设置：
-
-```bash
-PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH=/path/to/chromium bash scripts/release_gate.sh
-```
-
-也可以使用 `XONA_PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH=/path/to/chromium`；当 `PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH` 未设置时，release gate 会自动映射这个变量。
-
-## 真实 XChina smoke
-
-`scripts/real_xchina_smoke.py` 是独立、可选、只读的真实站点 smoke，不属于默认 release gate；它是明确的 opt-in 检查。
-
-This real smoke is opt-in, read-only, not part of default release gates, and must not touch user media.
-
-只有在明确需要时才运行，并且必须使用一次性目录：
-
-```bash
-XONA_REAL_XCHINA_SMOKE=1 \
-XONA_REAL_XCHINA_FLARESOLVERR_URL="http://flaresolverr:8191/v1" \
-XONA_REAL_XCHINA_QUERY="sample" \
-python3 scripts/real_xchina_smoke.py
-```
-
-不要在提交文件中保存真实 Cookie、账号、密码、代理凭证、API key 或真实用户媒体路径。
-
-## GitHub Actions 发布
-
-仓库包含 Docker 发布 workflow。推送 `v1.0.2` 这类 tag 后，GitHub Actions 会构建并发布：
-
-- `vivitoto/xona:1.0.2`
-- `vivitoto/xona:latest`
-- `ghcr.io/vivitoto/xona:1.0.2`
-- `ghcr.io/vivitoto/xona:latest`
-
-需要仓库配置 Docker Hub secrets：
-
-- `DOCKER_USERNAME`
-- `DOCKER_PASSWORD`
-
-GHCR 使用 GitHub Actions 自带的 `GITHUB_TOKEN`。
+大多数集成配置都可以在 Web UI 的设置页里填写。

@@ -28,9 +28,9 @@ def test_env_bootstrap_roots_are_marked_env_and_immutable(tmp_path: Path) -> Non
             try:
                 service.update_root(root.id, enabled=False)
             except StorageRootValidationError as exc:
-                assert "env-sourced" in str(exc)
+                assert "read-only" in str(exc)
             else:  # pragma: no cover - assertion branch
-                raise AssertionError("env-sourced roots must be immutable")
+                raise AssertionError("bootstrap roots must be immutable")
     finally:
         engine.dispose()
 

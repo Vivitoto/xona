@@ -155,12 +155,14 @@ async def preview_templates(payload: TemplatePreviewRequest) -> TemplatePreviewR
 
 def _overlay_runtime_settings(settings: Settings, values: dict[str, Any]) -> None:
     storage = values.setdefault("storage", {})
-    if settings.storage_roots:
-        env_roots = [str(path) for path in settings.storage_roots]
-        storage["env_roots"] = env_roots
-        env_root_set = set(env_roots)
+    bootstrap_roots = [
+        str(path) for path, _source in settings.bootstrap_storage_roots()
+    ]
+    if bootstrap_roots:
+        storage["env_roots"] = bootstrap_roots
+        bootstrap_root_set = set(bootstrap_roots)
         storage["roots"] = [
-            root for root in storage.get("roots") or [] if root not in env_root_set
+            root for root in storage.get("roots") or [] if root not in bootstrap_root_set
         ]
     xchina = values.setdefault("xchina", {})
     if settings.flaresolverr_url:

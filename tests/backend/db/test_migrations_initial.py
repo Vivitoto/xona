@@ -104,6 +104,7 @@ def test_fastapi_lifespan_runs_migrations_with_injected_settings(
     monkeypatch.setattr(migration_module, "run_migrations", record_run_migrations)
     if hasattr(main_module, "run_migrations"):
         monkeypatch.setattr(main_module, "run_migrations", record_run_migrations)
+    monkeypatch.setattr(main_module.StorageRootService, "list_roots", lambda self: [])
 
     async def run_lifespan() -> None:
         app = create_app(settings)

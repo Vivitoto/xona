@@ -20,11 +20,11 @@ test("设置 saves exact connector, mapping, template, threshold, and asset poli
   const proxyURL = "socks5://proxy.fixture.local:9050";
 
   await page.goto("/");
-  await page.getByRole("button", { name: "设置" }).click();
+  await page.getByRole("navigation", { name: "主导航" }).getByRole("button", { name: "设置" }).click();
   await expect(activePage(page).getByRole("heading", { name: "设置" })).toBeVisible();
 
-  await page.getByRole("tab", { name: "存储根" }).click();
-  await page.getByRole("textbox", { name: /存储根/ }).fill(fixture.media_root);
+  await page.getByRole("tab", { name: "媒体目录" }).click();
+  await page.getByRole("textbox", { name: /媒体目录/ }).fill(fixture.media_root);
   await page.getByRole("tab", { name: "XChina" }).click();
   await page.getByLabel("精确 FlareSolverr 端点").fill(flareSolverrEndpoint);
   await page.getByLabel("代理 URL").fill(proxyURL);
@@ -47,8 +47,8 @@ test("设置 saves exact connector, mapping, template, threshold, and asset poli
   await page.getByRole("button", { name: "保存设置" }).click();
 
   await expect(page.getByText("设置已保存")).toBeVisible();
-  await page.getByRole("button", { name: "仪表盘" }).click();
-  await page.getByRole("button", { name: "设置" }).click();
+  await page.getByRole("navigation", { name: "主导航" }).getByRole("button", { name: "仪表盘" }).click();
+  await page.getByRole("navigation", { name: "主导航" }).getByRole("button", { name: "设置" }).click();
 
   await page.getByRole("tab", { name: "XChina" }).click();
   await expect(page.getByLabel("精确 FlareSolverr 端点")).toHaveValue(
@@ -79,7 +79,7 @@ test("自动监控 creates a rule, excludes nested destinations, scans now, and 
   const fixture = await resetFixture(request);
 
   await page.goto("/");
-  await page.getByRole("button", { name: "自动监控" }).click();
+  await page.getByRole("navigation", { name: "主导航" }).getByRole("button", { name: "自动监控" }).click();
   await expect(activePage(page).getByRole("heading", { name: "自动监控" })).toBeVisible();
 
   await page.getByLabel("源目录").fill(fixture.source_dir);
@@ -124,7 +124,7 @@ test("critical controls remain readable on current viewport", async ({ page, req
     "历史/回滚",
     "设置",
   ]) {
-    await page.getByRole("button", { name }).click();
+    await page.getByRole("navigation", { name: "主导航" }).getByRole("button", { name }).click();
     await expect(activePage(page).getByRole("heading", { name })).toBeVisible();
     await expectNoOverlappingControls(page);
     await expectNoClippedCriticalText(page);

@@ -52,7 +52,7 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
       <div className="page-stack page-error-fallback">
         <ErrorNotice
           title="页面出错了"
-          message="这个页面遇到了渲染错误，但 Xona 外壳仍然可用。你可以重试，或先回到仪表盘继续操作。"
+          message="可以重试，或返回仪表盘。"
           details={
             <code aria-label="错误摘要">
               {describeError(this.state.error, "页面渲染失败")}

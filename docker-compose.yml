@@ -9,10 +9,9 @@ services:
       CONFIG_DIR: /config
       PUID: "${PUID:-1000}"
       PGID: "${PGID:-1000}"
-      STORAGE_ROOTS: "${STORAGE_ROOTS:-/a}"
     volumes:
       - "${CONFIG_ROOT:-./config}:/config"
-      - "${MEDIA_ROOT:-./media}:/a"
+      - "${MEDIA_ROOT:-./media}:/media"
     healthcheck:
       test: ["CMD", "python", "/usr/local/bin/xona-healthcheck.py"]
       interval: 30s

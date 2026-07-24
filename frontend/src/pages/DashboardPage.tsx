@@ -1,10 +1,11 @@
 import { useEffect, useState } from "react";
 
+import type { PageId } from "../components/AppLayout";
 import { apiFetch } from "../api/client";
 import type { ActorListResponse, JobListResponse, WatchRuleList } from "../api/types";
 import { LoadingSkeleton } from "../components/LoadingSkeleton";
 
-export function DashboardPage() {
+export function DashboardPage({ onNavigate }: { onNavigate: (page: PageId) => void }) {
   const [reviewCount, setReviewCount] = useState<number | null>(null);
   const [ruleCount, setRuleCount] = useState<number | null>(null);
   const [actorCount, setActorCount] = useState<number | null>(null);
@@ -22,67 +23,42 @@ export function DashboardPage() {
   }, []);
 
   return (
-    <div className="page-stack">
-      <section className="hero-panel">
-        <div className="hero-copy">
-          <p className="eyebrow">Local media organizer</p>
-          <h2>整理、复核、归档，一条流水线完成</h2>
-          <p>
-            Xona 会先扫描本地媒体，再匹配元数据、生成整理预览，最后按安全门禁执行复制、移动或链接。
-          </p>
+    <div className="page-stack dashboard-page">
+      <section className="section dashboard-section">
+        <div className="section-heading">
+          <div>
+            <p className="eyebrow">Dashboard</p>
+            <h2>首页</h2>
+          </div>
         </div>
-        <div className="hero-card">
-          <span>当前状态</span>
-          <strong>{reviewCount ? "需要复核" : "待命中"}</strong>
-          <small>{reviewCount ?? 0} 个任务等待处理</small>
+        <div className="button-row">
+          <button type="button" onClick={() => onNavigate("manual")}>
+            整理文件
+          </button>
+          <button className="secondary" type="button" onClick={() => onNavigate("settings")}>
+            系统设置
+          </button>
+          <button className="secondary" type="button" onClick={() => onNavigate("monitors")}>
+            监控规则
+          </button>
         </div>
       </section>
 
       <section className="section dashboard-section">
         <div className="section-heading">
           <div>
-            <p className="eyebrow">Overview</p>
+            <p className="eyebrow">Status</p>
             <h2>运行概览</h2>
           </div>
-          <span className="badge">实时读取</span>
         </div>
-        <div className="metric-grid">
-          <Metric label="待复核" value={reviewCount} hint="需要人工确认的匹配结果" tone="warning" />
-          <Metric label="监控规则" value={ruleCount} hint="自动扫描目录规则" tone="primary" />
-          <Metric label="已缓存演员" value={actorCount} hint="本地演员资料库条目" tone="success" />
+        <div className="metric-grid metric-grid-compact">
+          <Metric label="待复核" value={reviewCount} hint="待确认任务" tone="warning" />
+          <Metric label="监控规则" value={ruleCount} hint="已配置规则" tone="primary" />
+          <Metric label="演员缓存" value={actorCount} hint="本地条目" tone="success" />
         </div>
         {reviewCount === null && ruleCount === null && actorCount === null ? (
-          <LoadingSkeleton
-            description="读取待复核任务、监控规则和演员缓存统计。"
-            rows={3}
-            title="正在读取运行概览"
-          />
+          <LoadingSkeleton rows={3} title="正在读取运行概览" />
         ) : null}
-      </section>
-
-      <section className="section dashboard-section">
-        <div className="section-heading">
-          <div>
-            <p className="eyebrow">Pipeline</p>
-            <h2>当前流程</h2>
-          </div>
-        </div>
-        <div className="workflow-strip">
-          {[
-            ["扫描", "收集待整理文件"],
-            ["搜索", "匹配 XChina 元数据"],
-            ["复核", "确认候选项和安全门禁"],
-            ["预览", "生成操作计划"],
-            ["执行", "落盘整理输出"],
-            ["回滚", "必要时恢复"],
-          ].map(([title, description], index) => (
-            <span className="workflow-step" key={title}>
-              <b>{index + 1}</b>
-              <strong>{title}</strong>
-              <small>{description}</small>
-            </span>
-          ))}
-        </div>
       </section>
     </div>
   );

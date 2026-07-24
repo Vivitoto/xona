@@ -15,7 +15,7 @@ export function LogsPage() {
   const [level, setLevel] = useState<LogLevelFilter>("ALL");
   const [live, setLive] = useState(true);
   const [autoScroll, setAutoScroll] = useState(true);
-  const [dockerNote, setDockerNote] = useState("Xona 应用日志会输出到 stdout，可通过 docker logs 查看。");
+  const [dockerNote, setDockerNote] = useState("也可通过 docker logs 查看。");
   const [status, setStatus] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
@@ -88,25 +88,22 @@ export function LogsPage() {
         <div className="metric metric-primary">
           <span>日志条目</span>
           <strong>{entries.length}</strong>
-          <small>内存中最近的 Xona 应用日志</small>
+          <small>最近日志</small>
         </div>
         <div className="metric metric-warning">
           <span>警告</span>
           <strong>{latestWarningCount}</strong>
-          <small>需要关注但未必失败的事件</small>
+          <small>WARNING</small>
         </div>
         <div className="metric metric-warning">
           <span>错误</span>
           <strong>{latestErrorCount}</strong>
-          <small>ERROR / CRITICAL 级别日志</small>
+          <small>ERROR / CRITICAL</small>
         </div>
       </div>
 
       <Section title="实时日志">
         <div className="section-toolbar">
-          <p className="section-lead">
-            查看 Xona 应用日志。这里展示的是容器内应用 stdout 的同源日志；部署后也可以用 <code>docker logs</code> 查看。
-          </p>
           <div className="button-row">
             <button type="button" onClick={loadRecent}>
               刷新
@@ -134,12 +131,7 @@ export function LogsPage() {
         <p className="muted">{dockerNote}</p>
 
         {loading && !visibleEntries.length ? (
-          <LoadingSkeleton
-            description="读取内存中最近的 Xona 应用日志，并连接实时日志流。"
-            rows={5}
-            title="正在加载日志"
-            variant="table"
-          />
+          <LoadingSkeleton rows={5} title="正在加载日志" variant="table" />
         ) : visibleEntries.length ? (
           <div className="log-console" aria-label="实时日志输出">
             {visibleEntries.map((entry) => (
@@ -155,7 +147,7 @@ export function LogsPage() {
         ) : (
           <EmptyState
             actions={[{ label: "刷新日志", onClick: loadRecent }]}
-            description="执行扫描、保存设置、刷新页面或打开其他模块后，新的应用日志会显示在这里。部署后也可以用 docker logs 查看同一批 stdout 日志。"
+            description="暂无应用日志。"
             icon="≋"
             title="暂无日志"
           />

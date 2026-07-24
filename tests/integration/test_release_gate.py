@@ -85,21 +85,21 @@ def test_release_gate_trap_runs_compose_down_after_compose_is_touched() -> None:
 def test_release_gate_keeps_real_xchina_smoke_separate_and_opt_in() -> None:
     script = _read("scripts/release_gate.sh")
     docs = _read("docs/plans/2026-07-22-xona-release-gates.md")
-    readme = _read("README.md")
 
     assert "real_xchina_smoke.py" not in script
-    for body in (docs, readme):
-        lowered = body.lower()
-        assert "scripts/real_xchina_smoke.py" in body
-        assert "opt-in" in lowered
-        assert "read-only" in lowered
-        assert "not part of default release gates" in lowered or "separate from the default release gate" in lowered
-        assert "user media" in lowered
+    lowered = docs.lower()
+    assert "scripts/real_xchina_smoke.py" in docs
+    assert "opt-in" in lowered
+    assert "read-only" in lowered
+    assert (
+        "not part of default release gates" in lowered
+        or "separate from the default release gate" in lowered
+    )
+    assert "user media" in lowered
 
 
 def test_docs_record_exact_gates_cleanup_and_playwright_env() -> None:
     docs = _read("docs/plans/2026-07-22-xona-release-gates.md")
-    readme = _read("README.md")
 
     for snippet in [
         "python -m pytest tests/backend tests/integration",
@@ -120,13 +120,12 @@ def test_docs_record_exact_gates_cleanup_and_playwright_env() -> None:
     ]:
         assert snippet in docs
 
-    for body in (docs, readme):
-        assert "PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH" in body
-        assert "XONA_PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH" in body
-        assert "docker compose down" in body
-        assert "push, publish, upload" in body
-        assert "synthetic" in body.lower()
-        assert "disposable" in body.lower()
+    assert "PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH" in docs
+    assert "XONA_PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH" in docs
+    assert "docker compose down" in docs
+    assert "push, publish, upload" in docs
+    assert "synthetic" in docs.lower()
+    assert "disposable" in docs.lower()
 
 
 def _write_fake_command(path: Path, body: str) -> None:

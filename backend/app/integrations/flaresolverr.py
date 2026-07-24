@@ -58,7 +58,9 @@ class FlareSolverrClient:
     ) -> None:
         self._endpoint = endpoint
         self._proxy = parse_proxy_url(proxy_url) if proxy_url else None
-        self._http_client = http_client or httpx.AsyncClient()
+        self._http_client = http_client or httpx.AsyncClient(
+            timeout=httpx.Timeout((max_timeout_ms / 1000) + 10)
+        )
         self._owns_http_client = http_client is None
         self._max_timeout_ms = max_timeout_ms
         self._credentialed_session_id: str | None = None

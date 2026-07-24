@@ -32,7 +32,7 @@ describe("SettingsPage", () => {
 
     for (const heading of [
       "Emby",
-      "存储根",
+      "媒体目录",
       "命名模板",
       "元数据/资源",
       "置信度/安全",

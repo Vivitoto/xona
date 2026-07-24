@@ -3,6 +3,7 @@ import { useRef, useState } from "react";
 import { apiFetch } from "../../api/client";
 import type { AppSettings, TemplatePreviewResponse } from "../../api/types";
 import { FormField, Section } from "../../components/FormField";
+import { TemplateGuide } from "../../components/TemplateGuide";
 import { linesToList, listToLines } from "./settingsForm";
 
 const templateVariables = [
@@ -93,7 +94,7 @@ export function NamingSettings({
       <div className="grid two">
         <FormField label="文件夹模板">
           <textarea
-            placeholder={'{studio}\n{title}'}
+            placeholder={'{studio}\n{xchina_id} - {title}'}
             ref={folderTemplatesRef}
             value={listToLines(settings.folder_templates)}
             onFocus={() => setActiveTemplateTarget("folder_templates")}
@@ -114,6 +115,7 @@ export function NamingSettings({
           />
         </FormField>
       </div>
+      <TemplateGuide />
       <div className="variable-help">
         <button
           aria-expanded={variablesOpen}

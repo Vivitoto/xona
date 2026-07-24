@@ -25,7 +25,7 @@ export function AuthSettings({
           />
         </FormField>
         <FormField
-          description="密码修改需使用认证设置流程；占位符不会通过设置提交。"
+          description="占位符不会提交。"
           label="密码占位符"
         >
           <input readOnly type="password" value="********" />

@@ -155,14 +155,14 @@ export function validateSettings(
   const userRoots = uniqueClean(settings.storage.roots);
   const duplicateRoots = duplicates(settings.storage.roots.map((root) => root.trim()).filter(Boolean));
   if (duplicateRoots.length) {
-    warnings.push(`用户存储根存在重复项：${duplicateRoots.join("、")}`);
+    warnings.push(`用户媒体目录存在重复项：${duplicateRoots.join("、")}`);
   }
   const envRootCollisions = userRoots.filter((root) => settings.storage.env_roots.includes(root));
   if (envRootCollisions.length) {
-    warnings.push(`这些存储根已由环境变量提供，保存时会忽略重复项：${envRootCollisions.join("、")}`);
+    warnings.push(`这些媒体目录已由容器挂载自动提供，保存时会忽略重复项：${envRootCollisions.join("、")}`);
   }
   if (!userRoots.length && !settings.storage.env_roots.length) {
-    warnings.push("尚未配置存储根；手动整理和自动监控需要至少一个媒体根目录。请选择或输入一个目录。");
+    warnings.push("尚未配置媒体目录；手动整理和自动监控需要至少一个媒体根目录。请选择或输入一个目录。");
   }
 
   if (settings.emby.enabled && !cleanOptional(settings.emby.server_url)) {
@@ -239,7 +239,7 @@ export function parseJsonObject(value: string): Record<string, unknown> {
 function summarizeChanges(settings: AppSettings, baseline: AppSettings): string[] {
   const changes: string[] = [];
   if (!sameList(settings.storage.roots, baseline.storage.roots)) {
-    changes.push("用户存储根将更新");
+    changes.push("用户媒体目录将更新");
   }
   if (settings.xchina.base_url !== baseline.xchina.base_url) {
     changes.push("XChina 基础 URL 将更新");

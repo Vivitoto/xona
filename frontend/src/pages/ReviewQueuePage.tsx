@@ -57,21 +57,13 @@ export function ReviewQueuePage() {
 
       <Section title="待复核项目">
         <div className="section-toolbar">
-          <p className="section-lead">
-            检查候选项、门禁原因和已生成计划，再回到手动整理或任务中心处理。
-          </p>
           <button disabled={loading} type="button" onClick={loadQueue}>
             刷新队列
           </button>
         </div>
 
         {loading ? (
-          <LoadingSkeleton
-            description="读取所有 review_required 任务、候选项和门禁原因。"
-            rows={4}
-            title="正在加载复核队列"
-            variant="table"
-          />
+          <LoadingSkeleton rows={4} title="正在加载复核队列" variant="table" />
         ) : jobs.length ? (
           <div className="table-wrap">
             <table>
@@ -113,7 +105,7 @@ export function ReviewQueuePage() {
         ) : (
           <EmptyState
             actions={[{ label: "刷新队列", onClick: loadQueue }]}
-            description="新的低置信度匹配或安全门禁拒绝会显示在这里。你可以先去“手动整理”扫描文件，或配置“自动监控”规则。"
+            description="低置信度匹配或安全门禁拒绝会显示在这里。"
             icon="◇"
             title="没有待复核任务"
           />

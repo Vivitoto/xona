@@ -4,6 +4,7 @@ import asyncio
 import hashlib
 import json
 import mimetypes
+import re
 from dataclasses import dataclass
 from typing import Any, Protocol
 from urllib.parse import quote, urljoin
@@ -159,6 +160,27 @@ def parse_search_results(html: str, *, base_url: str) -> list[SourceSearchResult
                 series=_text(_select_one(card, ".series")) or None,
             )
         )
+    for card in soup.select(".item.video"):
+        if not isinstance(card, Tag):
+            continue
+        title_link = _select_one(card, ".title a") or _select_one(card, "a[title]")
+        title = _text(title_link) or _attr(title_link, "title") or ""
+        href = _attr(title_link, "href")
+        source_id = _source_id_from_url(href)
+        if not source_id or not title or not href:
+            continue
+        tags = [_text(tag) for tag in card.select(".tags > div") if _text(tag)]
+        results.append(
+            SourceSearchResult(
+                source_candidate_id=source_id,
+                title=title,
+                url=_absolute(href, base_url),
+                thumbnail_url=_thumbnail_from_card(card, base_url),
+                actors=_actor_refs(card, base_url=base_url),
+                studio=None,
+                series=tags[0] if tags else None,
+            )
+        )
     return results
 
 
@@ -167,31 +189,43 @@ def parse_video_detail(html: str, *, source_url: str, base_url: str) -> SourceVi
     article = _select_one(soup, ".video-detail")
     if article is None:
         raise XChinaParseError("video detail container not found")
-    source_id = str(article.get("data-source-id") or "").strip()
-    title = _text(_select_one(article, "h1"))
+    source_id = str(article.get("data-source-id") or "").strip() or _source_id_from_url(source_url)
+    title = _text(_select_one(article, "h1")) or _text(_select_one(soup, "h1"))
+    if not title:
+        first_text_item = _select_one(article, ".item .text")
+        title = _text(first_text_item)
     if not source_id or not title:
         raise XChinaParseError("required video detail fields missing")
 
     runtime = _attr(_select_one(article, ".runtime"), "data-minutes")
     actors = _actor_refs(_select_one(article, ".actors") or article, base_url=base_url)
-    poster = _asset(article, ".poster", "poster", base_url)
-    fanart = _asset(article, ".fanart", "fanart", base_url)
+    poster = _asset(article, ".poster", "poster", base_url) or _screenshot_asset(
+        soup, 0, "poster", base_url
+    )
+    fanart = _asset(article, ".fanart", "fanart", base_url) or _screenshot_asset(
+        soup, 1, "fanart", base_url
+    )
     backdrops = [
         SourceAsset(url=_absolute(_attr(backdrop, "src"), base_url), kind="backdrop")
         for backdrop in article.select(".backdrop")
         if _attr(backdrop, "src")
     ]
+    if not backdrops:
+        backdrops = [
+            SourceAsset(url=_absolute(src, base_url), kind="backdrop")
+            for src in _screenshot_urls(soup)[1:]
+        ]
     trailer_url = _attr(_select_one(article, ".trailer"), "href")
     trailer = (
         SourceAsset(url=_absolute(trailer_url, base_url), kind="trailer")
         if trailer_url
         else None
     )
+    categories = _detail_categories(article, base_url=base_url)
     flags = _completeness_flags(
         {
             "source_id": source_id,
             "title": title,
-            "release_date": _attr(_select_one(article, ".release-date"), "datetime"),
             "poster": poster,
             "actors": actors,
         }
@@ -208,10 +242,11 @@ def parse_video_detail(html: str, *, source_url: str, base_url: str) -> SourceVi
         or None,
         runtime_minutes=int(runtime) if runtime and runtime.isdigit() else None,
         studio=_text(_select_one(article, ".studio")) or None,
-        series=_text(_select_one(article, ".series")) or None,
+        series=_text(_select_one(article, ".series")) or (categories[-1] if categories else None),
         director=_text(_select_one(article, ".director")) or None,
         actors=actors,
-        genres=[_text(item) for item in article.select(".genres li") if _text(item)],
+        genres=[_text(item) for item in article.select(".genres li") if _text(item)]
+        or categories[:1],
         tags=[_text(item) for item in article.select(".tags li") if _text(item)],
         poster=poster,
         fanart=fanart,
@@ -269,15 +304,29 @@ def parse_actor_detail(html: str, *, source_url: str, base_url: str) -> SourceAc
 
 def _actor_refs(root: Tag, *, base_url: str) -> list[SourceActorRef]:
     actors: list[SourceActorRef] = []
-    for link in root.select(".actor, .actors a"):
+    seen: set[tuple[str, str | None]] = set()
+    for link in root.select(".actor, .actors a, .model-item"):
         name = _text(link)
         if not name:
             continue
+        href = _attr(link, "href")
+        if not href and isinstance(link.parent, Tag):
+            href = _attr(link.parent, "href")
+        source_id = (
+            str(link.get("data-actor-id") or "").strip()
+            or _source_id_from_url(href)
+            or None
+        )
+        key = (name, source_id)
+        if key in seen:
+            continue
+        seen.add(key)
         actors.append(
             SourceActorRef(
                 name=name,
-                source_id=str(link.get("data-actor-id") or "").strip() or None,
-                profile_url=_absolute(_attr(link, "href"), base_url),
+                source_id=source_id,
+                profile_url=_absolute(href, base_url),
+                portrait_url=_style_background_url(str(link.get("style") or ""), base_url),
             )
         )
     return actors
@@ -288,6 +337,65 @@ def _asset(root: Tag, selector: str, kind: str, base_url: str) -> SourceAsset | 
     if not url:
         return None
     return SourceAsset(url=_absolute(url, base_url), kind=kind)
+
+
+def _thumbnail_from_card(card: Tag, base_url: str) -> str | None:
+    src = _attr(_select_one(card, "img"), "src")
+    if src:
+        return _absolute(src, base_url)
+    return _style_background_url(str((_select_one(card, ".img") or card).get("style") or ""), base_url)
+
+
+def _style_background_url(style: str, base_url: str) -> str | None:
+    match = re.search(r"url\((['\"]?)(.*?)\1\)", style)
+    if not match:
+        return None
+    url = match.group(2).strip()
+    return _absolute(url, base_url) if url else None
+
+
+def _source_id_from_url(url: str | None) -> str:
+    if not url:
+        return ""
+    match = re.search(r"/id-([A-Za-z0-9]+)\.html", url)
+    return match.group(1) if match else ""
+
+
+def _screenshot_urls(soup: BeautifulSoup) -> list[str]:
+    urls: list[str] = []
+    for image in soup.select(".screenshot-container img"):
+        src = _attr(image, "src")
+        if src:
+            urls.append(src)
+    return urls
+
+
+def _screenshot_asset(
+    soup: BeautifulSoup,
+    index: int,
+    kind: str,
+    base_url: str,
+) -> SourceAsset | None:
+    urls = _screenshot_urls(soup)
+    if index >= len(urls):
+        return None
+    return SourceAsset(url=_absolute(urls[index], base_url), kind=kind)
+
+
+def _detail_categories(article: Tag, *, base_url: str) -> list[str]:
+    categories: list[str] = []
+    for item in article.select(".item"):
+        icon = _select_one(item, ".fa-video-camera")
+        if icon is None:
+            continue
+        for link in item.select("a[href]"):
+            href = _attr(link, "href") or ""
+            if "/videos/series-" not in href:
+                continue
+            text = _text(link)
+            if text:
+                categories.append(text)
+    return categories
 
 
 def _completeness_flags(values: dict[str, Any]) -> list[str]:

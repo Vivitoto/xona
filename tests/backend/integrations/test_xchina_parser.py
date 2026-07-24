@@ -30,6 +30,38 @@ def test_search_parser_extracts_candidates() -> None:
     assert results[0].series == "Series Example"
 
 
+def test_realistic_search_parser_extracts_current_xchina_cards() -> None:
+    results = parse_search_results(_fixture("search_keyword_realistic.html"), base_url="https://xchina.co")
+
+    assert len(results) == 2
+    assert results[0].source_candidate_id == "6a5ccfe84b03f"
+    assert results[0].title == "七天控精挑战 前三天精华打包 全程高压精神支配"
+    assert results[0].url == "https://xchina.co/video/id-6a5ccfe84b03f.html"
+    assert results[0].thumbnail_url == "https://img.xchina.download/cover/6a5ccfe84b03f.webp"
+    assert [actor.name for actor in results[0].actors] == ["nana_taipei"]
+    assert results[0].actors[0].source_id == "6266ada45ba33"
+    assert results[0].series == "糖心Vlog"
+
+
+def test_realistic_video_detail_parser_extracts_current_xchina_detail_page() -> None:
+    detail = parse_video_detail(
+        _fixture("video_detail_realistic.html"),
+        source_url="https://xchina.co/video/id-6a5ccfe84b03f.html",
+        base_url="https://xchina.co",
+    )
+
+    assert detail.source_id == "6a5ccfe84b03f"
+    assert detail.title == "七天控精挑战 前三天精华打包 全程高压精神支配"
+    assert detail.series == "糖心Vlog"
+    assert detail.genres == ["中文AV"]
+    assert [actor.name for actor in detail.actors] == ["nana_taipei"]
+    assert detail.actors[0].source_id == "6266ada45ba33"
+    assert detail.actors[0].portrait_url == "https://upload.xchina.io/model/6894b60a1ae47.jpg"
+    assert detail.poster and detail.poster.url == "https://img.xchina.download/cover/6a5ccfe84b03f.webp"
+    assert detail.fanart and detail.fanart.url == "https://img.xchina.download/screenshot/6a5ccfe84b03f.webp"
+    assert detail.is_complete is True
+
+
 def test_video_detail_parser_extracts_complete_metadata() -> None:
     detail = parse_video_detail(
         _fixture("video_detail_sample.html"),

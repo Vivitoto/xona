@@ -24,7 +24,9 @@ def test_xchina_fixtures_are_tiny_synthetic_and_private() -> None:
     fixture_paths = sorted(FIXTURE_ROOT.glob("*.html"))
     assert {path.name for path in fixture_paths} == {
         "actor_detail_sample.html",
+        "search_keyword_realistic.html",
         "search_keyword_sample.html",
+        "video_detail_realistic.html",
         "video_detail_sample.html",
     }
 

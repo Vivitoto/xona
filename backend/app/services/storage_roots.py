@@ -48,8 +48,8 @@ class StorageRootService:
         normalized = self._normalize_root_path(path)
         existing = self._root_by_path(normalized)
         if existing is not None:
-            if existing.source == "env":
-                raise StorageRootValidationError("Cannot replace env-sourced storage root")
+            if existing.source in {"env", "mount"}:
+                raise StorageRootValidationError("Cannot replace read-only storage root")
             existing.enabled = True
             return existing
 
@@ -66,8 +66,8 @@ class StorageRootService:
         enabled: bool | None = None,
     ) -> StorageRoot:
         root = self._get_root(root_id, include_disabled=True)
-        if root.source == "env":
-            raise StorageRootValidationError("Cannot modify env-sourced storage root")
+        if root.source in {"env", "mount"}:
+            raise StorageRootValidationError("Cannot modify read-only storage root")
         if path is not None:
             root.path = str(self._normalize_root_path(path))
         if enabled is not None:
@@ -77,8 +77,8 @@ class StorageRootService:
 
     def delete_root(self, root_id: int) -> None:
         root = self._get_root(root_id, include_disabled=True)
-        if root.source == "env":
-            raise StorageRootValidationError("Cannot delete env-sourced storage root")
+        if root.source in {"env", "mount"}:
+            raise StorageRootValidationError("Cannot delete read-only storage root")
         self._session.delete(root)
         self._session.flush()
 
@@ -150,7 +150,9 @@ class StorageRootService:
 
     def reconcile_roots(self) -> ReconciliationReport:
         self._ensure_bootstrap_roots()
-        current_env_paths = {str(path) for path in self._settings.storage_roots}
+        current_bootstrap_paths = {
+            str(path) for path, _source in self._settings.bootstrap_storage_roots()
+        }
         removed: list[str] = []
         missing: list[str] = []
         invalid: list[str] = []
@@ -159,7 +161,7 @@ class StorageRootService:
 
         for root in self.list_roots(include_disabled=True):
             root_path = Path(root.path)
-            if root.source == "env" and root.path not in current_env_paths:
+            if root.source in {"env", "mount"} and root.path not in current_bootstrap_paths:
                 removed.append(root.path)
             if not root_path.is_absolute() or _contains_nul(root_path):
                 invalid.append(root.path)
@@ -200,13 +202,22 @@ class StorageRootService:
         return False
 
     def _ensure_bootstrap_roots(self) -> None:
-        for path in self._settings.storage_roots:
+        bootstrap_roots = self._settings.bootstrap_storage_roots()
+        current_bootstrap_paths = {str(path) for path, _source in bootstrap_roots}
+        for path, source in bootstrap_roots:
             existing = self._root_by_path(path)
             if existing is None:
-                self._session.add(StorageRoot(path=str(path), source="env", enabled=True))
+                self._session.add(StorageRoot(path=str(path), source=source, enabled=True))
             elif existing.source == "user":
-                existing.source = "env"
+                existing.source = source
                 existing.enabled = True
+            else:
+                existing.enabled = True
+        for root in self._session.scalars(
+            select(StorageRoot).where(StorageRoot.source.in_(("env", "mount")))
+        ):
+            if root.path not in current_bootstrap_paths:
+                root.enabled = False
         self._session.flush()
 
     def _root_by_path(self, path: Path) -> StorageRoot | None:

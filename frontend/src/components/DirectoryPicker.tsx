@@ -37,7 +37,7 @@ export function DirectoryPicker({
         setBrowseResult(null);
       }
     } catch (exc) {
-      setError(exc instanceof Error ? exc.message : "无法加载存储根");
+      setError(exc instanceof Error ? exc.message : "无法加载媒体目录");
     } finally {
       setLoading(false);
     }
@@ -45,7 +45,7 @@ export function DirectoryPicker({
 
   async function browse(root = selectedRoot, path = currentPath) {
     if (!root) {
-      setError("请先配置存储根目录");
+      setError("请先配置媒体目录");
       return;
     }
     setError("");
@@ -104,7 +104,7 @@ export function DirectoryPicker({
 
   return (
     <>
-      <button className="secondary" type="button" onClick={openPicker}>
+      <button className="secondary directory-picker-trigger" type="button" onClick={openPicker}>
         {buttonLabel}
       </button>
       {open ? (
@@ -118,7 +118,7 @@ export function DirectoryPicker({
             <div className="row row-between">
               <div>
                 <h2 id={titleId}>{title}</h2>
-                <p className="muted">选择一个存储根，然后点击目录逐层进入。</p>
+                <p className="muted">选择一个媒体目录，然后点击目录逐层进入。</p>
               </div>
               <button className="secondary" type="button" onClick={() => setOpen(false)}>
                 关闭
@@ -126,7 +126,7 @@ export function DirectoryPicker({
             </div>
 
             {roots.length ? (
-              <div className="root-picker" aria-label="存储根列表">
+              <div className="root-picker" aria-label="媒体目录列表">
                 {roots.map((root) => (
                   <button
                     aria-pressed={selectedRoot?.id === root.id}
@@ -136,7 +136,7 @@ export function DirectoryPicker({
                     onClick={() => switchRoot(root)}
                   >
                     <span className="root-name">{root.path}</span>
-                    <span className="badge">{root.source === "env" ? "环境变量" : "用户"}</span>
+                    <span className="badge">{root.source === "user" ? "用户" : "容器挂载"}</span>
                   </button>
                 ))}
               </div>
@@ -197,7 +197,7 @@ export function DirectoryPicker({
               </div>
             ) : (
               <p className="muted">
-                {loading ? "加载中..." : "请先配置或选择一个存储根目录。"}
+                {loading ? "加载中..." : "请先配置或选择一个媒体目录。"}
               </p>
             )}
           </div>

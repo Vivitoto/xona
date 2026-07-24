@@ -86,12 +86,25 @@ export function WatchRuleEditor({
     patch({ emby_options: { ...draft.emby_options, [key]: value } });
   }
 
+  function addExcludedDestinationPrefix(path: string) {
+    const nextPrefix = path.trim();
+    if (!nextPrefix || draft.excluded_destination_prefixes.includes(nextPrefix)) {
+      return;
+    }
+    patch({
+      excluded_destination_prefixes: [
+        ...draft.excluded_destination_prefixes,
+        nextPrefix,
+      ],
+    });
+  }
+
   return (
     <div className="editor-grid">
       <div className="grid two">
         <div className="path-field">
           <FormField
-            description="从已配置的存储根里选择要监控的源目录。"
+            description="从已配置的媒体目录里选择要监控的源目录。"
             label="源目录"
           >
             <input
@@ -300,15 +313,26 @@ export function WatchRuleEditor({
             onChange={(event) => patch({ exclude_patterns: lines(event.target.value) })}
           />
         </FormField>
-        <FormField label="已排除目标前缀">
-          <textarea
-            placeholder="/downloads/incoming/organized"
-            value={draft.excluded_destination_prefixes.join("\n")}
-            onChange={(event) =>
-              patch({ excluded_destination_prefixes: lines(event.target.value) })
-            }
+        <div className="path-field path-field-textarea">
+          <FormField
+            description="每行一个目录前缀；也可以从媒体目录中选择后追加。"
+            label="已排除目标前缀"
+          >
+            <textarea
+              placeholder="/downloads/incoming/organized"
+              value={draft.excluded_destination_prefixes.join("\n")}
+              onChange={(event) =>
+                patch({ excluded_destination_prefixes: lines(event.target.value) })
+              }
+            />
+          </FormField>
+          <DirectoryPicker
+            buttonLabel="添加前缀"
+            initialPath={draft.destination_directory || draft.source_directory}
+            onSelect={addExcludedDestinationPrefix}
+            title="选择排除前缀目录"
           />
-        </FormField>
+        </div>
       </div>
 
       <button type="button" onClick={onSubmit}>

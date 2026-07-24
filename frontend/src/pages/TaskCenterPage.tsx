@@ -75,18 +75,13 @@ export function TaskCenterPage() {
         <div className="metric metric-success">
           <span>时间线事件</span>
           <strong>{events.length}</strong>
-          <small>事件 payload 会自动脱敏显示</small>
+          <small>payload 自动脱敏</small>
         </div>
       </div>
 
       <Section title="任务控制台">
-        <div className="section-toolbar">
-          <p className="section-lead">
-            按任务 ID 查看状态、时间线和可用操作；敏感字段会在时间线中自动脱敏。
-          </p>
-        </div>
         <div className="task-action-grid">
-          <FormField label="任务 ID" description="输入已有任务编号，例如 42。">
+          <FormField label="任务 ID">
             <input
               placeholder="42"
               value={jobId}

@@ -72,37 +72,29 @@ export function HistoryRollbackPage() {
         <div className="metric metric-primary">
           <span>历史计划</span>
           <strong>{loading ? "-" : plans.length}</strong>
-          <small>已经生成或执行过的操作计划</small>
+          <small>操作计划</small>
         </div>
         <div className="metric metric-success">
           <span>完成记录</span>
           <strong>{loading ? "-" : completedCount}</strong>
-          <small>可作为回滚候选的完成计划</small>
+          <small>已完成</small>
         </div>
         <div className="metric metric-warning">
           <span>外部变更</span>
           <strong>{loading ? "-" : modifiedCount}</strong>
-          <small>校验发现目标可能已被修改</small>
+          <small>目标被修改</small>
         </div>
       </div>
 
       <Section title="操作历史">
         <div className="section-toolbar">
-          <p className="section-lead">
-            查看已生成计划、目标路径和校验状态；回滚前会检查外部修改，避免覆盖用户手动变更。
-          </p>
           <button disabled={loading} type="button" onClick={loadHistory}>
             刷新历史
           </button>
         </div>
 
         {loading ? (
-          <LoadingSkeleton
-            description="读取操作计划、目标路径和回滚校验状态。"
-            rows={4}
-            title="正在加载历史记录"
-            variant="table"
-          />
+          <LoadingSkeleton rows={4} title="正在加载历史记录" variant="table" />
         ) : plans.length ? (
           <div className="table-wrap">
             <table>
@@ -170,7 +162,7 @@ export function HistoryRollbackPage() {
         ) : (
           <EmptyState
             actions={[{ label: "刷新历史", onClick: loadHistory }]}
-            description="完成预览或执行后，操作计划会出现在这里用于审计和回滚。第一次使用时，先从“手动整理”生成预览计划。"
+            description="操作计划会显示在这里。"
             icon="↺"
             title="暂无操作历史"
           />
@@ -200,7 +192,7 @@ export function HistoryRollbackPage() {
           </>
         ) : (
           <EmptyState
-            description="从上方历史列表选择一个计划，查看目标路径和可回滚步骤。"
+            description="从历史列表选择一个计划。"
             icon="◎"
             title="还没有选择计划"
           />
@@ -213,9 +205,7 @@ export function HistoryRollbackPage() {
           {error}
         </p>
       ) : null}
-      {!loading && plans.length ? (
-        <p className="muted">当前历史共涉及 {targetCount} 个目标路径。</p>
-      ) : null}
+      {!loading && plans.length ? <p className="muted">共 {targetCount} 个目标路径。</p> : null}
     </div>
   );
 }
