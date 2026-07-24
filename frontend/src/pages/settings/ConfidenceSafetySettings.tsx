@@ -1,4 +1,5 @@
 import type { AppSettings } from "../../api/types";
+import { DirectoryPicker } from "../../components/DirectoryPicker";
 import { CheckboxField, FormField, Section } from "../../components/FormField";
 
 export function ConfidenceSafetySettings({
@@ -15,6 +16,7 @@ export function ConfidenceSafetySettings({
           <input
             max={100}
             min={0}
+            placeholder="92"
             type="number"
             value={settings.confidence_threshold}
             onChange={(event) =>
@@ -36,12 +38,20 @@ export function ConfidenceSafetySettings({
             onChange({ refuse_unresolved_multipart })
           }
         />
-        <FormField label="安全缓存目录">
-          <input
-            value={settings.cache_dir ?? ""}
-            onChange={(event) => onChange({ cache_dir: event.target.value })}
+        <div className="path-field">
+          <FormField label="安全缓存目录">
+            <input
+              placeholder="/config/cache/safety"
+              value={settings.cache_dir ?? ""}
+              onChange={(event) => onChange({ cache_dir: event.target.value })}
+            />
+          </FormField>
+          <DirectoryPicker
+            initialPath={settings.cache_dir ?? ""}
+            onSelect={(cache_dir) => onChange({ cache_dir })}
+            title="选择安全缓存目录"
           />
-        </FormField>
+        </div>
       </div>
     </Section>
   );

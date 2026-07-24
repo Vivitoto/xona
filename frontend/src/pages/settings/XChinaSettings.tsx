@@ -2,6 +2,7 @@ import { useState } from "react";
 
 import { apiFetch } from "../../api/client";
 import type { AppSettings } from "../../api/types";
+import { DirectoryPicker } from "../../components/DirectoryPicker";
 import { CheckboxField, FormField, Section } from "../../components/FormField";
 import { isRedactedPlaceholder, redactText } from "../../utils/redaction";
 
@@ -46,6 +47,7 @@ export function XChinaSettings({
       <div className="grid three">
         <FormField label="XChina 基础 URL">
           <input
+            placeholder="https://www.xchina.co"
             value={settings.base_url}
             onChange={(event) => onChange({ base_url: event.target.value })}
           />
@@ -67,20 +69,30 @@ export function XChinaSettings({
           label="代理 URL"
         >
           <input
+            placeholder="http://user:pass@127.0.0.1:7890"
             value={settings.proxy_url ?? ""}
             onChange={(event) => onChange({ proxy_url: event.target.value })}
           />
         </FormField>
       </div>
       <div className="grid three">
-        <FormField label="XChina 缓存目录">
-          <input
-            value={settings.cache_dir ?? ""}
-            onChange={(event) => onChange({ cache_dir: event.target.value })}
+        <div className="path-field">
+          <FormField label="XChina 缓存目录">
+            <input
+              placeholder="/config/cache/xchina"
+              value={settings.cache_dir ?? ""}
+              onChange={(event) => onChange({ cache_dir: event.target.value })}
+            />
+          </FormField>
+          <DirectoryPicker
+            initialPath={settings.cache_dir ?? ""}
+            onSelect={(cache_dir) => onChange({ cache_dir })}
+            title="选择 XChina 缓存目录"
           />
-        </FormField>
+        </div>
         <FormField label="XChina 测试查询">
           <input
+            placeholder="SSIS-001 或演员名"
             value={testQuery}
             onChange={(event) => setTestQuery(event.target.value)}
           />

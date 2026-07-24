@@ -1,7 +1,5 @@
-import { useState } from "react";
-
-import { apiFetch } from "../../api/client";
-import type { AppSettings, BrowseResponse } from "../../api/types";
+import type { AppSettings } from "../../api/types";
+import { DirectoryPicker } from "../../components/DirectoryPicker";
 import { FormField, Section } from "../../components/FormField";
 import { linesToList, listToLines } from "./settingsForm";
 
@@ -12,78 +10,40 @@ export function StorageSettings({
   settings: AppSettings["storage"];
   onChange: (patch: Partial<AppSettings["storage"]>) => void;
 }) {
-  const [browseRootId, setBrowseRootId] = useState("1");
-  const [browsePath, setBrowsePath] = useState("");
-  const [browseResult, setBrowseResult] = useState<BrowseResponse | null>(null);
-  const [error, setError] = useState("");
-
-  async function browse() {
-    setError("");
-    try {
-      const query = new URLSearchParams({
-        root_id: browseRootId,
-        path: browsePath,
-      });
-      setBrowseResult(
-        await apiFetch<BrowseResponse>(`/api/storage-roots/browse?${query}`),
-      );
-    } catch (exc) {
-      setError(exc instanceof Error ? exc.message : "浏览失败");
+  function addRoot(path: string) {
+    if (settings.roots.includes(path) || settings.env_roots.includes(path)) {
+      return;
     }
+    onChange({ roots: [...settings.roots, path] });
   }
 
   return (
     <Section title="存储根">
-      <div className="grid two">
+      {settings.env_roots.length ? (
+        <div className="readonly-list" aria-label="环境变量配置的存储根">
+          <div className="readonly-list-title">环境变量配置的存储根（只读）</div>
+          {settings.env_roots.map((root) => (
+            <div className="readonly-item" key={root}>
+              <code>{root}</code>
+              <span className="badge">环境变量</span>
+            </div>
+          ))}
+        </div>
+      ) : null}
+      <div className="path-field path-field-textarea">
         <FormField
-          description="每行一个挂载根目录。后端会在使用前验证这些根目录。"
-          label="存储根"
+          description="每行一个用户可管理的挂载根目录。环境变量配置的根目录会在上方只读展示，不会在保存时被覆盖。"
+          label="用户存储根"
         >
           <textarea
+            placeholder={'/media/downloads\n/mnt/archive'}
             value={listToLines(settings.roots)}
             onChange={(event) =>
               onChange({ roots: linesToList(event.target.value) })
             }
           />
         </FormField>
-        <div className="inline-panel">
-          <h3>源浏览</h3>
-          <div className="grid two">
-            <FormField label="根 ID">
-              <input
-                inputMode="numeric"
-                value={browseRootId}
-                onChange={(event) => setBrowseRootId(event.target.value)}
-              />
-            </FormField>
-            <FormField label="相对路径">
-              <input
-                value={browsePath}
-                onChange={(event) => setBrowsePath(event.target.value)}
-              />
-            </FormField>
-          </div>
-          <button type="button" onClick={browse}>
-            浏览源目录
-          </button>
-          {error ? <p className="status error">{error}</p> : null}
-          {browseResult ? (
-            <ul className="dense-list" aria-label="浏览条目">
-              {browseResult.entries.map((entry) => (
-                <li key={entry.path}>
-                  <button
-                    className="link-button"
-                    disabled={!entry.is_dir}
-                    type="button"
-                    onClick={() => setBrowsePath(entry.path)}
-                  >
-                    {entry.is_dir ? "目录" : "文件"} {entry.name}
-                  </button>
-                </li>
-              ))}
-            </ul>
-          ) : null}
-        </div>
+        <DirectoryPicker onSelect={addRoot} title="选择存储根目录" />
       </div>
     </Section>
   );

@@ -8,8 +8,9 @@ export function redactText(value: unknown): string {
   return raw
     .replace(/Bearer\s+[A-Za-z0-9._~+/=-]+/gi, `Bearer ${REDACTED_PLACEHOLDER}`)
     .replace(
-      /\b(api[_-]?key|token|cookie|password|secret)\b\s*[:=]\s*["']?[^"',\s}]+/gi,
-      (_match, key: string) => `${key}: ${REDACTED_PLACEHOLDER}`,
+      /(["']?)(api[_-]?key|token|cookie|password|secret)(\1)\s*[:=]\s*["']?[^"',\s}]+["']?/gi,
+      (_match, quote: string, key: string) =>
+        quote ? `${quote}${key}${quote}: "${REDACTED_PLACEHOLDER}"` : `${key}: ${REDACTED_PLACEHOLDER}`,
     )
     .replace(
       /(https?:\/\/)([^:/@\s]+):([^@/\s]+)@/gi,

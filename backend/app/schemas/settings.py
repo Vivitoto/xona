@@ -10,6 +10,7 @@ from backend.app.schemas.emby import EmbyPathMapping
 
 class StorageSettings(BaseModel):
     roots: list[Path] = Field(default_factory=list)
+    env_roots: list[Path] = Field(default_factory=list)
 
 
 class XChinaSettings(BaseModel):

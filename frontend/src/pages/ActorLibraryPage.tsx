@@ -11,10 +11,21 @@ import type {
 } from "../api/types";
 import { ActorMergeDialog } from "../components/ActorMergeDialog";
 import { ActorPortrait } from "../components/ActorPortrait";
+import { EmptyState } from "../components/EmptyState";
 import { CheckboxField, FormField, Section } from "../components/FormField";
+import { LoadingSkeleton } from "../components/LoadingSkeleton";
+import { Tabs, type TabItem } from "../components/Tabs";
 import { redactText } from "../utils/redaction";
 
+type ActorTab = "list" | "sync";
+
+const actorTabs: readonly TabItem<ActorTab>[] = [
+  { id: "list", label: "列表" },
+  { id: "sync", label: "同步" },
+];
+
 export function ActorLibraryPage() {
+  const [activeTab, setActiveTab] = useState<ActorTab>("list");
   const [actors, setActors] = useState<ActorRead[]>([]);
   const [search, setSearch] = useState("");
   const [missingImage, setMissingImage] = useState(false);
@@ -24,9 +35,11 @@ export function ActorLibraryPage() {
   const [works, setWorks] = useState<Record<number, Record<string, unknown>[]>>({});
   const [status, setStatus] = useState("");
   const [error, setError] = useState("");
+  const [loading, setLoading] = useState(true);
 
   async function loadActors() {
     setError("");
+    setLoading(true);
     const params = new URLSearchParams();
     if (search) {
       params.set("search", search);
@@ -38,14 +51,17 @@ export function ActorLibraryPage() {
       const response = await apiFetch<ActorListResponse>(
         `/api/actors${params.toString() ? `?${params}` : ""}`,
       );
-      setActors(response.actors);
+      const nextActors = Array.isArray(response.actors) ? response.actors : [];
+      setActors(nextActors);
       setAliasDrafts(
         Object.fromEntries(
-          response.actors.map((actor) => [actor.id, actor.aliases.join("\n")]),
+          nextActors.map((actor) => [actor.id, actor.aliases.join("\n")]),
         ),
       );
     } catch (exc) {
       setError(exc instanceof Error ? exc.message : "无法加载演员");
+    } finally {
+      setLoading(false);
     }
   }
 
@@ -113,7 +129,10 @@ export function ActorLibraryPage() {
     const response = await apiFetch<ActorWorksResponse>(
       `/api/actors/${actor.id}/works`,
     );
-    setWorks((current) => ({ ...current, [actor.id]: response.works }));
+    setWorks((current) => ({
+      ...current,
+      [actor.id]: Array.isArray(response.works) ? response.works : [],
+    }));
   }
 
   async function syncEmby(actor: ActorRead) {
@@ -127,6 +146,17 @@ export function ActorLibraryPage() {
         response.diagnostics,
       )}`,
     );
+  }
+
+  async function syncVisibleActors() {
+    if (!actors.length) {
+      setStatus("没有可同步的演员");
+      return;
+    }
+    for (const actor of actors) {
+      await syncEmby(actor);
+    }
+    setStatus(`已同步 ${actors.length} 位演员`);
   }
 
   function replaceActor(actor: ActorRead) {
@@ -145,106 +175,214 @@ export function ActorLibraryPage() {
 
   return (
     <div className="page-stack">
-      <Section title="演员库">
-        <div className="grid four">
-          <FormField label="演员搜索">
-            <input value={search} onChange={(event) => setSearch(event.target.value)} />
-          </FormField>
-          <CheckboxField
-            checked={missingImage}
-            label="仅缺少图片"
-            onChange={setMissingImage}
-          />
-          <FormField label="替换头像文件">
-            <input accept="image/*" type="file" onChange={portraitChange} />
-          </FormField>
-          <button type="button" onClick={loadActors}>
-            筛选演员
-          </button>
-        </div>
-
-        <table>
-          <caption>演员</caption>
-          <thead>
-            <tr>
-              <th>头像</th>
-              <th>名称</th>
-              <th>别名</th>
-              <th>关联作品</th>
-              <th>Emby</th>
-              <th>操作</th>
-            </tr>
-          </thead>
-          <tbody>
-            {actors.length ? (
-              actors.map((actor) => (
-                <tr key={actor.id}>
-                  <td>
-                    <ActorPortrait actor={actor} />
-                  </td>
-                  <td>
-                    <strong>{actor.canonical_name}</strong>
-                    <p className="muted">{actor.profile_url ?? actor.source}</p>
-                  </td>
-                  <td>
-                    <textarea
-                      aria-label={`${actor.canonical_name} 的别名`}
-                      value={aliasDrafts[actor.id] ?? ""}
-                      onChange={(event) =>
-                        setAliasDrafts((current) => ({
-                          ...current,
-                          [actor.id]: event.target.value,
-                        }))
-                      }
-                    />
-                  </td>
-                  <td>
-                    <button type="button" onClick={() => loadWorks(actor)}>
-                      关联作品
-                    </button>
-                    <ul className="dense-list">
-                      {(works[actor.id] ?? actor.linked_works ?? []).map((work, index) => (
-                        <li key={index}>{workTitle(work)}</li>
-                      ))}
-                    </ul>
-                  </td>
-                  <td>{actor.emby_person_id ?? "未关联"}</td>
-                  <td>
-                    <div className="button-column">
-                      <button type="button" onClick={() => saveAliases(actor)}>
-                        保存别名
-                      </button>
-                      <button type="button" onClick={() => setMergeActor(actor)}>
-                        合并
-                      </button>
-                      <button type="button" onClick={() => replacePortrait(actor)}>
-                        替换图片
-                      </button>
-                      <button type="button" onClick={() => refreshActor(actor)}>
-                        刷新
-                      </button>
-                      <button type="button" onClick={() => syncEmby(actor)}>
-                        同步 Emby
-                      </button>
-                    </div>
-                  </td>
-                </tr>
-              ))
-            ) : (
-              <tr>
-                <td colSpan={6}>未找到演员。</td>
-              </tr>
-            )}
-          </tbody>
-        </table>
-        {status ? <p className="status">{status}</p> : null}
-        {error ? <p className="status error">{redactText(error)}</p> : null}
-      </Section>
-      <ActorMergeDialog
-        actor={mergeActor}
-        onClose={() => setMergeActor(null)}
-        onMerge={mergeDuplicate}
+      <Tabs
+        activeTab={activeTab}
+        ariaLabel="演员库视图"
+        tabs={actorTabs}
+        onChange={setActiveTab}
       />
+      <div className="tab-panel" role="tabpanel">
+        {activeTab === "list" ? (
+          <Section title="演员库">
+            <div className="grid four">
+              <FormField label="演员搜索">
+                <input
+                  value={search}
+                  onChange={(event) => setSearch(event.target.value)}
+                />
+              </FormField>
+              <CheckboxField
+                checked={missingImage}
+                label="仅缺少图片"
+                onChange={setMissingImage}
+              />
+              <FormField label="替换头像文件">
+                <input accept="image/*" type="file" onChange={portraitChange} />
+              </FormField>
+              <button type="button" onClick={loadActors}>
+                筛选演员
+              </button>
+            </div>
+
+            {loading ? (
+              <LoadingSkeleton
+                description="读取演员资料、头像缓存和 Emby 关联状态。"
+                rows={5}
+                title="正在加载演员库"
+                variant="table"
+              />
+            ) : actors.length ? (
+              <table>
+                <caption>演员</caption>
+                <thead>
+                  <tr>
+                    <th>头像</th>
+                    <th>名称</th>
+                    <th>别名</th>
+                    <th>关联作品</th>
+                    <th>Emby</th>
+                    <th>操作</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {actors.map((actor) => (
+                    <tr key={actor.id}>
+                      <td>
+                        <ActorPortrait actor={actor} />
+                      </td>
+                      <td>
+                        <strong>{actor.canonical_name}</strong>
+                        <p className="muted">
+                          {actor.profile_url ?? actor.source}
+                        </p>
+                      </td>
+                      <td>
+                        <textarea
+                          aria-label={`${actor.canonical_name} 的别名`}
+                          value={aliasDrafts[actor.id] ?? ""}
+                          onChange={(event) =>
+                            setAliasDrafts((current) => ({
+                              ...current,
+                              [actor.id]: event.target.value,
+                            }))
+                          }
+                        />
+                      </td>
+                      <td>
+                        <button type="button" onClick={() => loadWorks(actor)}>
+                          关联作品
+                        </button>
+                        <ul className="dense-list">
+                          {(works[actor.id] ?? actor.linked_works ?? []).map(
+                            (work, index) => (
+                              <li key={index}>{workTitle(work)}</li>
+                            ),
+                          )}
+                        </ul>
+                      </td>
+                      <td>{actor.emby_person_id ?? "未关联"}</td>
+                      <td>
+                        <div className="button-column">
+                          <button
+                            type="button"
+                            onClick={() => saveAliases(actor)}
+                          >
+                            保存别名
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setMergeActor(actor)}
+                          >
+                            合并
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => replacePortrait(actor)}
+                          >
+                            替换图片
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => refreshActor(actor)}
+                          >
+                            刷新
+                          </button>
+                          <button type="button" onClick={() => syncEmby(actor)}>
+                            同步 Emby
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            ) : (
+              <EmptyState
+                actions={[{ label: "刷新演员", onClick: loadActors }]}
+                description="演员会在元数据匹配、刷新或同步后进入本地缓存。第一次使用时，先去“手动整理”搜索作品，或在这里刷新已有缓存。"
+                icon="◎"
+                title="未找到演员"
+              />
+            )}
+          </Section>
+        ) : (
+          <Section title="演员同步">
+            <div className="button-row">
+              <button type="button" onClick={loadActors}>
+                刷新演员列表
+              </button>
+              <button type="button" onClick={syncVisibleActors}>
+                同步全部可见演员
+              </button>
+            </div>
+            {loading ? (
+              <LoadingSkeleton
+                description="读取可同步演员和 Emby 关联状态。"
+                rows={4}
+                title="正在加载同步列表"
+                variant="table"
+              />
+            ) : actors.length ? (
+              <table>
+                <caption>演员 Emby 同步</caption>
+                <thead>
+                  <tr>
+                    <th>头像</th>
+                    <th>名称</th>
+                    <th>Emby</th>
+                    <th>操作</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {actors.map((actor) => (
+                    <tr key={actor.id}>
+                      <td>
+                        <ActorPortrait actor={actor} />
+                      </td>
+                      <td>
+                        <strong>{actor.canonical_name}</strong>
+                        <p className="muted">
+                          {actor.profile_url ?? actor.source}
+                        </p>
+                      </td>
+                      <td>{actor.emby_person_id ?? "未关联"}</td>
+                      <td>
+                        <div className="button-row">
+                          <button
+                            type="button"
+                            onClick={() => refreshActor(actor)}
+                          >
+                            刷新
+                          </button>
+                          <button type="button" onClick={() => syncEmby(actor)}>
+                            同步 Emby
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            ) : (
+              <EmptyState
+                actions={[{ label: "刷新演员列表", onClick: loadActors }]}
+                description="没有可同步的演员。完成一次元数据匹配或刷新演员缓存后，再回到这里同步 Emby 人物信息。"
+                icon="◎"
+                title="没有可同步演员"
+              />
+            )}
+          </Section>
+        )}
+      </div>
+      {status ? <p className="status">{status}</p> : null}
+      {error ? <p className="status error">{redactText(error)}</p> : null}
+      {activeTab === "list" ? (
+        <ActorMergeDialog
+          actor={mergeActor}
+          onClose={() => setMergeActor(null)}
+          onMerge={mergeDuplicate}
+        />
+      ) : null}
     </div>
   );
 }

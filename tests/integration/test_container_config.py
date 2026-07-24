@@ -19,11 +19,11 @@ def _read(relative_path: str) -> str:
 def test_dockerfile_builds_frontend_and_installs_backend_package() -> None:
     dockerfile = _read("Dockerfile")
 
-    assert "FROM node:20" in dockerfile
-    assert "AS frontend-build" in dockerfile
+    assert "FROM node:22-bookworm-slim AS frontend-build" in dockerfile
     assert "RUN npm run build" in dockerfile
     assert "FROM python:3.12-slim AS runtime" in dockerfile
-    assert "python -m pip install --no-cache-dir ." in dockerfile
+    assert "python -m pip install --no-cache-dir -r constraints.txt" in dockerfile
+    assert "COPY backend ./backend" in dockerfile
     assert "COPY --from=frontend-build /build/frontend/dist /app/static" in dockerfile
     assert "ENTRYPOINT [\"/usr/local/bin/xona-entrypoint\"]" in dockerfile
     assert (

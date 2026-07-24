@@ -20,13 +20,6 @@ describe("AutomaticMonitorsPage", () => {
         response: { jobs: [] },
       },
       {
-        path: "/api/storage-roots/browse?root_id=1",
-        response: {
-          root: { id: 1, path: "/media", source: "runtime", enabled: true },
-          entries: [{ name: "incoming", path: "/media/incoming", is_dir: true }],
-        },
-      },
-      {
         method: "POST",
         path: "/api/watch-rules",
         response: { ...watchRuleFixture(), rule_id: "rule-created" },
@@ -62,16 +55,17 @@ describe("AutomaticMonitorsPage", () => {
       "排除模式",
       "已排除目标前缀",
     ]) {
-      expect(screen.getByLabelText(new RegExp(label, "i"))).toBeTruthy();
+      expect(screen.getAllByLabelText(new RegExp(label, "i"))[0]).toBeTruthy();
     }
+    expect(screen.getAllByRole("button", { name: "选择目录" }).length).toBeGreaterThanOrEqual(2);
     expect(screen.getByRole("button", { name: "实时" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "轮询" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "复制" })).toBeTruthy();
 
-    fireEvent.change(screen.getByLabelText(/源目录/i), {
+    fireEvent.change(screen.getAllByLabelText(/源目录/i)[0], {
       target: { value: "/media/incoming" },
     });
-    fireEvent.change(screen.getByLabelText(/目标目录/i), {
+    fireEvent.change(screen.getAllByLabelText(/目标目录/i)[0], {
       target: { value: "/media/incoming/organized" },
     });
 
@@ -79,13 +73,10 @@ describe("AutomaticMonitorsPage", () => {
       await screen.findByText(/目标目录位于被监控源目录内/i),
     ).toBeTruthy();
     await waitFor(() =>
-      expect(screen.getByLabelText(/已排除目标前缀/i)).toHaveValue(
+      expect(screen.getAllByLabelText(/已排除目标前缀/i)[0]).toHaveValue(
         "/media/incoming/organized",
       ),
     );
-
-    fireEvent.click(screen.getByRole("button", { name: "浏览存储根" }));
-    expect(await screen.findByText("incoming")).toBeTruthy();
 
     fireEvent.click(screen.getByRole("button", { name: "创建监控规则" }));
     await waitFor(() =>

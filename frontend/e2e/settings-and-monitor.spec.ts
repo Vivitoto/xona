@@ -23,19 +23,25 @@ test("设置 saves exact connector, mapping, template, threshold, and asset poli
   await page.getByRole("button", { name: "设置" }).click();
   await expect(activePage(page).getByRole("heading", { name: "设置" })).toBeVisible();
 
+  await page.getByRole("tab", { name: "存储根" }).click();
   await page.getByRole("textbox", { name: /存储根/ }).fill(fixture.media_root);
+  await page.getByRole("tab", { name: "XChina" }).click();
   await page.getByLabel("精确 FlareSolverr 端点").fill(flareSolverrEndpoint);
   await page.getByLabel("代理 URL").fill(proxyURL);
   await page.getByLabel("XChina 缓存目录").fill(fixture.xchina_cache_dir);
+  await page.getByRole("tab", { name: "Emby" }).click();
   await page.getByLabel("启用 Emby 通知").check();
   await page.getByLabel("Emby 服务器 URL").fill("http://emby.fixture.local:8096");
   await page.getByLabel("Emby API key").fill("emby-fixture-key");
   await page.getByRole("button", { name: "添加映射" }).click();
   await page.getByLabel("容器根目录").fill(fixture.media_root);
   await page.getByLabel("Emby 可见根目录").fill("/emby/fixture-media");
+  await page.getByRole("tab", { name: "命名模板" }).click();
   await page.getByLabel("文件夹模板").fill("{studio}\n{series}\n{title}");
   await page.getByLabel("文件名模板").fill("{xchina_id} - {title} [{release_date}]");
+  await page.getByRole("tab", { name: "元数据/资源" }).click();
   await page.getByLabel("资源策略").selectOption("strict");
+  await page.getByRole("tab", { name: "置信度/安全" }).click();
   await page.getByLabel("置信度阈值").fill("87");
   await page.getByLabel("安全缓存目录").fill(fixture.safety_cache_dir);
   await page.getByRole("button", { name: "保存设置" }).click();
@@ -44,19 +50,24 @@ test("设置 saves exact connector, mapping, template, threshold, and asset poli
   await page.getByRole("button", { name: "仪表盘" }).click();
   await page.getByRole("button", { name: "设置" }).click();
 
+  await page.getByRole("tab", { name: "XChina" }).click();
   await expect(page.getByLabel("精确 FlareSolverr 端点")).toHaveValue(
     flareSolverrEndpoint,
   );
   await expect(page.getByLabel("代理 URL")).toHaveValue(proxyURL);
+  await page.getByRole("tab", { name: "Emby" }).click();
   await expect(page.getByLabel("容器根目录")).toHaveValue(fixture.media_root);
   await expect(page.getByLabel("Emby 可见根目录")).toHaveValue("/emby/fixture-media");
+  await page.getByRole("tab", { name: "命名模板" }).click();
   await expect(page.getByLabel("文件夹模板")).toHaveValue(
     "{studio}\n{series}\n{title}",
   );
   await expect(page.getByLabel("文件名模板")).toHaveValue(
     "{xchina_id} - {title} [{release_date}]",
   );
+  await page.getByRole("tab", { name: "元数据/资源" }).click();
   await expect(page.getByLabel("资源策略")).toHaveValue("strict");
+  await page.getByRole("tab", { name: "置信度/安全" }).click();
   await expect(page.getByLabel("置信度阈值")).toHaveValue("87");
   await expectNoClippedCriticalText(page);
 });

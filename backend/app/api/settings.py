@@ -52,6 +52,7 @@ async def update_settings(
     session: Session = Depends(get_db),
 ) -> AppSettingsRead:
     patch = payload.model_dump(mode="json", exclude_unset=True)
+    _remove_read_only_runtime_settings(patch)
     settings: Settings = request.app.state.settings
     try:
         _validate_settings_patch(settings, session, patch)
@@ -61,6 +62,7 @@ async def update_settings(
     except (SettingsUpdateError, StorageRootValidationError, ValueError) as exc:
         session.rollback()
         raise HTTPException(status_code=400, detail=redact_payload(str(exc))) from exc
+    _overlay_runtime_settings(settings, values)
     return AppSettingsRead.model_validate(values)
 
 
@@ -154,7 +156,12 @@ async def preview_templates(payload: TemplatePreviewRequest) -> TemplatePreviewR
 def _overlay_runtime_settings(settings: Settings, values: dict[str, Any]) -> None:
     storage = values.setdefault("storage", {})
     if settings.storage_roots:
-        storage["roots"] = [str(path) for path in settings.storage_roots]
+        env_roots = [str(path) for path in settings.storage_roots]
+        storage["env_roots"] = env_roots
+        env_root_set = set(env_roots)
+        storage["roots"] = [
+            root for root in storage.get("roots") or [] if root not in env_root_set
+        ]
     xchina = values.setdefault("xchina", {})
     if settings.flaresolverr_url:
         xchina["flaresolverr_url"] = settings.flaresolverr_url
@@ -169,6 +176,12 @@ def _overlay_runtime_settings(settings: Settings, values: dict[str, Any]) -> Non
     auth["enabled"] = settings.auth_enabled
     if settings.auth_username:
         auth["username"] = settings.auth_username
+
+
+def _remove_read_only_runtime_settings(patch: dict[str, Any]) -> None:
+    storage = patch.get("storage")
+    if isinstance(storage, dict):
+        storage.pop("env_roots", None)
 
 
 def _validate_settings_patch(
@@ -227,6 +240,14 @@ def _sync_storage_roots(
     storage = patch.get("storage")
     if not isinstance(storage, dict):
         return
+    if "roots" not in storage:
+        return
     service = StorageRootService(settings, session)
+    desired_paths: set[str] = set()
     for root in storage.get("roots") or []:
-        service.add_root(Path(root))
+        added = service.add_root(Path(root))
+        desired_paths.add(added.path)
+
+    for root in service.list_roots(include_disabled=True):
+        if root.source == "user":
+            root.enabled = root.path in desired_paths

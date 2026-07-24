@@ -2,21 +2,27 @@ import { useEffect, useState } from "react";
 
 import { apiFetch } from "../api/client";
 import type { JobListResponse, JobSummaryRead } from "../api/types";
+import { EmptyState } from "../components/EmptyState";
 import { Section } from "../components/FormField";
+import { LoadingSkeleton } from "../components/LoadingSkeleton";
 
 export function ReviewQueuePage() {
   const [jobs, setJobs] = useState<JobSummaryRead[]>([]);
+  const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
   async function loadQueue() {
     setError("");
+    setLoading(true);
     try {
       const response = await apiFetch<JobListResponse>(
         "/api/jobs?state=review_required",
       );
-      setJobs(response.jobs);
+      setJobs(Array.isArray(response.jobs) ? response.jobs : []);
     } catch (exc) {
       setError(exc instanceof Error ? exc.message : "无法加载复核队列");
+    } finally {
+      setLoading(false);
     }
   }
 
@@ -24,46 +30,117 @@ export function ReviewQueuePage() {
     void loadQueue();
   }, []);
 
+  const plannedCount = jobs.filter((job) => job.plan_id).length;
+  const safetyGateCount = jobs.filter((job) =>
+    job.gate_reasons.some((reason) => reason.includes("unsafe")),
+  ).length;
+
   return (
     <div className="page-stack">
-      <Section title="复核队列">
-        <div className="row row-between">
-          <p className="muted">因置信度阈值或安全门禁而暂停的项目。</p>
-          <button type="button" onClick={loadQueue}>
+      <div className="metric-grid">
+        <div className="metric metric-warning">
+          <span>待复核</span>
+          <strong>{loading ? "-" : jobs.length}</strong>
+          <small>因置信度阈值或安全门禁暂停</small>
+        </div>
+        <div className="metric metric-primary">
+          <span>已生成计划</span>
+          <strong>{loading ? "-" : plannedCount}</strong>
+          <small>可进入预览或执行确认的项目</small>
+        </div>
+        <div className="metric metric-warning">
+          <span>安全门禁</span>
+          <strong>{loading ? "-" : safetyGateCount}</strong>
+          <small>包含 unsafe 类复核原因的任务</small>
+        </div>
+      </div>
+
+      <Section title="待复核项目">
+        <div className="section-toolbar">
+          <p className="section-lead">
+            检查候选项、门禁原因和已生成计划，再回到手动整理或任务中心处理。
+          </p>
+          <button disabled={loading} type="button" onClick={loadQueue}>
             刷新队列
           </button>
         </div>
-        <table>
-          <caption>需复核任务</caption>
-          <thead>
-            <tr>
-              <th>任务</th>
-              <th>标识</th>
-              <th>原因</th>
-              <th>候选项</th>
-              <th>计划</th>
-            </tr>
-          </thead>
-          <tbody>
-            {jobs.length ? (
-              jobs.map((job) => (
-                <tr key={job.id}>
-                  <td>{job.id}</td>
-                  <td>{job.media_identity}</td>
-                  <td>{job.gate_reasons.join(", ") || "需要复核"}</td>
-                  <td>{candidateTitle(job.selected_candidate)}</td>
-                  <td>{job.plan_id ?? "未生成计划"}</td>
+
+        {loading ? (
+          <LoadingSkeleton
+            description="读取所有 review_required 任务、候选项和门禁原因。"
+            rows={4}
+            title="正在加载复核队列"
+            variant="table"
+          />
+        ) : jobs.length ? (
+          <div className="table-wrap">
+            <table>
+              <caption>需复核任务</caption>
+              <thead>
+                <tr>
+                  <th>任务</th>
+                  <th>状态</th>
+                  <th>标识</th>
+                  <th>原因</th>
+                  <th>候选项</th>
+                  <th>计划</th>
                 </tr>
-              ))
-            ) : (
-              <tr>
-                <td colSpan={5}>没有待复核任务。</td>
-              </tr>
-            )}
-          </tbody>
-        </table>
-        {error ? <p className="status error">{error}</p> : null}
+              </thead>
+              <tbody>
+                {jobs.map((job) => (
+                  <tr key={job.id}>
+                    <td>
+                      <code>{job.id}</code>
+                    </td>
+                    <td>
+                      <span className="status-pill status-pill-warning">
+                        {job.state}
+                      </span>
+                    </td>
+                    <td>{job.media_identity}</td>
+                    <td>
+                      <ReasonList reasons={job.gate_reasons} />
+                    </td>
+                    <td>{candidateTitle(job.selected_candidate)}</td>
+                    <td>
+                      {job.plan_id ? <code>{job.plan_id}</code> : "未生成计划"}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        ) : (
+          <EmptyState
+            actions={[{ label: "刷新队列", onClick: loadQueue }]}
+            description="新的低置信度匹配或安全门禁拒绝会显示在这里。你可以先去“手动整理”扫描文件，或配置“自动监控”规则。"
+            icon="◇"
+            title="没有待复核任务"
+          />
+        )}
+
+        {error ? (
+          <p className="status error floating-status" role="alert">
+            {error}
+          </p>
+        ) : null}
       </Section>
+    </div>
+  );
+}
+
+function ReasonList({ reasons }: { reasons: string[] }) {
+  if (!reasons.length) {
+    return <span className="status-pill status-pill-neutral">需要复核</span>;
+  }
+
+  return (
+    <div className="reason-list">
+      {reasons.map((reason) => (
+        <span className="status-pill status-pill-warning" key={reason}>
+          {reason}
+        </span>
+      ))}
     </div>
   );
 }

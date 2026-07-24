@@ -12,6 +12,12 @@ describe("ManualOrganizerPage", () => {
   it("supports browse, scan, search, select, preview, and execute after preview", async () => {
     const { calls } = installFetchMock([
       {
+        path: "/api/storage-roots",
+        response: {
+          roots: [{ id: 1, path: "/media", source: "runtime", enabled: true }],
+        },
+      },
+      {
         path: "/api/storage-roots/browse?root_id=1&path=",
         response: {
           root: { id: 1, path: "/media", source: "runtime", enabled: true },
@@ -119,20 +125,16 @@ describe("ManualOrganizerPage", () => {
 
     render(<ManualOrganizerPage />);
 
-    expect(screen.getByLabelText(/源目录/i)).toBeTruthy();
-    expect(screen.getByLabelText(/粘贴文件名搜索/i)).toBeTruthy();
-    expect(screen.getByLabelText(/可编辑的标准化查询/i)).toBeTruthy();
-    expect(screen.getByRole("button", { name: "批量搜索" })).toBeDisabled();
-    expect(screen.getByRole("button", { name: "执行已批准预览" })).toBeDisabled();
+    expect(screen.getByPlaceholderText("/downloads/incoming")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "扫描源目录" })).toBeDisabled();
+    expect(screen.getByText(/还没有扫描任务/i)).toBeTruthy();
 
-    fireEvent.click(screen.getByRole("button", { name: "浏览源目录" }));
-    expect(await screen.findByText(/incoming/)).toBeTruthy();
-
-    fireEvent.change(screen.getByLabelText(/源目录/i), {
+    fireEvent.change(screen.getByPlaceholderText("/downloads/incoming"), {
       target: { value: "/media/incoming" },
     });
     fireEvent.click(screen.getByRole("button", { name: "扫描源目录" }));
-    expect(await screen.findByText("sample-work")).toBeTruthy();
+    expect(await screen.findByText("已扫描 1 项")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "批量搜索" })).toBeEnabled();
 
     fireEvent.change(screen.getByLabelText(/粘贴文件名搜索/i), {
       target: { value: "Sample.Work.mkv" },
@@ -151,6 +153,9 @@ describe("ManualOrganizerPage", () => {
     expect(screen.getByText("incomplete_metadata")).toBeTruthy();
     expect(screen.getByText("unsafe_path")).toBeTruthy();
     expect(screen.getByText("strict_assets_missing")).toBeTruthy();
+
+    fireEvent.click(screen.getByText("预览/执行"));
+    expect(screen.getByRole("button", { name: "执行已批准预览" })).toBeDisabled();
 
     fireEvent.change(screen.getByLabelText(/目标根目录/i), {
       target: { value: "/media/organized" },

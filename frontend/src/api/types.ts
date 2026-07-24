@@ -38,6 +38,7 @@ export interface EmbyPathMapping {
 export interface AppSettings {
   storage: {
     roots: string[];
+    env_roots: string[];
   };
   xchina: {
     base_url: string;
@@ -254,6 +255,20 @@ export interface JobEventsResponse {
 
 export interface JobActionResponse {
   job: JobSummaryRead;
+}
+
+export interface LogEntryRead {
+  id: number;
+  timestamp: string;
+  level: string;
+  logger: string;
+  message: string;
+  source: string;
+}
+
+export interface LogListResponse {
+  entries: LogEntryRead[];
+  docker_logs_note: string;
 }
 
 export interface HistoryPlanRead {

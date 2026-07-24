@@ -36,6 +36,7 @@ describe("App", () => {
       "任务中心",
       "演员库",
       "历史/回滚",
+      "日志",
       "设置",
     ]) {
       expect(screen.getByRole("button", { name })).toBeTruthy();
@@ -67,6 +68,7 @@ describe("App", () => {
     expect(safetyToggle).toBeChecked();
 
     fireEvent.click(screen.getByRole("button", { name: "手动整理" }));
+    fireEvent.click(screen.getByRole("tab", { name: "匹配/复核" }));
     fireEvent.change(screen.getByLabelText(/粘贴文件名搜索/i), {
       target: { value: "Sample.Work.mkv" },
     });

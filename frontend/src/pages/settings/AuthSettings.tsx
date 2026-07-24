@@ -19,6 +19,7 @@ export function AuthSettings({
         <FormField label="用户名">
           <input
             autoComplete="username"
+            placeholder="admin"
             value={settings.username ?? ""}
             onChange={(event) => onChange({ username: event.target.value })}
           />

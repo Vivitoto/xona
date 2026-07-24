@@ -15,20 +15,24 @@ export function TaskCenterPage() {
   const [events, setEvents] = useState<JobEventsResponse["events"]>([]);
   const [status, setStatus] = useState("");
   const [error, setError] = useState("");
+  const [loading, setLoading] = useState(false);
 
   async function loadJob() {
     setError("");
     setStatus("正在加载任务");
+    setLoading(true);
     try {
       const [jobResponse, eventResponse] = await Promise.all([
         apiFetch<JobSummaryRead>(`/api/jobs/${jobId}`),
         apiFetch<JobEventsResponse>(`/api/jobs/${jobId}/events`),
       ]);
       setJob(jobResponse);
-      setEvents(eventResponse.events);
+      setEvents(Array.isArray(eventResponse.events) ? eventResponse.events : []);
       setStatus("任务已加载");
     } catch (exc) {
       setError(exc instanceof Error ? exc.message : "无法加载任务");
+    } finally {
+      setLoading(false);
     }
   }
 
@@ -57,37 +61,75 @@ export function TaskCenterPage() {
 
   return (
     <div className="page-stack">
-      <Section title="任务中心">
-        <div className="grid four">
-          <FormField label="任务 ID">
-            <input value={jobId} onChange={(event) => setJobId(event.target.value)} />
+      <div className="metric-grid">
+        <div className="metric metric-primary">
+          <span>当前任务</span>
+          <strong>{job ? `#${job.id}` : "-"}</strong>
+          <small>{job?.media_identity ?? "输入任务 ID 后加载详情"}</small>
+        </div>
+        <div className="metric metric-warning">
+          <span>任务状态</span>
+          <strong>{loading ? "加载中" : job?.state ?? "未加载"}</strong>
+          <small>{job?.retryable ? "可重试" : "按任务状态控制操作"}</small>
+        </div>
+        <div className="metric metric-success">
+          <span>时间线事件</span>
+          <strong>{events.length}</strong>
+          <small>事件 payload 会自动脱敏显示</small>
+        </div>
+      </div>
+
+      <Section title="任务控制台">
+        <div className="section-toolbar">
+          <p className="section-lead">
+            按任务 ID 查看状态、时间线和可用操作；敏感字段会在时间线中自动脱敏。
+          </p>
+        </div>
+        <div className="task-action-grid">
+          <FormField label="任务 ID" description="输入已有任务编号，例如 42。">
+            <input
+              placeholder="42"
+              value={jobId}
+              onChange={(event) => setJobId(event.target.value)}
+            />
           </FormField>
-          <button type="button" onClick={loadJob}>
+          <button disabled={loading || !jobId} type="button" onClick={loadJob}>
             加载任务
           </button>
           <button disabled={!job?.retryable} type="button" onClick={() => action("retry")}>
             重试
           </button>
-          <button type="button" onClick={() => action("cancel")}>
+          <button disabled={!job} type="button" onClick={() => action("cancel")}>
             取消
           </button>
+          <button
+            disabled={!job?.retry_emby_available}
+            type="button"
+            onClick={() => action("retry-emby")}
+          >
+            重试 Emby
+          </button>
         </div>
-        <button
-          disabled={!job?.retry_emby_available}
-          type="button"
-          onClick={() => action("retry-emby")}
-        >
-          重试 Emby
-        </button>
+      </Section>
+
+      <Section title="任务详情">
         {job ? (
-          <dl className="metadata-list">
+          <dl className="metadata-list task-detail-list">
             <div>
               <dt>状态</dt>
-              <dd>{job.state}</dd>
+              <dd>
+                <span className={`status-pill ${stateTone(job.state)}`}>
+                  {job.state}
+                </span>
+              </dd>
             </div>
             <div>
               <dt>媒体标识</dt>
               <dd>{job.media_identity}</dd>
+            </div>
+            <div>
+              <dt>来源</dt>
+              <dd>{job.manual ? "手动任务" : job.rule_id ?? "自动监控"}</dd>
             </div>
             <div>
               <dt>尝试次数</dt>
@@ -96,15 +138,85 @@ export function TaskCenterPage() {
               </dd>
             </div>
             <div>
+              <dt>计划</dt>
+              <dd>{job.plan_id ? <code>{job.plan_id}</code> : "未生成计划"}</dd>
+            </div>
+            <div>
               <dt>最近错误</dt>
               <dd>{job.last_error_code ?? "无"}</dd>
             </div>
+            <div>
+              <dt>候选项</dt>
+              <dd>{candidateTitle(job.selected_candidate)}</dd>
+            </div>
+            <div>
+              <dt>门禁原因</dt>
+              <dd>
+                <ReasonList reasons={job.gate_reasons} />
+              </dd>
+            </div>
           </dl>
-        ) : null}
-        <JobTimeline events={events} />
-        {status ? <p className="status">{status}</p> : null}
-        {error ? <p className="status error">{error}</p> : null}
+        ) : (
+          <div className="empty-state">
+            <strong>还没有加载任务</strong>
+            <span>输入任务 ID 后加载详情、事件时间线和可用操作。</span>
+          </div>
+        )}
       </Section>
+
+      <Section title="任务时间线">
+        {events.length ? (
+          <JobTimeline events={events} />
+        ) : (
+          <div className="empty-state">
+            <strong>暂无时间线事件</strong>
+            <span>加载任务后，状态流转和诊断 payload 会显示在这里。</span>
+          </div>
+        )}
+      </Section>
+
+      {status ? <p className="status floating-status">{status}</p> : null}
+      {error ? (
+        <p className="status error floating-status" role="alert">
+          {error}
+        </p>
+      ) : null}
     </div>
   );
+}
+
+function ReasonList({ reasons }: { reasons: string[] }) {
+  if (!reasons.length) {
+    return <span className="status-pill status-pill-neutral">无</span>;
+  }
+
+  return (
+    <div className="reason-list">
+      {reasons.map((reason) => (
+        <span className="status-pill status-pill-warning" key={reason}>
+          {reason}
+        </span>
+      ))}
+    </div>
+  );
+}
+
+function candidateTitle(candidate: Record<string, unknown> | null): string {
+  if (!candidate) {
+    return "无候选项";
+  }
+  return typeof candidate.title === "string" ? candidate.title : "已选择候选项";
+}
+
+function stateTone(state: string): string {
+  if (["completed", "notifying_emby"].includes(state)) {
+    return "status-pill-success";
+  }
+  if (["failed", "cancelled"].includes(state)) {
+    return "status-pill-danger";
+  }
+  if (["review_required", "retrying"].includes(state)) {
+    return "status-pill-warning";
+  }
+  return "status-pill-neutral";
 }

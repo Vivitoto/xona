@@ -104,6 +104,7 @@ describe("ActorLibraryPage", () => {
     fireEvent.click(screen.getByRole("button", { name: "关联作品" }));
     expect(await screen.findByText("Sample Work")).toBeTruthy();
 
+    fireEvent.click(screen.getByRole("tab", { name: "同步" }));
     fireEvent.click(screen.getByRole("button", { name: "同步 Emby" }));
     expect(await screen.findByText(/Emby 同步已上传头像/)).toBeTruthy();
     expect(screen.queryByText("secret")).toBeNull();

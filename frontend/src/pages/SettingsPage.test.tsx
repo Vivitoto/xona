@@ -18,17 +18,7 @@ describe("SettingsPage", () => {
 
     render(<SettingsPage />);
 
-    expect(await screen.findByRole("heading", { name: "存储根" })).toBeTruthy();
-    for (const heading of [
-      "XChina",
-      "Emby",
-      "命名模板",
-      "元数据/资源",
-      "置信度/安全",
-      "认证",
-    ]) {
-      expect(screen.getByRole("heading", { name: heading })).toBeTruthy();
-    }
+    expect(await screen.findByRole("heading", { name: "XChina" })).toBeTruthy();
 
     expect(
       screen.getByLabelText(/精确 FlareSolverr 端点/i),
@@ -39,6 +29,18 @@ describe("SettingsPage", () => {
     expect(screen.getByLabelText(/代理 URL/i)).toHaveValue(
       "http://********:********@proxy.test:8080",
     );
+
+    for (const heading of [
+      "Emby",
+      "存储根",
+      "命名模板",
+      "元数据/资源",
+      "置信度/安全",
+      "认证",
+    ]) {
+      fireEvent.click(screen.getByRole("tab", { name: heading }));
+      expect(screen.getByRole("heading", { name: heading })).toBeTruthy();
+    }
   });
 
   it("omits unchanged secret placeholders and submits explicit new secrets", async () => {
@@ -49,6 +51,8 @@ describe("SettingsPage", () => {
 
     render(<SettingsPage />);
 
+    await screen.findByRole("heading", { name: "XChina" });
+    fireEvent.click(screen.getByRole("tab", { name: "Emby" }));
     await screen.findByLabelText(/Emby API key/i);
     fireEvent.click(screen.getByRole("button", { name: "保存设置" }));
 
@@ -63,6 +67,7 @@ describe("SettingsPage", () => {
     fireEvent.change(screen.getByLabelText(/Emby API key/i), {
       target: { value: "new-emby-key" },
     });
+    fireEvent.click(screen.getByRole("tab", { name: "XChina" }));
     fireEvent.change(screen.getByLabelText(/代理 URL/i), {
       target: { value: "http://user:pass@proxy.test:8080" },
     });
@@ -94,6 +99,8 @@ describe("SettingsPage", () => {
     ]);
 
     render(<SettingsPage />);
+    await screen.findByRole("heading", { name: "XChina" });
+    fireEvent.click(screen.getByRole("tab", { name: "命名模板" }));
     await screen.findByLabelText(/文件名模板/i);
     fireEvent.click(screen.getByRole("button", { name: "预览命名模板" }));
 
@@ -105,6 +112,26 @@ describe("SettingsPage", () => {
           call.url === "/api/settings/templates/preview",
       ),
     ).toBe(true);
+  });
+
+  it("blocks saving when preflight validation finds template errors", async () => {
+    const { calls } = installFetchMock([
+      { path: "/api/settings", response: settingsFixture() },
+      { method: "PUT", path: "/api/settings", response: settingsFixture() },
+    ]);
+
+    render(<SettingsPage />);
+    await screen.findByRole("heading", { name: "XChina" });
+    fireEvent.click(screen.getByRole("tab", { name: "命名模板" }));
+    fireEvent.change(await screen.findByLabelText(/文件名模板/i), {
+      target: { value: "{unknown_variable}" },
+    });
+
+    expect(await screen.findByText(/命名模板包含未知变量/)).toBeTruthy();
+    expect(screen.getByRole("button", { name: "保存设置" })).toBeDisabled();
+
+    fireEvent.click(screen.getByRole("button", { name: "保存设置" }));
+    expect(calls.filter((call) => call.method === "PUT")).toHaveLength(0);
   });
 });
 

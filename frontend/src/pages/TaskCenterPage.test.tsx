@@ -39,7 +39,7 @@ describe("TaskCenterPage", () => {
     fireEvent.change(screen.getByLabelText(/任务 ID/i), { target: { value: "42" } });
     fireEvent.click(screen.getByRole("button", { name: "加载任务" }));
 
-    expect(await screen.findByText("media-42")).toBeTruthy();
+    expect((await screen.findAllByText("media-42")).length).toBeGreaterThan(0);
     expect(screen.getAllByText("review_required").length).toBeGreaterThan(0);
     expect(screen.queryByText(/raw-secret/)).toBeNull();
     expect(screen.queryByText(/raw-token/)).toBeNull();

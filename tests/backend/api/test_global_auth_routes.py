@@ -19,6 +19,7 @@ PROTECTED_API_PREFIXES = (
     "/api/emby",
     "/api/history",
     "/api/jobs",
+    "/api/logs",
     "/api/manual",
     "/api/plans",
     "/api/settings",

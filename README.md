@@ -5,6 +5,7 @@ Xona 是一个本地优先的 Docker Web 应用，用于扫描挂载的媒体目
 ## 功能概览
 
 - 本地 Web UI：手动整理、自动监控、复核队列、任务中心、演员库、历史/回滚、设置。
+- 日志页面：Web UI 可查看 Xona 应用最近日志并实时跟随；同一批应用日志会输出到 stdout，因此部署后也可通过 `docker logs` 查看。
 - 中文为主的界面；必要技术名词保留英文，例如 Xona、Emby、XChina、FlareSolverr、URL、API key。
 - 图片安全模式默认开启：候选图片和演员头像默认模糊，可在页面顶部关闭。
 - 配置保存在 `/config`，媒体目录通过 Docker volume 挂载。
@@ -16,9 +17,9 @@ Xona 是一个本地优先的 Docker Web 应用，用于扫描挂载的媒体目
 发布后可使用以下镜像：
 
 ```bash
-vivitoto/xona:1.0.1
+vivitoto/xona:1.0.2
 vivitoto/xona:latest
-ghcr.io/vivitoto/xona:1.0.1
+ghcr.io/vivitoto/xona:1.0.2
 ghcr.io/vivitoto/xona:latest
 ```
 
@@ -31,7 +32,7 @@ ghcr.io/vivitoto/xona:latest
 ```yaml
 services:
   xona:
-    image: vivitoto/xona:1.0.1
+    image: vivitoto/xona:1.0.2
     container_name: xona
     ports:
       - "8732:8732"
@@ -105,6 +106,12 @@ docker compose down
 - 如果环境变量和 Web 设置都存在，环境变量可能作为运行时覆盖项，适合固定部署配置。
 
 ## 本地开发
+
+### UI 规范
+
+涉及前端 UI 的新增功能、页面和表单改动，请先遵循 [`docs/ui-standards.md`](docs/ui-standards.md)。这份规范沉淀了当前 Xona 的现代控制台风格、左侧一级导航 + 右侧横向 tab、表单 placeholder、目录选择器、命名模板变量面板、卡片/弹窗/表格等标准。
+
+新增 UI 前至少检查：控件是否对齐、是否复用现有组件、路径字段是否提供目录选择器、用户是否能从 placeholder/说明理解填写格式，以及 `npm run build` 是否通过。
 
 安装后端测试工具和前端依赖：
 
@@ -184,11 +191,11 @@ python3 scripts/real_xchina_smoke.py
 
 ## GitHub Actions 发布
 
-仓库包含 Docker 发布 workflow。推送 `v1.0.1` 这类 tag 后，GitHub Actions 会构建并发布：
+仓库包含 Docker 发布 workflow。推送 `v1.0.2` 这类 tag 后，GitHub Actions 会构建并发布：
 
-- `vivitoto/xona:1.0.1`
+- `vivitoto/xona:1.0.2`
 - `vivitoto/xona:latest`
-- `ghcr.io/vivitoto/xona:1.0.1`
+- `ghcr.io/vivitoto/xona:1.0.2`
 - `ghcr.io/vivitoto/xona:latest`
 
 需要仓库配置 Docker Hub secrets：

@@ -1,11 +1,13 @@
 import { useState } from "react";
 
 import { AppLayout, type PageId } from "./components/AppLayout";
+import { ErrorBoundary } from "./components/ErrorBoundary";
 import { ImageSafetyModeProvider } from "./components/ImageSafetyMode";
 import { ActorLibraryPage } from "./pages/ActorLibraryPage";
 import { AutomaticMonitorsPage } from "./pages/AutomaticMonitorsPage";
 import { DashboardPage } from "./pages/DashboardPage";
 import { HistoryRollbackPage } from "./pages/HistoryRollbackPage";
+import { LogsPage } from "./pages/LogsPage";
 import { ManualOrganizerPage } from "./pages/ManualOrganizerPage";
 import { ReviewQueuePage } from "./pages/ReviewQueuePage";
 import { SettingsPage } from "./pages/SettingsPage";
@@ -22,7 +24,12 @@ export default function App() {
       onChange={setImageSafetyModeEnabled}
     >
       <AppLayout activePage={activePage} onNavigate={setActivePage}>
-        {renderPage(activePage)}
+        <ErrorBoundary
+          resetKey={activePage}
+          onReturnHome={() => setActivePage("dashboard")}
+        >
+          {renderPage(activePage)}
+        </ErrorBoundary>
       </AppLayout>
     </ImageSafetyModeProvider>
   );
@@ -42,6 +49,8 @@ function renderPage(page: PageId) {
       return <ActorLibraryPage />;
     case "history":
       return <HistoryRollbackPage />;
+    case "logs":
+      return <LogsPage />;
     case "settings":
       return <SettingsPage />;
     case "dashboard":

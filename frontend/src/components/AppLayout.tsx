@@ -10,17 +10,19 @@ export type PageId =
   | "tasks"
   | "actors"
   | "history"
+  | "logs"
   | "settings";
 
-export const navigationItems: { id: PageId; label: string }[] = [
-  { id: "dashboard", label: "仪表盘" },
-  { id: "manual", label: "手动整理" },
-  { id: "monitors", label: "自动监控" },
-  { id: "review", label: "复核队列" },
-  { id: "tasks", label: "任务中心" },
-  { id: "actors", label: "演员库" },
-  { id: "history", label: "历史/回滚" },
-  { id: "settings", label: "设置" },
+export const navigationItems: { id: PageId; label: string; icon: string }[] = [
+  { id: "dashboard", label: "仪表盘", icon: "⌘" },
+  { id: "manual", label: "手动整理", icon: "↳" },
+  { id: "monitors", label: "自动监控", icon: "◌" },
+  { id: "review", label: "复核队列", icon: "◇" },
+  { id: "tasks", label: "任务中心", icon: "☰" },
+  { id: "actors", label: "演员库", icon: "◎" },
+  { id: "history", label: "历史/回滚", icon: "↺" },
+  { id: "logs", label: "日志", icon: "≋" },
+  { id: "settings", label: "设置", icon: "⚙" },
 ];
 
 export function AppLayout({
@@ -57,7 +59,10 @@ export function AppLayout({
               type="button"
               onClick={() => onNavigate(item.id)}
             >
-              {item.label}
+              <span className="nav-icon" aria-hidden="true">
+                {item.icon}
+              </span>
+              <span>{item.label}</span>
             </button>
           ))}
         </nav>

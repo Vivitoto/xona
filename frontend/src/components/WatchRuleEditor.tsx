@@ -1,6 +1,7 @@
 import { useEffect, useMemo } from "react";
 
 import type { OrganizationMode, WatchRule } from "../api/types";
+import { DirectoryPicker } from "./DirectoryPicker";
 import { CheckboxField, FormField } from "./FormField";
 
 export type WatchRuleDraft = Omit<WatchRule, "rule_id"> & { rule_id?: string };
@@ -47,12 +48,10 @@ export function WatchRuleEditor({
   draft,
   onChange,
   onSubmit,
-  onBrowse,
 }: {
   draft: WatchRuleDraft;
   onChange: (draft: WatchRuleDraft) => void;
   onSubmit: () => void;
-  onBrowse: () => void;
 }) {
   const destinationInsideSource = useMemo(
     () => isInsidePath(draft.destination_directory, draft.source_directory),
@@ -89,24 +88,43 @@ export function WatchRuleEditor({
 
   return (
     <div className="editor-grid">
-      <div className="grid three">
-        <FormField label="源目录">
-          <input
-            value={draft.source_directory}
-            onChange={(event) => patch({ source_directory: event.target.value })}
+      <div className="grid two">
+        <div className="path-field">
+          <FormField
+            description="从已配置的存储根里选择要监控的源目录。"
+            label="源目录"
+          >
+            <input
+              placeholder="/downloads/incoming"
+              value={draft.source_directory}
+              onChange={(event) => patch({ source_directory: event.target.value })}
+            />
+          </FormField>
+          <DirectoryPicker
+            initialPath={draft.source_directory}
+            onSelect={(source_directory) => patch({ source_directory })}
+            title="选择监控源目录"
           />
-        </FormField>
-        <FormField label="目标目录">
-          <input
-            value={draft.destination_directory}
-            onChange={(event) =>
-              patch({ destination_directory: event.target.value })
-            }
+        </div>
+        <div className="path-field">
+          <FormField
+            description="整理输出的目标根目录。目标位于源目录内时会自动加入排除前缀。"
+            label="目标目录"
+          >
+            <input
+              placeholder="/media/jav"
+              value={draft.destination_directory}
+              onChange={(event) =>
+                patch({ destination_directory: event.target.value })
+              }
+            />
+          </FormField>
+          <DirectoryPicker
+            initialPath={draft.destination_directory}
+            onSelect={(destination_directory) => patch({ destination_directory })}
+            title="选择监控目标目录"
           />
-        </FormField>
-        <button type="button" onClick={onBrowse}>
-          浏览存储根
-        </button>
+        </div>
       </div>
 
       {destinationInsideSource ? (
@@ -147,6 +165,7 @@ export function WatchRuleEditor({
         <FormField label="轮询间隔（秒）">
           <input
             min={1}
+            placeholder="60"
             type="number"
             value={draft.polling_interval_seconds}
             onChange={(event) =>
@@ -157,6 +176,7 @@ export function WatchRuleEditor({
         <FormField label="稳定等待时间（秒）">
           <input
             min={0}
+            placeholder="30"
             type="number"
             value={draft.stability_seconds}
             onChange={(event) =>
@@ -167,6 +187,7 @@ export function WatchRuleEditor({
         <FormField label="稳定检查次数">
           <input
             min={1}
+            placeholder="2"
             type="number"
             value={draft.stable_check_count}
             onChange={(event) =>
@@ -178,6 +199,7 @@ export function WatchRuleEditor({
           <input
             max={100}
             min={0}
+            placeholder="92"
             type="number"
             value={draft.confidence_threshold}
             onChange={(event) =>
@@ -212,6 +234,7 @@ export function WatchRuleEditor({
       <div className="grid two">
         <FormField label="文件夹模板">
           <textarea
+            placeholder={'{studio}\n{title}'}
             value={draft.folder_templates.join("\n")}
             onChange={(event) =>
               patch({
@@ -222,6 +245,7 @@ export function WatchRuleEditor({
         </FormField>
         <FormField label="文件名模板">
           <input
+            placeholder="{xchina_id} - {title}"
             value={draft.filename_template}
             onChange={(event) => patch({ filename_template: event.target.value })}
           />
@@ -264,18 +288,21 @@ export function WatchRuleEditor({
       <div className="grid three">
         <FormField label="包含模式">
           <textarea
+            placeholder={'*.mkv\n*.mp4'}
             value={draft.include_patterns.join("\n")}
             onChange={(event) => patch({ include_patterns: lines(event.target.value) })}
           />
         </FormField>
         <FormField label="排除模式">
           <textarea
+            placeholder={'*.sample.*\n@eaDir/**'}
             value={draft.exclude_patterns.join("\n")}
             onChange={(event) => patch({ exclude_patterns: lines(event.target.value) })}
           />
         </FormField>
         <FormField label="已排除目标前缀">
           <textarea
+            placeholder="/downloads/incoming/organized"
             value={draft.excluded_destination_prefixes.join("\n")}
             onChange={(event) =>
               patch({ excluded_destination_prefixes: lines(event.target.value) })

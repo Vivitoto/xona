@@ -16,12 +16,14 @@ export function FormField({
   children,
 }: FormFieldProps) {
   return (
-    <label className="field" htmlFor={htmlFor}>
-      <span className="field-label">{label}</span>
-      {children}
+    <div className="field">
+      <label className="field-control" htmlFor={htmlFor}>
+        <span className="field-label">{label}</span>
+        {children}
+      </label>
       {description ? <span className="field-help">{description}</span> : null}
       {error ? <span className="field-error">{error}</span> : null}
-    </label>
+    </div>
   );
 }
 
@@ -62,17 +64,9 @@ export function Section({
   children: ReactNode;
 }) {
   return (
-    <section className="section" aria-labelledby={slug(title)}>
-      <h2 id={slug(title)}>{title}</h2>
+    <section className="section">
+      <h2>{title}</h2>
       {children}
     </section>
   );
-}
-
-function slug(value: string): string {
-  const normalized = value
-    .toLowerCase()
-    .replace(/[^\p{Letter}\p{Number}]+/gu, "-")
-    .replace(/(^-|-$)/g, "");
-  return normalized || "section";
 }

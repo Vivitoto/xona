@@ -2,7 +2,6 @@ import { useCallback, useEffect, useState } from "react";
 
 import { apiFetch } from "../api/client";
 import type {
-  BrowseResponse,
   JobListResponse,
   JobSummaryRead,
   ScanNowResponse,
@@ -10,17 +9,25 @@ import type {
   WatchRuleList,
 } from "../api/types";
 import { Section } from "../components/FormField";
+import { Tabs, type TabItem } from "../components/Tabs";
 import {
   WatchRuleDraft,
   WatchRuleEditor,
   emptyWatchRuleDraft,
 } from "../components/WatchRuleEditor";
 
+type MonitorTab = "rules" | "queue";
+
+const monitorTabs: readonly TabItem<MonitorTab>[] = [
+  { id: "rules", label: "监控规则" },
+  { id: "queue", label: "任务队列" },
+];
+
 export function AutomaticMonitorsPage() {
+  const [activeTab, setActiveTab] = useState<MonitorTab>("rules");
   const [rules, setRules] = useState<WatchRule[]>([]);
   const [reviewJobs, setReviewJobs] = useState<JobSummaryRead[]>([]);
   const [draft, setDraft] = useState<WatchRuleDraft>(emptyWatchRuleDraft);
-  const [browse, setBrowse] = useState<BrowseResponse | null>(null);
   const [status, setStatus] = useState("");
   const [error, setError] = useState("");
 
@@ -32,7 +39,7 @@ export function AutomaticMonitorsPage() {
     setError("");
     try {
       const response = await apiFetch<WatchRuleList>("/api/watch-rules");
-      setRules(response.rules);
+      setRules(Array.isArray(response.rules) ? response.rules : []);
     } catch (exc) {
       setError(exc instanceof Error ? exc.message : "无法加载监控规则");
     }
@@ -44,7 +51,7 @@ export function AutomaticMonitorsPage() {
       const response = await apiFetch<JobListResponse>(
         "/api/jobs?state=review_required",
       );
-      setReviewJobs(response.jobs);
+      setReviewJobs(Array.isArray(response.jobs) ? response.jobs : []);
     } catch (exc) {
       setError(
         exc instanceof Error ? exc.message : "无法加载需复核任务",
@@ -54,8 +61,13 @@ export function AutomaticMonitorsPage() {
 
   useEffect(() => {
     void loadRules();
-    void loadReviewItems();
   }, []);
+
+  useEffect(() => {
+    if (activeTab === "queue") {
+      void loadReviewItems();
+    }
+  }, [activeTab]);
 
   async function saveRule() {
     setError("");
@@ -103,112 +115,115 @@ export function AutomaticMonitorsPage() {
         `已为 ${response.rule_id} 加入扫描队列：${response.enqueued_jobs.join(", ") || "无任务"}`,
       );
       await loadReviewItems();
+      setActiveTab("queue");
     } catch (exc) {
       setError(exc instanceof Error ? exc.message : "无法扫描监控规则");
     }
   }
 
-  async function browseStorageRoots() {
-    setError("");
-    try {
-      setBrowse(await apiFetch<BrowseResponse>("/api/storage-roots/browse?root_id=1"));
-    } catch (exc) {
-      setError(exc instanceof Error ? exc.message : "无法浏览存储根");
-    }
-  }
-
   return (
     <div className="page-stack">
-      <Section title="自动监控">
-        <WatchRuleEditor
-          draft={draft}
-          onBrowse={browseStorageRoots}
-          onChange={updateDraft}
-          onSubmit={saveRule}
-        />
-        {browse ? (
-          <ul className="dense-list" aria-label="存储根浏览条目">
-            {browse.entries.map((entry) => (
-              <li key={entry.path}>{entry.name}</li>
-            ))}
-          </ul>
-        ) : null}
-      </Section>
-      <Section title="监控规则">
-        <table>
-          <caption>自动监控规则</caption>
-          <thead>
-            <tr>
-              <th>规则</th>
-              <th>源目录</th>
-              <th>目标目录</th>
-              <th>模式</th>
-              <th>启用</th>
-              <th>操作</th>
-            </tr>
-          </thead>
-          <tbody>
-            {rules.length ? (
-              rules.map((rule) => (
-                <tr key={rule.rule_id}>
-                  <td>{rule.rule_id}</td>
-                  <td>{rule.source_directory}</td>
-                  <td>{rule.destination_directory}</td>
-                  <td>{rule.organization_mode}</td>
-                  <td>{rule.enabled ? "是" : "否"}</td>
-                  <td>
-                    <div className="button-row">
-                      <button type="button" onClick={() => setDraft({ ...rule })}>
-                        编辑
-                      </button>
-                      <button type="button" onClick={() => scanNow(rule.rule_id)}>
-                        立即扫描
-                      </button>
-                    </div>
-                  </td>
+      <Tabs
+        activeTab={activeTab}
+        ariaLabel="自动监控视图"
+        tabs={monitorTabs}
+        onChange={setActiveTab}
+      />
+      <div className="tab-panel" role="tabpanel">
+        {activeTab === "rules" ? (
+          <>
+            <Section title="自动监控">
+              <WatchRuleEditor
+                draft={draft}
+                onChange={updateDraft}
+                onSubmit={saveRule}
+              />
+            </Section>
+            <Section title="监控规则">
+              <table>
+                <caption>自动监控规则</caption>
+                <thead>
+                  <tr>
+                    <th>规则</th>
+                    <th>源目录</th>
+                    <th>目标目录</th>
+                    <th>模式</th>
+                    <th>启用</th>
+                    <th>操作</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {rules.length ? (
+                    rules.map((rule) => (
+                      <tr key={rule.rule_id}>
+                        <td>{rule.rule_id}</td>
+                        <td>{rule.source_directory}</td>
+                        <td>{rule.destination_directory}</td>
+                        <td>{rule.organization_mode}</td>
+                        <td>{rule.enabled ? "是" : "否"}</td>
+                        <td>
+                          <div className="button-row">
+                            <button
+                              type="button"
+                              onClick={() => setDraft({ ...rule })}
+                            >
+                              编辑
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => scanNow(rule.rule_id)}
+                            >
+                              立即扫描
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    ))
+                  ) : (
+                    <tr>
+                      <td colSpan={6}>尚未配置监控规则。</td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </Section>
+          </>
+        ) : (
+          <Section title="任务队列">
+            <table>
+              <caption>监控器需复核任务</caption>
+              <thead>
+                <tr>
+                  <th>任务</th>
+                  <th>规则</th>
+                  <th>标识</th>
+                  <th>原因</th>
+                  <th>候选项</th>
                 </tr>
-              ))
-            ) : (
-              <tr>
-                <td colSpan={6}>尚未配置监控规则。</td>
-              </tr>
-            )}
-          </tbody>
-        </table>
-        {status ? <p className="status">{status}</p> : null}
-        {error ? <p className="status error">{error}</p> : null}
-      </Section>
-      <Section title="需复核项目">
-        <table>
-          <caption>监控器需复核任务</caption>
-          <thead>
-            <tr>
-              <th>任务</th>
-              <th>规则</th>
-              <th>标识</th>
-              <th>原因</th>
-              <th>候选项</th>
-            </tr>
-          </thead>
-          <tbody>
-            {reviewJobs.length ? (
-              reviewJobs.map((job) => (
-                <tr key={job.id}>
-                  <td>{job.id}</td>
-                  <td>{job.rule_id ?? "手动"}</td>
-                  <td>{job.media_identity}</td>
-                  <td>{job.gate_reasons.join(", ") || "需要复核"}</td>
-                  <td>{candidateTitle(job.selected_candidate)}</td>
-                </tr>
-              ))
-            ) : (
-              <tr>
-                <td colSpan={5}>没有需复核的监控项目。</td>
-              </tr>
-            )}
-          </tbody>
-        </table>
-      </Section>
+              </thead>
+              <tbody>
+                {reviewJobs.length ? (
+                  reviewJobs.map((job) => (
+                    <tr key={job.id}>
+                      <td>{job.id}</td>
+                      <td>{job.rule_id ?? "手动"}</td>
+                      <td>{job.media_identity}</td>
+                      <td>{job.gate_reasons.join(", ") || "需要复核"}</td>
+                      <td>{candidateTitle(job.selected_candidate)}</td>
+                    </tr>
+                  ))
+                ) : (
+                  <tr>
+                    <td colSpan={5}>没有需复核的监控项目。</td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </Section>
+        )}
+      </div>
+      {status ? <p className="status">{status}</p> : null}
+      {error ? <p className="status error">{error}</p> : null}
     </div>
   );
 }

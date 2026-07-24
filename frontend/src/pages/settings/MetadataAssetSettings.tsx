@@ -35,6 +35,7 @@ export function MetadataAssetSettings({
         <FormField label="最大资源字节数">
           <input
             min={1}
+            placeholder="10485760"
             type="number"
             value={settings.max_asset_bytes}
             onChange={(event) =>

@@ -2,6 +2,7 @@ import { useState } from "react";
 
 import { apiFetch } from "../../api/client";
 import type { AppSettings, EmbyPathMapping } from "../../api/types";
+import { DirectoryPicker } from "../../components/DirectoryPicker";
 import { CheckboxField, FormField, Section } from "../../components/FormField";
 import { isRedactedPlaceholder, redactText } from "../../utils/redaction";
 
@@ -46,6 +47,7 @@ export function EmbySettings({
         />
         <FormField label="Emby 服务器 URL">
           <input
+            placeholder="http://emby:8096"
             value={settings.server_url ?? ""}
             onChange={(event) => onChange({ server_url: event.target.value })}
           />
@@ -56,6 +58,7 @@ export function EmbySettings({
         >
           <input
             autoComplete="off"
+            placeholder="输入新的 Emby API Key；留空不配置"
             type="password"
             value={settings.api_key ?? ""}
             onChange={(event) => onChange({ api_key: event.target.value })}
@@ -89,22 +92,40 @@ export function EmbySettings({
         {settings.path_mappings.length ? (
           settings.path_mappings.map((mapping, index) => (
             <div className="grid two mapping-row" key={index}>
-              <FormField label="容器根目录">
-                <input
-                  value={mapping.container_root}
-                  onChange={(event) =>
-                    updateMapping(index, { container_root: event.target.value })
+              <div className="path-field">
+                <FormField label="容器根目录">
+                  <input
+                    placeholder="/downloads"
+                    value={mapping.container_root}
+                    onChange={(event) =>
+                      updateMapping(index, { container_root: event.target.value })
+                    }
+                  />
+                </FormField>
+                <DirectoryPicker
+                  initialPath={mapping.container_root}
+                  onSelect={(container_root) =>
+                    updateMapping(index, { container_root })
                   }
+                  title="选择容器根目录"
                 />
-              </FormField>
-              <FormField label="Emby 可见根目录">
-                <input
-                  value={mapping.emby_root}
-                  onChange={(event) =>
-                    updateMapping(index, { emby_root: event.target.value })
-                  }
+              </div>
+              <div className="path-field">
+                <FormField label="Emby 可见根目录">
+                  <input
+                    placeholder="/media/downloads 或 /mnt/media/downloads"
+                    value={mapping.emby_root}
+                    onChange={(event) =>
+                      updateMapping(index, { emby_root: event.target.value })
+                    }
+                  />
+                </FormField>
+                <DirectoryPicker
+                  initialPath={mapping.emby_root}
+                  onSelect={(emby_root) => updateMapping(index, { emby_root })}
+                  title="选择 Emby 可见根目录"
                 />
-              </FormField>
+              </div>
             </div>
           ))
         ) : (

@@ -1,4 +1,5 @@
 import asyncio
+import logging
 import mimetypes
 import os
 from collections.abc import AsyncIterator
@@ -9,7 +10,7 @@ from urllib.parse import urlsplit
 from fastapi import FastAPI, HTTPException
 from starlette.requests import Request
 from starlette.responses import JSONResponse, Response
-from starlette.types import ASGIApp, Receive, Scope, Send
+from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from backend.app.api.auth import authenticated_username, router as auth_router
 from backend.app.api.actors import router as actors_router
@@ -17,10 +18,12 @@ from backend.app.api.emby import router as emby_router
 from backend.app.api.health import router as health_router
 from backend.app.api.history import router as history_router
 from backend.app.api.jobs import router as jobs_router
+from backend.app.api.logs import router as logs_router
 from backend.app.api.manual import router as manual_router
 from backend.app.api.settings import router as settings_router
 from backend.app.api.storage_roots import router as storage_roots_router
 from backend.app.api.watch_rules import router as watch_rules_router
+from backend.app.core.logging import configure_logging
 from backend.app.core.settings import Settings
 from backend.app.db.migrations import run_migrations
 from backend.app.db.session import create_engine_for_settings, get_sessionmaker
@@ -32,6 +35,7 @@ AUTH_ENDPOINT_PATHS = {
 }
 UNSAFE_API_METHODS = {"POST", "PUT", "PATCH", "DELETE"}
 STATIC_DIR_ENV = "XONA_STATIC_DIR"
+logger = logging.getLogger(__name__)
 
 
 def create_app(
@@ -40,9 +44,11 @@ def create_app(
     static_dir: str | Path | None = None,
 ) -> FastAPI:
     settings = settings or Settings()
+    configure_logging(config_dir=settings.config_dir)
 
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
+        logger.info("Xona application starting")
         run_migrations(settings=settings)
         engine = create_engine_for_settings(settings)
         app.state.engine = engine
@@ -63,26 +69,32 @@ def create_app(
                 )
                 worker_task = asyncio.create_task(app.state.worker.run_forever())
                 app.state.worker_task = worker_task
+                logger.info("Worker service started")
             if settings.monitor_enabled:
                 from backend.app.services.monitor import MonitorService
 
                 monitor = MonitorService(settings, app.state.sessionmaker)
                 monitor.start()
                 app.state.monitor = monitor
+                logger.info("Monitor service started")
             yield
         finally:
             if monitor is not None:
                 monitor.stop()
+                logger.info("Monitor service stopped")
             if worker_task is not None:
                 app.state.worker.stop()
                 worker_task.cancel()
                 with suppress(asyncio.CancelledError):
                     await worker_task
+                logger.info("Worker service stopped")
             engine.dispose()
+            logger.info("Xona application stopped")
 
     app = FastAPI(title="Xona", lifespan=lifespan)
     app.state.settings = settings
 
+    app.add_middleware(RequestLoggingMiddleware)
     app.add_middleware(ApiAuthMiddleware, settings=settings)
     app.include_router(health_router)
     app.include_router(auth_router)
@@ -91,6 +103,7 @@ def create_app(
     app.include_router(manual_router)
     app.include_router(emby_router)
     app.include_router(jobs_router)
+    app.include_router(logs_router)
     app.include_router(history_router)
     app.include_router(settings_router)
     app.include_router(actors_router)
@@ -233,6 +246,36 @@ class ApiAuthMiddleware:
                 )
 
         return None
+
+
+class RequestLoggingMiddleware:
+    def __init__(self, app: ASGIApp) -> None:
+        self._app = app
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] != "http":
+            await self._app(scope, receive, send)
+            return
+
+        method = scope.get("method", "GET")
+        path = scope.get("path", "")
+        if path == "/api/logs/stream":
+            await self._app(scope, receive, send)
+            return
+
+        status_code: int | None = None
+
+        async def send_wrapper(message: Message) -> None:
+            nonlocal status_code
+            if message["type"] == "http.response.start":
+                status_code = int(message["status"])
+            await send(message)
+
+        try:
+            await self._app(scope, receive, send_wrapper)
+        finally:
+            if path.startswith("/api/"):
+                logger.info("%s %s -> %s", method, path, status_code or "?")
 
 
 def _has_same_origin(request: Request) -> bool:
