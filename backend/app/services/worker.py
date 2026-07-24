@@ -16,6 +16,7 @@ from backend.app.core.redaction import redact_payload
 from backend.app.core.settings import Settings
 from backend.app.integrations.flaresolverr import FlareSolverrClient
 from backend.app.integrations.xchina import XChinaAdapter
+from backend.app.integrations.xchina_config import xchina_base_url
 from backend.app.db.models import (
     Job,
     MediaItem,
@@ -187,7 +188,7 @@ class Worker:
                     str(endpoint),
                     proxy_url=settings.proxy_url or store_settings.get("proxy_url"),
                 )
-                adapter = XChinaAdapter(flaresolverr, session)
+                adapter = XChinaAdapter(flaresolverr, session, base_url=xchina_base_url(store_settings))
                 closer = flaresolverr.close
                 if search_adapter is None:
                     search_adapter = adapter

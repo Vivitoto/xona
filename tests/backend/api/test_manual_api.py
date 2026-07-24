@@ -69,9 +69,19 @@ class FakeStoredSettingsFlareSolverr:
 
 
 class FakeStoredSettingsXChina:
-    def __init__(self, flaresolverr: FakeStoredSettingsFlareSolverr, session) -> None:
+    instances: list["FakeStoredSettingsXChina"] = []
+
+    def __init__(
+        self,
+        flaresolverr: FakeStoredSettingsFlareSolverr,
+        session,
+        *,
+        base_url: str = "https://www.xchina.co",
+    ) -> None:
         self.flaresolverr = flaresolverr
         self.session = session
+        self.base_url = base_url
+        self.instances.append(self)
 
     async def search(self, query: str) -> list[SourceSearchResult]:
         assert query == "同学的妈妈"
@@ -177,6 +187,7 @@ def test_manual_search_uses_saved_xchina_settings(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     FakeStoredSettingsFlareSolverr.instances.clear()
+    FakeStoredSettingsXChina.instances.clear()
     monkeypatch.setattr(manual_api, "FlareSolverrClient", FakeStoredSettingsFlareSolverr)
     monkeypatch.setattr(manual_api, "XChinaAdapter", FakeStoredSettingsXChina)
 
@@ -197,6 +208,7 @@ def test_manual_search_uses_saved_xchina_settings(
                 SettingsStore(session).update_app_settings(
                     {
                         "xchina": {
+                            "base_url": "https://mirror.xchina.test",
                             "flaresolverr_url": "http://solver:8191/v1",
                             "proxy_url": "http://proxy:8080",
                         }
@@ -230,6 +242,7 @@ def test_manual_search_uses_saved_xchina_settings(
     assert FakeStoredSettingsFlareSolverr.instances[0].url == "http://solver:8191/v1"
     assert FakeStoredSettingsFlareSolverr.instances[0].proxy_url == "http://proxy:8080"
     assert FakeStoredSettingsFlareSolverr.instances[0].closed is True
+    assert FakeStoredSettingsXChina.instances[0].base_url == "https://mirror.xchina.test"
 
 
 def test_manual_image_proxy_uses_saved_xchina_settings(
@@ -237,6 +250,7 @@ def test_manual_image_proxy_uses_saved_xchina_settings(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     FakeStoredSettingsFlareSolverr.instances.clear()
+    FakeStoredSettingsXChina.instances.clear()
     monkeypatch.setattr(manual_api, "FlareSolverrClient", FakeStoredSettingsFlareSolverr)
     monkeypatch.setattr(manual_api, "XChinaAdapter", FakeStoredSettingsXChina)
 
@@ -255,6 +269,7 @@ def test_manual_image_proxy_uses_saved_xchina_settings(
                 SettingsStore(session).update_app_settings(
                     {
                         "xchina": {
+                            "base_url": "https://media.xchina.test",
                             "flaresolverr_url": "http://solver:8191/v1",
                             "proxy_url": "http://proxy:8080",
                         }
@@ -268,7 +283,7 @@ def test_manual_image_proxy_uses_saved_xchina_settings(
             ) as client:
                 return await client.get(
                     "/api/manual/image-proxy",
-                    params={"url": "https://img.xchina.download/cover/demo.webp"},
+                    params={"url": "https://media.xchina.test/cover/demo.webp"},
                 )
 
     response = asyncio.run(run())
@@ -280,6 +295,7 @@ def test_manual_image_proxy_uses_saved_xchina_settings(
     assert FakeStoredSettingsFlareSolverr.instances[0].url == "http://solver:8191/v1"
     assert FakeStoredSettingsFlareSolverr.instances[0].proxy_url == "http://proxy:8080"
     assert FakeStoredSettingsFlareSolverr.instances[0].closed is True
+    assert FakeStoredSettingsXChina.instances[0].base_url == "https://media.xchina.test"
 
 
 def test_manual_image_proxy_rejects_untrusted_hosts(tmp_path: Path) -> None:

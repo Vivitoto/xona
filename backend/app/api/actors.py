@@ -12,6 +12,7 @@ from backend.app.db.models import Actor, EmbyLink
 from backend.app.integrations.emby import EmbyClient
 from backend.app.integrations.flaresolverr import FlareSolverrClient
 from backend.app.integrations.xchina import XChinaAdapter
+from backend.app.integrations.xchina_config import xchina_base_url
 from backend.app.schemas.actors import (
     ActorAliasesUpdate,
     ActorListResponse,
@@ -246,7 +247,7 @@ def _xchina_adapter_for(
         str(endpoint),
         proxy_url=settings.proxy_url or store_settings.get("proxy_url"),
     )
-    return XChinaAdapter(flaresolverr, session), flaresolverr.close
+    return XChinaAdapter(flaresolverr, session, base_url=xchina_base_url(store_settings)), flaresolverr.close
 
 
 def _emby_config(request: Request, session: Session) -> dict[str, Any]:

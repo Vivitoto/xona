@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from collections.abc import Awaitable, Callable
-from urllib.parse import urlsplit
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
 from sqlalchemy.orm import Session
@@ -10,6 +9,10 @@ from backend.app.core.redaction import redact_payload
 from backend.app.core.settings import Settings
 from backend.app.integrations.flaresolverr import FlareSolverrClient
 from backend.app.integrations.xchina import XChinaAdapter
+from backend.app.integrations.xchina_config import (
+    is_allowed_xchina_resource_url,
+    xchina_base_url,
+)
 from backend.app.schemas.manual import (
     ManualExecutePlanRequest,
     ManualExecutePlanResponse,
@@ -27,12 +30,6 @@ from backend.app.services.manual import ManualOrganizerError, ManualOrganizerSer
 from backend.app.services.settings_store import SettingsStore
 
 router = APIRouter(prefix="/api/manual", tags=["manual"])
-IMAGE_PROXY_ALLOWED_HOSTS = {
-    "www.xchina.co",
-    "xchina.co",
-    "img.xchina.download",
-    "upload.xchina.io",
-}
 IMAGE_PROXY_MAX_BYTES = 10 * 1024 * 1024
 
 
@@ -184,7 +181,8 @@ async def proxy_manual_image(
     url: str = Query(..., min_length=1),
     session: Session = Depends(get_db),
 ) -> Response:
-    _validate_image_proxy_url(url)
+    store_settings = SettingsStore(session).xchina_settings()
+    _validate_image_proxy_url(url, store_settings)
     adapter, closer = _asset_adapter_for(request, session)
     if adapter is None:
         raise HTTPException(status_code=400, detail="FlareSolverr URL required")
@@ -237,7 +235,7 @@ def _service_for(
         str(endpoint),
         proxy_url=settings.proxy_url or store_settings.get("proxy_url"),
     )
-    xchina = XChinaAdapter(flaresolverr, session)
+    xchina = XChinaAdapter(flaresolverr, session, base_url=xchina_base_url(store_settings))
     return (
         ManualOrganizerService(
             settings,
@@ -267,15 +265,11 @@ def _asset_adapter_for(
         str(endpoint),
         proxy_url=settings.proxy_url or store_settings.get("proxy_url"),
     )
-    return XChinaAdapter(flaresolverr, session), flaresolverr.close
+    return XChinaAdapter(flaresolverr, session, base_url=xchina_base_url(store_settings)), flaresolverr.close
 
 
-def _validate_image_proxy_url(url: str) -> None:
-    parsed = urlsplit(url)
-    if parsed.scheme.lower() != "https" or not parsed.hostname:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Unsupported image URL")
-    hostname = parsed.hostname.lower()
-    if hostname not in IMAGE_PROXY_ALLOWED_HOSTS:
+def _validate_image_proxy_url(url: str, store_settings: dict[str, object]) -> None:
+    if not is_allowed_xchina_resource_url(url, store_settings):
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Unsupported image host")
 
 

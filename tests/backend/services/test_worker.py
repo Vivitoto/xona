@@ -38,9 +38,19 @@ class FakeSavedSettingsFlareSolverr:
 
 
 class FakeSavedSettingsXChina:
-    def __init__(self, flaresolverr: FakeSavedSettingsFlareSolverr, session) -> None:
+    instances: list["FakeSavedSettingsXChina"] = []
+
+    def __init__(
+        self,
+        flaresolverr: FakeSavedSettingsFlareSolverr,
+        session,
+        *,
+        base_url: str = "https://www.xchina.co",
+    ) -> None:
         self.flaresolverr = flaresolverr
         self.session = session
+        self.base_url = base_url
+        self.instances.append(self)
 
     async def search(self, query: str) -> list[SourceSearchResult]:
         assert query == "Sample Work Alpha"
@@ -111,6 +121,7 @@ def test_auto_worker_uses_saved_xchina_settings(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     FakeSavedSettingsFlareSolverr.instances.clear()
+    FakeSavedSettingsXChina.instances.clear()
     monkeypatch.setattr(worker_module, "FlareSolverrClient", FakeSavedSettingsFlareSolverr)
     monkeypatch.setattr(worker_module, "XChinaAdapter", FakeSavedSettingsXChina)
 
@@ -130,6 +141,7 @@ def test_auto_worker_uses_saved_xchina_settings(
             SettingsStore(session).update_app_settings(
                 {
                     "xchina": {
+                        "base_url": "https://auto.xchina.test",
                         "flaresolverr_url": "http://solver:8191/v1",
                         "proxy_url": "http://proxy:8080",
                     }
@@ -180,5 +192,6 @@ def test_auto_worker_uses_saved_xchina_settings(
         assert FakeSavedSettingsFlareSolverr.instances[0].url == "http://solver:8191/v1"
         assert FakeSavedSettingsFlareSolverr.instances[0].proxy_url == "http://proxy:8080"
         assert FakeSavedSettingsFlareSolverr.instances[0].closed is True
+        assert FakeSavedSettingsXChina.instances[0].base_url == "https://auto.xchina.test"
     finally:
         engine.dispose()

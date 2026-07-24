@@ -13,6 +13,7 @@ from backend.app.core.settings import Settings
 from backend.app.integrations.emby import EmbyPathMapper
 from backend.app.integrations.flaresolverr import FlareSolverrClient
 from backend.app.integrations.xchina import XChinaAdapter
+from backend.app.integrations.xchina_config import xchina_base_url
 from backend.app.schemas.settings import (
     AppSettingsRead,
     AppSettingsUpdate,
@@ -156,7 +157,7 @@ async def test_xchina(
             str(endpoint),
             proxy_url=settings.proxy_url or store_settings.get("proxy_url"),
         )
-        adapter = XChinaAdapter(flaresolverr, session)
+        adapter = XChinaAdapter(flaresolverr, session, base_url=xchina_base_url(store_settings))
         closer = flaresolverr.close
     try:
         logger.info("XChina test started query=%r adapter_injected=%s", payload.query, closer is None)
