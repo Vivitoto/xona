@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
@@ -10,6 +11,7 @@ from backend.app.core.redaction import redact_payload
 from backend.app.db.models import Job, JobEvent
 from backend.app.schemas.jobs import JOB_STATES
 
+logger = logging.getLogger(__name__)
 
 TERMINAL_STATES = {"completed", "failed", "cancelled", "rolled_back"}
 ACTIVE_STATES = set(JOB_STATES) - TERMINAL_STATES
@@ -89,6 +91,14 @@ class JobService:
         self._session.add(job)
         self._session.flush()
         self._write_event(job, None, state, payload or {})
+        logger.info(
+            "Job created job_id=%s state=%s manual=%s rule_id=%s media_identity=%s",
+            job.id,
+            state,
+            manual,
+            rule_id,
+            media_identity,
+        )
         return job
 
     def list_jobs(self, *, state: str | None = None, manual: bool | None = None) -> list[Job]:
@@ -132,6 +142,14 @@ class JobService:
             job.lease_expires_at = None
         self._write_event(job, from_state, to_state, payload or {})
         self._session.flush()
+        logger.info(
+            "Job transitioned job_id=%s %s->%s manual=%s payload_keys=%s",
+            job.id,
+            from_state,
+            to_state,
+            job.manual,
+            sorted((payload or {}).keys()),
+        )
         return job
 
     def cancel_job(
@@ -145,6 +163,7 @@ class JobService:
             return job
         if "cancelled" not in VALID_TRANSITIONS[job.state]:
             raise InvalidJobTransition(f"Cannot cancel job from state {job.state}")
+        logger.info("Job cancel requested job_id=%s state=%s", job.id, job.state)
         return self.transition_job(job.id, "cancelled", payload=payload)
 
     def retry_job(self, job_id: int) -> Job:
@@ -166,6 +185,7 @@ class JobService:
             {"retry": True, "retry_scope": "full"},
         )
         self._session.flush()
+        logger.info("Job retry scheduled job_id=%s %s->%s", job.id, from_state, job.state)
         return job
 
     def retry_emby(self, job_id: int) -> Job:
@@ -192,6 +212,13 @@ class JobService:
         job.last_error_code = error_code
         job.updated_at = _utcnow()
         if job.attempts >= job.max_attempts:
+            logger.error(
+                "Job retries exhausted job_id=%s state=%s error_code=%s attempts=%s",
+                job.id,
+                job.state,
+                error_code,
+                job.attempts,
+            )
             if "failed" in VALID_TRANSITIONS[job.state]:
                 self.transition_job(
                     job.id,
@@ -210,6 +237,14 @@ class JobService:
             {"retry": True, "error_code": error_code, "attempts": job.attempts},
         )
         self._session.flush()
+        logger.warning(
+            "Job retry delayed job_id=%s state=%s error_code=%s attempts=%s next_run_at=%s",
+            job.id,
+            job.state,
+            error_code,
+            job.attempts,
+            job.next_run_at,
+        )
         return job
 
     def lease_next(
@@ -237,6 +272,13 @@ class JobService:
         job.lease_expires_at = now + timedelta(seconds=lease_seconds)
         job.updated_at = now
         self._session.flush()
+        logger.info(
+            "Job leased job_id=%s state=%s worker_id=%s lease_expires_at=%s",
+            job.id,
+            job.state,
+            worker_id,
+            job.lease_expires_at,
+        )
         return job
 
     def release_lease(self, job: Job) -> None:

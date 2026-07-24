@@ -13,8 +13,8 @@ from typing import Any
 from backend.app.core.redaction import redact_payload
 
 LOG_BUFFER_SIZE = 1000
-LOG_FORMAT = "%(asctime)s %(levelname)s [%(name)s] %(message)s"
-LOG_DATE_FORMAT = "%Y-%m-%dT%H:%M:%S%z"
+LOG_FORMAT = "%(asctime)s | %(levelname)-7s | %(component)s | %(message)s"
+LOG_DATE_FORMAT = "%Y-%m-%d %H:%M:%S"
 
 
 @dataclass(frozen=True)
@@ -23,6 +23,7 @@ class LogEntry:
     timestamp: str
     level: str
     logger: str
+    component: str
     message: str
     source: str = "application"
 
@@ -34,13 +35,20 @@ class RedactingFormatter(logging.Formatter):
     def format(self, record: logging.LogRecord) -> str:
         original_args: Any = record.args
         original_msg = record.msg
+        original_component = getattr(record, "component", None)
+        had_component = hasattr(record, "component")
         record.msg = redact_payload(record.msg)
         record.args = redact_payload(record.args)
+        record.component = component_name(record.name)
         try:
             return super().format(record)
         finally:
             record.msg = original_msg
             record.args = original_args
+            if had_component:
+                record.component = original_component
+            else:
+                delattr(record, "component")
 
 
 class InMemoryLogHandler(logging.Handler):
@@ -108,9 +116,28 @@ def configure_logging(
         logger.setLevel(parsed_level)
         logger.handlers.clear()
         logger.propagate = True
+    logging.getLogger("uvicorn.access").disabled = True
 
     _configured = True
-    logging.getLogger(__name__).info("Xona logging initialized")
+    logging.getLogger(__name__).info("Logging initialized level=%s", logging.getLevelName(parsed_level))
+
+
+def component_name(logger_name: str) -> str:
+    if logger_name == "backend.app.main":
+        return "app"
+    if logger_name.startswith("backend.app.api."):
+        return f"api.{logger_name.rsplit('.', 1)[-1]}"
+    if logger_name.startswith("backend.app.services."):
+        return f"service.{logger_name.rsplit('.', 1)[-1]}"
+    if logger_name.startswith("backend.app.integrations."):
+        return f"integration.{logger_name.rsplit('.', 1)[-1]}"
+    if logger_name.startswith("backend.app.core."):
+        return f"core.{logger_name.rsplit('.', 1)[-1]}"
+    if logger_name.startswith("backend.app.db."):
+        return "db"
+    if logger_name.startswith("uvicorn"):
+        return "server"
+    return logger_name
 
 
 def recent_logs(*, limit: int = 200, level: str | None = None) -> list[LogEntry]:
@@ -144,6 +171,7 @@ def _append_log_entry(record: logging.LogRecord, message: str) -> LogEntry:
         timestamp=datetime.fromtimestamp(record.created, timezone.utc).isoformat(),
         level=record.levelname,
         logger=record.name,
+        component=component_name(record.name),
         message=str(redact_payload(message)),
     )
     _log_entries.append(entry)

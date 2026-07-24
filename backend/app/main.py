@@ -45,18 +45,31 @@ def create_app(
     static_dir: str | Path | None = None,
 ) -> FastAPI:
     settings = settings or Settings()
-    configure_logging(config_dir=settings.config_dir)
+    configure_logging(config_dir=settings.config_dir, level=settings.log_level)
 
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
-        logger.info("Xona application starting")
+        logger.info(
+            "Starting Xona config_dir=%s worker=%s monitor=%s auto_media_roots=%s",
+            settings.config_dir,
+            settings.worker_enabled,
+            settings.monitor_enabled,
+            settings.auto_storage_roots,
+        )
         run_migrations(settings=settings)
+        logger.info("Database migrations completed")
         engine = create_engine_for_settings(settings)
         app.state.engine = engine
         app.state.sessionmaker = get_sessionmaker(engine)
         with app.state.sessionmaker() as session:
             storage_roots = StorageRootService(settings, session).list_roots()
             session.commit()
+        if storage_roots:
+            logger.info(
+                "Media roots ready count=%s roots=%s",
+                len(storage_roots),
+                ", ".join(root.path for root in storage_roots),
+            )
         if not storage_roots:
             logger.error(
                 "No media mount points were discovered. Mount one or more media directories into the container, for example -v /host/media:/media, or set STORAGE_ROOTS explicitly."
@@ -97,7 +110,7 @@ def create_app(
                     await worker_task
                 logger.info("Worker service stopped")
             engine.dispose()
-            logger.info("Xona application stopped")
+            logger.info("Xona stopped")
 
     app = FastAPI(title="Xona", lifespan=lifespan)
     app.state.settings = settings
@@ -283,7 +296,7 @@ class RequestLoggingMiddleware:
             await self._app(scope, receive, send_wrapper)
         finally:
             if path.startswith("/api/"):
-                logger.info("%s %s -> %s", method, path, status_code or "?")
+                logger.info("HTTP %s %s -> %s", method, path, status_code or "?")
 
 
 def _has_same_origin(request: Request) -> bool:

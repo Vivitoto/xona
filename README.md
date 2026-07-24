@@ -84,6 +84,8 @@ http://localhost:8732
 docker logs -f xona
 ```
 
+日志格式为 `时间 | 级别 | 组件 | 信息`，例如 `app`、`service.worker`、`api.manual`。默认不输出健康检查和静态资源访问日志；需要更详细日志时可在 `.env` 中设置 `LOG_LEVEL=DEBUG`。
+
 停止：
 
 ```bash

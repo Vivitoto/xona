@@ -39,4 +39,4 @@ HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
     CMD ["python", "/usr/local/bin/xona-healthcheck.py"]
 
 ENTRYPOINT ["/usr/local/bin/xona-entrypoint"]
-CMD ["uvicorn", "backend.app.main:create_app", "--factory", "--host", "0.0.0.0", "--port", "8732"]
+CMD ["uvicorn", "backend.app.main:create_app", "--factory", "--host", "0.0.0.0", "--port", "8732", "--no-access-log"]

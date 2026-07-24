@@ -28,7 +28,7 @@ def test_dockerfile_builds_frontend_and_installs_backend_package() -> None:
     assert "ENTRYPOINT [\"/usr/local/bin/xona-entrypoint\"]" in dockerfile
     assert (
         'CMD ["uvicorn", "backend.app.main:create_app", "--factory", "--host", '
-        '"0.0.0.0", "--port", "8732"]'
+        '"0.0.0.0", "--port", "8732", "--no-access-log"]'
     ) in dockerfile
 
 
@@ -39,6 +39,7 @@ def test_compose_defines_app_service_ports_and_mounts_without_storage_roots_env(
     assert '"${XONA_PORT:-8732}:8732"' in compose
     assert 'PUID: "${PUID:-1000}"' in compose
     assert 'PGID: "${PGID:-1000}"' in compose
+    assert 'LOG_LEVEL: "${LOG_LEVEL:-INFO}"' in compose
     assert "STORAGE_ROOTS" not in compose
     assert '"${CONFIG_ROOT:-./config}:/config"' in compose
     assert '"${MEDIA_ROOT:-./media}:/media"' in compose
@@ -60,6 +61,7 @@ def test_env_example_uses_redacted_local_defaults() -> None:
     assert "XONA_PORT=8732" in env_example
     assert "PUID=1000" in env_example
     assert "PGID=1000" in env_example
+    assert "LOG_LEVEL=INFO" in env_example
     assert "STORAGE_ROOTS=" not in env_example
     assert "API_KEY=" not in env_example
     assert "PASSWORD=" not in env_example

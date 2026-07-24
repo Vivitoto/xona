@@ -8,6 +8,7 @@ class LogEntryRead(BaseModel):
     timestamp: str
     level: str
     logger: str
+    component: str
     message: str
     source: str = "application"
 
@@ -15,5 +16,5 @@ class LogEntryRead(BaseModel):
 class LogListResponse(BaseModel):
     entries: list[LogEntryRead] = Field(default_factory=list)
     docker_logs_note: str = (
-        "Xona application logs are written to stdout, so they are visible with docker logs."
+        "Docker logs use: time | level | component | message. View them with docker logs -f xona."
     )

@@ -517,13 +517,24 @@ nav {
 .check-field {
   align-content: start;
   grid-template-columns: 18px minmax(0, 1fr);
-  padding-top: calc(var(--field-label-height) + var(--field-label-gap));
+  align-items: start;
+  padding-top: 0;
+}
+
+.check-field > span {
+  display: grid;
+  gap: 0.12rem;
+  min-width: 0;
 }
 
 .check-field input {
   width: var(--checkbox-size);
+  height: var(--checkbox-size);
+  min-width: var(--checkbox-size);
   min-height: var(--checkbox-size);
-  margin-top: calc((var(--control-height) - var(--checkbox-size)) / 2);
+  margin: calc((var(--field-label-height) - var(--checkbox-size)) / 2) 0 0;
+  padding: 0;
+  flex: none;
 }
 
 .row,
@@ -1875,6 +1886,37 @@ nav {
   min-width: 0;
 }
 
+.media-file-pagination-summary,
+.media-file-pagination-controls {
+  display: flex;
+  gap: 0.6rem;
+  align-items: center;
+  justify-content: space-between;
+  color: var(--muted);
+  font-size: 0.82rem;
+}
+
+.media-file-pagination-summary label {
+  display: inline-flex;
+  gap: 0.35rem;
+  align-items: center;
+  white-space: nowrap;
+}
+
+.media-file-pagination-summary select {
+  width: auto;
+  min-width: 4.5rem;
+}
+
+.media-file-pagination-controls {
+  justify-content: center;
+}
+
+.media-file-pagination-controls button {
+  min-height: 30px;
+  padding-inline: 0.65rem;
+}
+
 .media-file-card {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
@@ -1957,6 +1999,52 @@ nav {
 .manual-detail-url > button {
   min-width: 116px;
   margin-top: calc(var(--field-label-height) + var(--field-label-gap));
+}
+
+.search-feedback {
+  display: grid;
+  gap: 0.2rem;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 0.7rem 0.8rem;
+  color: var(--muted);
+  background: var(--panel-soft);
+}
+
+.search-feedback strong {
+  color: var(--text);
+}
+
+.search-feedback.is-loading {
+  border-color: rgb(18 91 122 / 0.22);
+  background: rgb(18 91 122 / 0.08);
+}
+
+.search-feedback.is-success {
+  border-color: rgb(31 122 77 / 0.22);
+  background: rgb(31 122 77 / 0.08);
+}
+
+.search-feedback.is-error {
+  border-color: rgb(166 27 53 / 0.22);
+  background: rgb(166 27 53 / 0.08);
+}
+
+.search-feedback.is-error strong {
+  color: var(--danger);
+}
+
+.candidate-results-panel {
+  display: grid;
+  gap: 0.7rem;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 0.72rem;
+  background: #ffffff;
+}
+
+.candidate-results-panel .search-feedback {
+  border-radius: 10px;
 }
 
 .advanced-options {

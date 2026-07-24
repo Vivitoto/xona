@@ -36,6 +36,10 @@ def test_logs_api_returns_recent_redacted_entries(tmp_path: Path) -> None:
     assert "raw-secret" not in text
     assert "raw-token" not in text
     assert any("probe" in entry["message"] for entry in body["entries"])
+    probe_entry = next(entry for entry in body["entries"] if "probe" in entry["message"])
+    assert probe_entry["logger"] == "tests.xona"
+    assert probe_entry["component"] == "tests.xona"
+    assert "time | level | component | message" in body["docker_logs_note"]
 
 
 def test_logs_api_requires_auth_when_enabled(tmp_path: Path) -> None:

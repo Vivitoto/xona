@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import logging
 import mimetypes
 from pathlib import Path
 from typing import Protocol
@@ -18,6 +19,8 @@ from backend.app.schemas.assets import (
     MissingAsset,
 )
 from backend.app.services.normalization import sanitize_path_component
+
+logger = logging.getLogger(__name__)
 
 
 class AssetAdapter(Protocol):
@@ -44,6 +47,13 @@ class AssetMaterializer:
         *,
         plan_id: str | None = None,
     ) -> MaterializedAssetSet:
+        logger.info(
+            "Asset materialization started assets=%s pre_missing=%s strict=%s plan_id=%s",
+            len(selection.assets),
+            len(selection.missing_required),
+            policy.strict,
+            plan_id,
+        )
         materialized: list[MaterializedAsset] = []
         missing: list[MissingAsset] = list(selection.missing_required)
 
@@ -55,8 +65,20 @@ class AssetMaterializer:
             cached = self._cached_asset(asset, policy)
             if cached is not None:
                 if isinstance(cached, str):
+                    logger.warning(
+                        "Asset cache rejected kind=%s relative_path=%s reason=%s",
+                        asset.kind,
+                        asset.relative_path,
+                        cached,
+                    )
                     missing.append(_missing(asset, cached))
                     continue
+                logger.info(
+                    "Asset cache hit kind=%s relative_path=%s size=%s",
+                    cached.kind,
+                    cached.relative_path,
+                    cached.size_bytes,
+                )
                 materialized.append(cached)
                 continue
 
@@ -64,6 +86,12 @@ class AssetMaterializer:
             if isinstance(result, MissingAsset):
                 missing.append(result)
                 self._record_refusal(asset, result.reason)
+                logger.warning(
+                    "Asset materialization refused kind=%s relative_path=%s reason=%s",
+                    asset.kind,
+                    asset.relative_path,
+                    result.reason,
+                )
                 continue
 
             cache_path = self._cache_path(asset, plan_id=plan_id)
@@ -83,10 +111,22 @@ class AssetMaterializer:
             )
             materialized.append(materialized_asset)
             self._record_success(asset, materialized_asset)
+            logger.info(
+                "Asset materialized kind=%s relative_path=%s size=%s",
+                materialized_asset.kind,
+                materialized_asset.relative_path,
+                materialized_asset.size_bytes,
+            )
 
         failed = policy.strict and any(item.required for item in missing)
         if self._session is not None:
             self._session.flush()
+        logger.info(
+            "Asset materialization completed materialized=%s missing=%s failed=%s",
+            len(materialized),
+            len(missing),
+            failed,
+        )
         return MaterializedAssetSet(assets=materialized, missing=missing, failed=failed)
 
     def _cached_asset(

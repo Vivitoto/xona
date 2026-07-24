@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -18,6 +19,7 @@ from backend.app.schemas.jobs import (
 from backend.app.services.jobs import InvalidJobTransition, JobService
 
 router = APIRouter(prefix="/api/jobs", tags=["jobs"])
+logger = logging.getLogger(__name__)
 
 
 async def get_db(request: Request):
@@ -31,16 +33,21 @@ async def list_jobs(
     session: Session = Depends(get_db),
 ) -> JobListResponse:
     service = JobService(session)
+    jobs = service.list_jobs(state=state)
+    logger.info("Jobs listed state=%s count=%s", state or "all", len(jobs))
     return JobListResponse(
-        jobs=[_job_summary(session, job) for job in service.list_jobs(state=state)]
+        jobs=[_job_summary(session, job) for job in jobs]
     )
 
 
 @router.get("/{job_id}", response_model=JobSummaryRead)
 async def get_job(job_id: int, session: Session = Depends(get_db)) -> JobSummaryRead:
     try:
-        return _job_summary(session, JobService(session).get_job(job_id))
+        job = JobService(session).get_job(job_id)
+        logger.info("Job detail requested job_id=%s state=%s", job.id, job.state)
+        return _job_summary(session, job)
     except ValueError as exc:
+        logger.warning("Job detail rejected job_id=%s error=%s", job_id, exc)
         raise HTTPException(status_code=404, detail="Job not found") from exc
 
 
@@ -52,7 +59,9 @@ async def get_job_events(
     try:
         events = JobService(session).list_events(job_id)
     except ValueError as exc:
+        logger.warning("Job events rejected job_id=%s error=%s", job_id, exc)
         raise HTTPException(status_code=404, detail="Job not found") from exc
+    logger.info("Job events listed job_id=%s count=%s", job_id, len(events))
     return JobEventsResponse(
         events=[
             JobEventRead(
@@ -74,11 +83,14 @@ async def retry_job(
 ) -> JobActionResponse:
     service = JobService(session)
     try:
+        logger.info("Job retry requested job_id=%s", job_id)
         job = service.retry_job(job_id)
         session.commit()
     except (ValueError, InvalidJobTransition) as exc:
         session.rollback()
+        logger.warning("Job retry rejected job_id=%s error=%s", job_id, redact_payload(str(exc)))
         raise HTTPException(status_code=400, detail=redact_payload(str(exc))) from exc
+    logger.info("Job retry accepted job_id=%s state=%s", job.id, job.state)
     return JobActionResponse(job=_job_summary(session, job))
 
 
@@ -89,11 +101,14 @@ async def cancel_job(
 ) -> JobActionResponse:
     service = JobService(session)
     try:
+        logger.info("Job cancel requested job_id=%s", job_id)
         job = service.cancel_job(job_id, payload={"cancelled_by": "api"})
         session.commit()
     except (ValueError, InvalidJobTransition) as exc:
         session.rollback()
+        logger.warning("Job cancel rejected job_id=%s error=%s", job_id, redact_payload(str(exc)))
         raise HTTPException(status_code=400, detail=redact_payload(str(exc))) from exc
+    logger.info("Job cancel accepted job_id=%s state=%s", job.id, job.state)
     return JobActionResponse(job=_job_summary(session, job))
 
 

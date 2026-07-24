@@ -28,6 +28,7 @@ class Settings(BaseSettings):
     auth_cookie_secure: bool = False
     worker_enabled: bool = False
     monitor_enabled: bool = False
+    log_level: str = "INFO"
 
     @field_validator("config_dir", mode="before")
     @classmethod

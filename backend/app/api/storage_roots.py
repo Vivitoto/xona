@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import logging
+
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from sqlalchemy.orm import Session
 
@@ -16,6 +18,7 @@ from backend.app.schemas.storage_roots import (
 from backend.app.services.storage_roots import StorageRootService, StorageRootValidationError
 
 router = APIRouter(prefix="/api", tags=["storage-roots"])
+logger = logging.getLogger(__name__)
 
 
 async def get_db(request: Request):
@@ -31,7 +34,9 @@ def _service_for(request: Request, session: Session) -> StorageRootService:
 @router.get("/storage-roots", response_model=StorageRootList)
 async def list_roots(request: Request, session: Session = Depends(get_db)) -> StorageRootList:
     service = _service_for(request, session)
-    return StorageRootList(roots=[StorageRootRead.model_validate(root) for root in service.list_roots()])
+    roots = service.list_roots()
+    logger.info("Storage roots listed count=%s", len(roots))
+    return StorageRootList(roots=[StorageRootRead.model_validate(root) for root in roots])
 
 
 @router.post("/storage-roots", response_model=StorageRootRead, status_code=status.HTTP_201_CREATED)
@@ -42,10 +47,13 @@ async def create_root(
 ) -> StorageRootRead:
     service = _service_for(request, session)
     try:
+        logger.info("Storage root create requested path=%s", payload.path)
         root = service.add_root(payload.path)
         session.commit()
     except StorageRootValidationError as exc:
+        logger.warning("Storage root create rejected path=%s error=%s", payload.path, exc)
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    logger.info("Storage root created root_id=%s path=%s source=%s", root.id, root.path, root.source)
     return StorageRootRead.model_validate(root)
 
 
@@ -62,7 +70,14 @@ async def browse_root(
         root = roots[root_id]
         entries = service.browse(root_id, path)
     except (KeyError, StorageRootValidationError) as exc:
+        logger.warning("Storage root browse rejected root_id=%s path=%s error=%s", root_id, path, exc)
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    logger.info(
+        "Storage root browsed root_id=%s path=%s entries=%s",
+        root_id,
+        path or ".",
+        len(entries),
+    )
     return BrowseResponse(root=StorageRootRead.model_validate(root), entries=entries)
 
 
@@ -74,9 +89,17 @@ async def validate_path(
 ) -> ValidatePathResponse:
     service = _service_for(request, session)
     try:
+        logger.info("Storage path validation requested path=%s", payload.path)
         validation = service.validate_inside_root(payload.path)
     except StorageRootValidationError as exc:
+        logger.warning("Storage path validation rejected path=%s error=%s", payload.path, exc)
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    logger.info(
+        "Storage path validation accepted path=%s root_id=%s relative=%s",
+        payload.path,
+        validation.root.id,
+        validation.relative_path,
+    )
     return ValidatePathResponse(
         inside_root=True,
         root_id=validation.root.id,
@@ -93,10 +116,18 @@ async def update_root(
 ) -> StorageRootRead:
     service = _service_for(request, session)
     try:
+        logger.info(
+            "Storage root update requested root_id=%s path=%s enabled=%s",
+            root_id,
+            payload.path,
+            payload.enabled,
+        )
         root = service.update_root(root_id, path=payload.path, enabled=payload.enabled)
         session.commit()
     except StorageRootValidationError as exc:
+        logger.warning("Storage root update rejected root_id=%s error=%s", root_id, exc)
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    logger.info("Storage root updated root_id=%s path=%s enabled=%s", root.id, root.path, root.enabled)
     return StorageRootRead.model_validate(root)
 
 
@@ -108,8 +139,11 @@ async def delete_root(
 ) -> Response:
     service = _service_for(request, session)
     try:
+        logger.info("Storage root delete requested root_id=%s", root_id)
         service.delete_root(root_id)
         session.commit()
     except StorageRootValidationError as exc:
+        logger.warning("Storage root delete rejected root_id=%s error=%s", root_id, exc)
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    logger.info("Storage root deleted root_id=%s", root_id)
     return Response(status_code=status.HTTP_204_NO_CONTENT)

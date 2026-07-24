@@ -50,6 +50,7 @@ describe("LogsPage", () => {
               timestamp: "2026-07-24T03:00:00+00:00",
               level: "INFO",
               logger: "backend.app.main",
+              component: "app",
               message: "Xona application started",
               source: "application",
             },
@@ -66,6 +67,7 @@ describe("LogsPage", () => {
               timestamp: "2026-07-24T03:00:02+00:00",
               level: "ERROR",
               logger: "backend.app.worker",
+              component: "service.worker",
               message: "Worker failed without token=********",
               source: "application",
             },
@@ -86,6 +88,7 @@ describe("LogsPage", () => {
       timestamp: "2026-07-24T03:00:01+00:00",
       level: "WARNING",
       logger: "backend.app.monitor",
+      component: "service.monitor",
       message: "Monitor warning",
       source: "application",
     });

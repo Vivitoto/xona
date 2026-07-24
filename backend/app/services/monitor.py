@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from collections.abc import Callable
 from pathlib import Path
 from typing import Protocol
@@ -11,6 +12,8 @@ from backend.app.db.models import Job, MonitorMediaState, WatchRule
 from backend.app.services.scanner import VIDEO_EXTENSIONS, media_identity, scan_directory
 from backend.app.services.stability import StabilityDetector, StabilitySnapshot
 from backend.app.services.watch_rules import WatchRuleService, WatchRuleValidationError
+
+logger = logging.getLogger(__name__)
 
 
 class MonitorObserver(Protocol):
@@ -51,6 +54,11 @@ class MonitorService:
         if not realtime_requested:
             self.realtime_available = False
             self.polling_rule_ids = set(self.active_rule_ids)
+            logger.info(
+                "Monitor started in polling mode active_rules=%s polling_rules=%s",
+                len(self.active_rule_ids),
+                len(self.polling_rule_ids),
+            )
             return
         try:
             observer = self._build_observer()
@@ -61,10 +69,19 @@ class MonitorService:
             self._observer = None
             self.realtime_available = False
             self.polling_rule_ids = set(self.active_rule_ids)
+            logger.warning(
+                "Monitor realtime unavailable; falling back to polling active_rules=%s",
+                len(self.active_rule_ids),
+            )
             return
         self._observer = observer
         self.realtime_available = True
         self._refresh_polling_rule_ids()
+        logger.info(
+            "Monitor started realtime_available=True active_rules=%s polling_rules=%s",
+            len(self.active_rule_ids),
+            len(self.polling_rule_ids),
+        )
 
     def stop(self) -> None:
         observer = self._observer
@@ -73,12 +90,19 @@ class MonitorService:
             observer.stop()
             observer.join(timeout=2.0)
         self.started = False
+        logger.info("Monitor stopped")
 
     def reload_rules(self) -> None:
         with self._sessionmaker() as session:
             rules = [rule for rule in WatchRuleService(self._settings, session).list_rules() if rule.enabled]
             self.active_rule_ids = {rule.rule_id for rule in rules}
             self._refresh_polling_rule_ids(rules=rules)
+        logger.info(
+            "Monitor rules reloaded active_rules=%s polling_rules=%s realtime_available=%s",
+            len(self.active_rule_ids),
+            len(self.polling_rule_ids),
+            self.realtime_available,
+        )
 
     def handle_event(self, path: Path | str, *, rule_id: str | None = None) -> list[Job]:
         media_path = Path(path)
@@ -93,6 +117,13 @@ class MonitorService:
             session.commit()
             for job in jobs:
                 session.refresh(job)
+            if jobs:
+                logger.info(
+                    "Monitor event enqueued jobs path=%s rule_id=%s jobs=%s",
+                    media_path,
+                    rule_id,
+                    [job.id for job in jobs],
+                )
             return jobs
 
     def scan_rule_once(self, rule_id: str) -> list[Job]:
@@ -113,6 +144,11 @@ class MonitorService:
             session.commit()
             for job in jobs:
                 session.refresh(job)
+            logger.info(
+                "Monitor rule scan completed rule_id=%s jobs=%s",
+                rule_id,
+                len(jobs),
+            )
             return jobs
 
     def _process_path(
@@ -151,8 +187,14 @@ class MonitorService:
             stable_count=result.snapshot.stable_count,
         )
         if not result.stable:
+            logger.info(
+                "Monitor media waiting for stability rule_id=%s path=%s stable_count=%s",
+                rule.rule_id,
+                path,
+                result.snapshot.stable_count,
+            )
             return None
-        return service.enqueue_once(
+        job = service.enqueue_once(
             rule,
             media_identity=identity,
             last_seen_path=path,
@@ -160,6 +202,14 @@ class MonitorService:
             mtime_ns=stat.st_mtime_ns,
             stable_count=result.snapshot.stable_count,
         )
+        logger.info(
+            "Monitor media enqueued rule_id=%s job_id=%s path=%s size=%s",
+            rule.rule_id,
+            job.id,
+            path,
+            stat.st_size,
+        )
+        return job
 
     def _candidate_rules(
         self,

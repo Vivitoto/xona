@@ -27,6 +27,7 @@ const safetyLabels = [
 
 type SafetyKey = (typeof safetyLabels)[number][0];
 type QuerySource = "filename" | "parent" | "custom";
+const mediaFilePageSizes = [5, 10, 20] as const;
 
 export function ManualOrganizerPage() {
   const [directory, setDirectory] = useState("");
@@ -59,6 +60,10 @@ export function ManualOrganizerPage() {
     useState<ManualExecutePlanResponse | null>(null);
   const [status, setStatus] = useState("");
   const [error, setError] = useState("");
+  const [searchState, setSearchState] = useState<
+    "idle" | "searching" | "success" | "error"
+  >("idle");
+  const [searchFeedback, setSearchFeedback] = useState("");
 
   const activeJob = useMemo(
     () => jobs.find((job) => String(job.job_id) === jobId) ?? jobs[0] ?? null,
@@ -70,13 +75,16 @@ export function ManualOrganizerPage() {
     if (!activeJob) {
       return;
     }
-    setSearchQuery(defaultQuery(activeJob, querySource));
+    setQuerySource("filename");
+    setSearchQuery(defaultQuery(activeJob, "filename"));
     setCandidates([]);
     setSelected(null);
     setRefusalReasons([]);
     setPreview(null);
     setExecuteResult(null);
-  }, [activeJob?.job_id, querySource]);
+    setSearchState("idle");
+    setSearchFeedback("");
+  }, [activeJob?.job_id]);
 
   async function scan(event?: FormEvent) {
     event?.preventDefault();
@@ -97,6 +105,8 @@ export function ManualOrganizerPage() {
         setQuerySource("filename");
         setSearchQuery(defaultQuery(response.jobs[0], "filename"));
       }
+      setSearchState("idle");
+      setSearchFeedback("");
       setStatus(`已扫描 ${response.scanned_count} 个视频文件`);
     } catch (exc) {
       setError(exc instanceof Error ? exc.message : "扫描失败");
@@ -107,16 +117,22 @@ export function ManualOrganizerPage() {
     const job = activeJob;
     if (!job) {
       setError("请先扫描并选择一个视频文件。");
+      setSearchState("error");
+      setSearchFeedback("请先扫描并选择一个视频文件。");
       return;
     }
     const query = nextSource === "custom" ? searchQuery : defaultQuery(job, nextSource);
     if (!query.trim()) {
       setError("请输入搜索关键词。");
+      setSearchState("error");
+      setSearchFeedback("请输入搜索关键词。");
       return;
     }
     setQuerySource(nextSource);
     setSearchQuery(query);
-    setStatus("正在搜索 XChina");
+    setSearchState("searching");
+    setSearchFeedback(`正在搜索「${query}」…`);
+    setStatus("");
     setError("");
     setCandidates([]);
     setSelected(null);
@@ -134,9 +150,17 @@ export function ManualOrganizerPage() {
       setJobId(String(response.job_id));
       setSearchQuery(response.normalized_query);
       setCandidates(response.candidates);
-      setStatus(`找到 ${response.candidates.length} 个候选结果`);
+      setSearchState("success");
+      setSearchFeedback(
+        response.candidates.length
+          ? `搜索完成：找到 ${response.candidates.length} 个候选结果。`
+          : `搜索完成：没有找到候选结果。`,
+      );
     } catch (exc) {
-      setError(exc instanceof Error ? exc.message : "搜索失败");
+      const message = exc instanceof Error ? exc.message : "搜索失败";
+      setSearchState("error");
+      setSearchFeedback(message);
+      setError(message);
     }
   }
 
@@ -296,10 +320,10 @@ export function ManualOrganizerPage() {
               </div>
 
               <div className="query-toolbar">
-                <button className={querySource === "filename" ? "" : "secondary"} type="button" onClick={() => void search("filename")}>
+                <button className={querySource === "filename" ? "" : "secondary"} disabled={searchState === "searching"} type="button" onClick={() => void search("filename")}>
                   用文件名搜索
                 </button>
-                <button className={querySource === "parent" ? "" : "secondary"} type="button" onClick={() => void search("parent")}>
+                <button className={querySource === "parent" ? "" : "secondary"} disabled={searchState === "searching"} type="button" onClick={() => void search("parent")}>
                   用父目录搜索
                 </button>
               </div>
@@ -315,8 +339,8 @@ export function ManualOrganizerPage() {
                     }}
                   />
                 </FormField>
-                <button type="button" onClick={() => void search("custom")}>
-                  搜索
+                <button disabled={searchState === "searching"} type="button" onClick={() => void search("custom")}>
+                  {searchState === "searching" ? "搜索中…" : "搜索"}
                 </button>
               </div>
 
@@ -358,26 +382,28 @@ export function ManualOrganizerPage() {
                 </div>
               </details>
 
-              {candidates.length ? (
-                <div className="candidate-grid candidate-grid-compact">
-                  {candidates.map((candidate) => (
-                    <CandidateCard
-                      key={candidate.candidate_id}
-                      candidate={candidate}
-                      selected={candidate.candidate_id === selected?.candidate_id}
-                      onSelect={(nextCandidate) => {
-                        setSelected(nextCandidate);
-                        void selectCandidate(nextCandidate);
-                      }}
-                    />
-                  ))}
-                </div>
-              ) : (
-                <div className="empty-state">
-                  <strong>还没有候选结果</strong>
-                  <span>先在左侧选择文件，再用文件名或父目录名搜索。</span>
-                </div>
-              )}
+              <div className="candidate-results-panel" aria-label="候选结果">
+                <SearchFeedback
+                  candidateCount={candidates.length}
+                  feedback={searchFeedback}
+                  state={searchState}
+                />
+                {candidates.length ? (
+                  <div className="candidate-grid candidate-grid-compact">
+                    {candidates.map((candidate) => (
+                      <CandidateCard
+                        key={candidate.candidate_id}
+                        candidate={candidate}
+                        selected={candidate.candidate_id === selected?.candidate_id}
+                        onSelect={(nextCandidate) => {
+                          setSelected(nextCandidate);
+                          void selectCandidate(nextCandidate);
+                        }}
+                      />
+                    ))}
+                  </div>
+                ) : null}
+              </div>
               {refusalReasons.length ? (
                 <div className="review-reasons" aria-label="复核原因">
                   <strong>需要复核</strong>
@@ -494,6 +520,17 @@ function MediaFileList({
   jobs: ManualJobSummary[];
   onPick: (job: ManualJobSummary) => void;
 }) {
+  const [pageSize, setPageSize] = useState<(typeof mediaFilePageSizes)[number]>(10);
+  const [page, setPage] = useState(1);
+  const totalPages = Math.max(1, Math.ceil(jobs.length / pageSize));
+  const safePage = Math.min(page, totalPages);
+  const startIndex = (safePage - 1) * pageSize;
+  const visibleJobs = jobs.slice(startIndex, startIndex + pageSize);
+
+  useEffect(() => {
+    setPage(1);
+  }, [jobs.length, pageSize]);
+
   if (!jobs.length) {
     return (
       <div className="empty-state">
@@ -505,7 +542,29 @@ function MediaFileList({
 
   return (
     <div className="media-file-list" aria-label="扫描到的视频文件">
-      {jobs.map((job) => {
+      <div className="media-file-pagination-summary">
+        <span>
+          共 {jobs.length} 个视频，显示第 {startIndex + 1}-
+          {Math.min(startIndex + pageSize, jobs.length)} 个
+        </span>
+        <label>
+          每页
+          <select
+            aria-label="每页显示视频数量"
+            value={pageSize}
+            onChange={(event) =>
+              setPageSize(Number(event.target.value) as typeof pageSize)
+            }
+          >
+            {mediaFilePageSizes.map((size) => (
+              <option key={size} value={size}>
+                {size}
+              </option>
+            ))}
+          </select>
+        </label>
+      </div>
+      {visibleJobs.map((job) => {
         const item = job.media_items[0];
         const active = job.job_id === activeJobId;
         return (
@@ -518,13 +577,82 @@ function MediaFileList({
           >
             <span className="media-file-main">
               <strong>{item ? fileName(item.path) : job.media_identity}</strong>
-              <small>{item ? parentName(item.path) : job.media_identity}</small>
-              <small>{item?.path ?? job.media_identity}</small>
+              <small>父目录：{item ? parentName(item.path) : "未知"}</small>
             </span>
             <span className="status-pill">{job.state}</span>
           </button>
         );
       })}
+      <div className="media-file-pagination-controls">
+        <button
+          className="secondary"
+          disabled={safePage <= 1}
+          type="button"
+          onClick={() => setPage((current) => Math.max(1, current - 1))}
+        >
+          上一页
+        </button>
+        <span aria-label="当前视频分页">
+          {safePage} / {totalPages}
+        </span>
+        <button
+          className="secondary"
+          disabled={safePage >= totalPages}
+          type="button"
+          onClick={() => setPage((current) => Math.min(totalPages, current + 1))}
+        >
+          下一页
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function SearchFeedback({
+  candidateCount,
+  feedback,
+  state,
+}: {
+  candidateCount: number;
+  feedback: string;
+  state: "idle" | "searching" | "success" | "error";
+}) {
+  if (state === "idle") {
+    return (
+      <div className="search-feedback" role="status">
+        <strong>等待搜索</strong>
+        <span>可用文件名、父目录名，或手动输入关键词搜索 XChina。</span>
+      </div>
+    );
+  }
+
+  if (state === "searching") {
+    return (
+      <div className="search-feedback is-loading" aria-live="polite" role="status">
+        <strong>正在搜索</strong>
+        <span>{feedback || "正在连接 XChina，请稍候…"}</span>
+      </div>
+    );
+  }
+
+  if (state === "error") {
+    return (
+      <div className="search-feedback is-error" aria-live="assertive" role="alert">
+        <strong>搜索失败</strong>
+        <span>{feedback || "后台搜索失败，请检查网络或稍后重试。"}</span>
+      </div>
+    );
+  }
+
+  return (
+    <div className="search-feedback is-success" aria-live="polite" role="status">
+      <strong>{candidateCount ? "搜索完成" : "没有结果"}</strong>
+      <span>
+        {feedback ||
+          (candidateCount
+            ? `找到 ${candidateCount} 个候选结果。`
+            : "没有找到候选结果，可换关键词或粘贴详情 URL。")}
+      </span>
     </div>
   );
 }

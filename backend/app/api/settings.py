@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import time
 from pathlib import Path
 from typing import Any
@@ -28,6 +29,7 @@ from backend.app.services.storage_roots import StorageRootService, StorageRootVa
 from backend.app.services.templates import preview_template
 
 router = APIRouter(prefix="/api/settings", tags=["settings"])
+logger = logging.getLogger(__name__)
 
 
 async def get_db(request: Request):
@@ -54,6 +56,7 @@ async def update_settings(
     patch = payload.model_dump(mode="json", exclude_unset=True)
     _remove_read_only_runtime_settings(patch)
     settings: Settings = request.app.state.settings
+    logger.info("Settings update requested sections=%s", sorted(patch.keys()))
     try:
         _validate_settings_patch(settings, session, patch)
         values = SettingsStore(session).update_app_settings(patch)
@@ -61,8 +64,14 @@ async def update_settings(
         session.commit()
     except (SettingsUpdateError, StorageRootValidationError, ValueError) as exc:
         session.rollback()
+        logger.warning(
+            "Settings update rejected sections=%s error=%s",
+            sorted(patch.keys()),
+            exc,
+        )
         raise HTTPException(status_code=400, detail=redact_payload(str(exc))) from exc
     _overlay_runtime_settings(settings, values)
+    logger.info("Settings update saved sections=%s", sorted(patch.keys()))
     return AppSettingsRead.model_validate(values)
 
 
@@ -77,6 +86,7 @@ async def test_flaresolverr(
     endpoint = payload.url or settings.flaresolverr_url or store_settings.get("flaresolverr_url")
     proxy_url = payload.proxy_url or settings.proxy_url or store_settings.get("proxy_url")
     if not endpoint:
+        logger.warning("FlareSolverr test rejected reason=url_required")
         raise HTTPException(status_code=400, detail="FlareSolverr URL required")
     client = getattr(request.app.state, "flaresolverr_client", None)
     owns_client = False
@@ -84,11 +94,23 @@ async def test_flaresolverr(
         client = FlareSolverrClient(str(endpoint), proxy_url=proxy_url)
         owns_client = True
     started = time.monotonic()
+    logger.info(
+        "FlareSolverr test started endpoint=%s target=%s proxy=%s",
+        endpoint,
+        payload.test_url,
+        bool(proxy_url),
+    )
     try:
         response = await client.request_get(payload.test_url)
         elapsed_ms = int((time.monotonic() - started) * 1000)
         headers = response.headers or {}
         cookie_count = sum(1 for key in headers if key.lower() == "set-cookie")
+        logger.info(
+            "FlareSolverr test completed ok=True status=%s elapsed_ms=%s cookies=%s",
+            response.status_code,
+            elapsed_ms,
+            cookie_count,
+        )
         return FlareSolverrTestResponse(
             ok=True,
             status_code=response.status_code,
@@ -98,6 +120,11 @@ async def test_flaresolverr(
         )
     except Exception as exc:
         elapsed_ms = int((time.monotonic() - started) * 1000)
+        logger.warning(
+            "FlareSolverr test completed ok=False elapsed_ms=%s error=%s",
+            elapsed_ms,
+            redact_payload(str(exc)),
+        )
         return FlareSolverrTestResponse(
             ok=False,
             status_code=None,
@@ -123,6 +150,7 @@ async def test_xchina(
         store_settings = SettingsStore(session).xchina_settings()
         endpoint = settings.flaresolverr_url or store_settings.get("flaresolverr_url")
         if not endpoint:
+            logger.warning("XChina test rejected reason=flaresolverr_url_required")
             raise HTTPException(status_code=400, detail="FlareSolverr URL required")
         flaresolverr = FlareSolverrClient(
             str(endpoint),
@@ -131,9 +159,16 @@ async def test_xchina(
         adapter = XChinaAdapter(flaresolverr, session)
         closer = flaresolverr.close
     try:
+        logger.info("XChina test started query=%r adapter_injected=%s", payload.query, closer is None)
         results = await adapter.search(payload.query)
+        logger.info("XChina test completed ok=True query=%r candidates=%s", payload.query, len(results))
         return XChinaTestResponse(ok=True, candidate_count=len(results))
     except Exception as exc:
+        logger.warning(
+            "XChina test completed ok=False query=%r error=%s",
+            payload.query,
+            redact_payload(str(exc)),
+        )
         return XChinaTestResponse(
             ok=False,
             diagnostics={"error": redact_payload(str(exc))},

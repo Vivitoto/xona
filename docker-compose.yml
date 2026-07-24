@@ -9,6 +9,7 @@ services:
       CONFIG_DIR: /config
       PUID: "${PUID:-1000}"
       PGID: "${PGID:-1000}"
+      LOG_LEVEL: "${LOG_LEVEL:-INFO}"
     volumes:
       - "${CONFIG_ROOT:-./config}:/config"
       - "${MEDIA_ROOT:-./media}:/media"

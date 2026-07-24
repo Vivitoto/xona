@@ -138,7 +138,9 @@ export function LogsPage() {
               <article className="log-line" key={entry.id}>
                 <time dateTime={entry.timestamp}>{formatTimestamp(entry.timestamp)}</time>
                 <span className={`status-pill ${levelTone(entry.level)}`}>{entry.level}</span>
-                <span className="log-source">{entry.logger}</span>
+                <span className="log-source" title={entry.logger}>
+                  {entry.component || shortLogger(entry.logger)}
+                </span>
                 <code>{entry.message}</code>
               </article>
             ))}
@@ -194,4 +196,22 @@ function levelTone(level: string): string {
     return "status-pill-success";
   }
   return "status-pill-neutral";
+}
+
+function shortLogger(logger: string): string {
+  if (logger === "backend.app.main") {
+    return "app";
+  }
+  const prefixes: Array<[string, string]> = [
+    ["backend.app.api.", "api."],
+    ["backend.app.services.", "service."],
+    ["backend.app.integrations.", "integration."],
+    ["backend.app.core.", "core."],
+  ];
+  for (const [prefix, label] of prefixes) {
+    if (logger.startsWith(prefix)) {
+      return `${label}${logger.slice(prefix.length)}`;
+    }
+  }
+  return logger;
 }

@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { ManualOrganizerPage } from "./ManualOrganizerPage";
@@ -182,7 +182,112 @@ describe("ManualOrganizerPage", () => {
     );
     expect((executeCall?.body as { approved: boolean }).approved).toBe(true);
   });
+
+  it("keeps custom search text while editing instead of replacing it with media identity", async () => {
+    installFetchMock([
+      {
+        method: "POST",
+        path: "/api/manual/scan",
+        response: {
+          scanned_count: 1,
+          jobs: [
+            manualJobFixture({
+              job_id: 9,
+              media_identity: "inode:64768:366837790",
+              path: "/media/incoming/ABP-123.mkv",
+            }),
+          ],
+        },
+      },
+    ]);
+
+    render(<ManualOrganizerPage />);
+
+    fireEvent.change(screen.getByPlaceholderText("/media/incoming"), {
+      target: { value: "/media/incoming" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "扫描源目录" }));
+    expect(await screen.findByText("已扫描 1 个视频文件")).toBeTruthy();
+
+    const searchInput = screen.getByLabelText(/搜索关键词/i);
+    expect(searchInput).toHaveValue("ABP 123");
+
+    fireEvent.change(searchInput, { target: { value: "ABP" } });
+    expect(searchInput).toHaveValue("ABP");
+
+    fireEvent.change(searchInput, { target: { value: "AB" } });
+    expect(searchInput).toHaveValue("AB");
+    expect(searchInput).not.toHaveValue("inode:64768:366837790");
+  });
+
+  it("paginates media files and keeps full paths out of the left file list", async () => {
+    installFetchMock([
+      {
+        method: "POST",
+        path: "/api/manual/scan",
+        response: {
+          scanned_count: 12,
+          jobs: Array.from({ length: 12 }, (_, index) =>
+            manualJobFixture({
+              job_id: index + 1,
+              media_identity: `identity-${index + 1}`,
+              path: `/media/incoming/Folder ${index + 1}/Movie ${index + 1}.mkv`,
+            }),
+          ),
+        },
+      },
+    ]);
+
+    render(<ManualOrganizerPage />);
+
+    fireEvent.change(screen.getByPlaceholderText("/media/incoming"), {
+      target: { value: "/media/incoming" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "扫描源目录" }));
+    expect(await screen.findByText("已扫描 12 个视频文件")).toBeTruthy();
+
+    const fileList = screen.getByLabelText("扫描到的视频文件");
+    expect(within(fileList).getByText("共 12 个视频，显示第 1-10 个")).toBeTruthy();
+    expect(within(fileList).getByText("Movie 1.mkv")).toBeTruthy();
+    expect(within(fileList).queryByText("/media/incoming/Folder 1/Movie 1.mkv")).toBeNull();
+    expect(within(fileList).queryByText("Movie 11.mkv")).toBeNull();
+
+    fireEvent.click(within(fileList).getByRole("button", { name: "下一页" }));
+    expect(within(fileList).getByText("共 12 个视频，显示第 11-12 个")).toBeTruthy();
+    expect(within(fileList).getByText("Movie 11.mkv")).toBeTruthy();
+    expect(within(fileList).queryByText("Movie 1.mkv")).toBeNull();
+
+    fireEvent.change(within(fileList).getByLabelText("每页显示视频数量"), {
+      target: { value: "5" },
+    });
+    expect(within(fileList).getByText("共 12 个视频，显示第 1-5 个")).toBeTruthy();
+  });
 });
+
+function manualJobFixture({
+  job_id,
+  media_identity,
+  path,
+}: {
+  job_id: number;
+  media_identity: string;
+  path: string;
+}) {
+  return {
+    job_id,
+    state: "discovered",
+    media_identity,
+    media_items: [
+      {
+        path,
+        group_key: media_identity,
+        identity: media_identity,
+        size_bytes: 4,
+        multipart_index: null,
+      },
+    ],
+  };
+}
 
 function operationPlanFixture() {
   return {

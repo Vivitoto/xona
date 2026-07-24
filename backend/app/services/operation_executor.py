@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import errno
 import hashlib
+import logging
 import os
 import shutil
 from collections.abc import Callable
@@ -20,6 +21,8 @@ from backend.app.services.storage_roots import (
     StorageRootService,
     StorageRootValidationError,
 )
+
+logger = logging.getLogger(__name__)
 
 
 class OperationExecutionError(RuntimeError):
@@ -143,17 +146,44 @@ class OperationExecutor:
         self._after_copy = after_copy
 
     def execute(self, plan: OperationPlan) -> None:
+        logger.info(
+            "Operation plan execution started plan_id=%s mode=%s steps=%s",
+            plan.plan_id,
+            plan.mode,
+            len(plan.steps),
+        )
         self._journal.plan_started(plan)
         try:
             for step in plan.steps:
+                logger.info(
+                    "Operation step started plan_id=%s step_id=%s operation=%s category=%s target=%s",
+                    plan.plan_id,
+                    step.step_id,
+                    step.operation,
+                    step.category,
+                    step.target_path,
+                )
                 self._journal.step_started(plan, step)
                 observed = self._execute_step(plan, step)
                 self._journal.step_completed(plan, step, observed)
+                logger.info(
+                    "Operation step completed plan_id=%s step_id=%s size=%s",
+                    plan.plan_id,
+                    step.step_id,
+                    observed.size_bytes if observed is not None else None,
+                )
         except OperationExecutionError as exc:
             self._journal.step_failed(plan, step, exc.error_code)
             self._journal.plan_failed(plan, exc.error_code)
+            logger.error(
+                "Operation plan execution failed plan_id=%s step_id=%s error_code=%s",
+                plan.plan_id,
+                step.step_id,
+                exc.error_code,
+            )
             raise
         self._journal.plan_completed(plan)
+        logger.info("Operation plan execution completed plan_id=%s", plan.plan_id)
 
     def _execute_step(
         self,

@@ -262,6 +262,7 @@ export interface LogEntryRead {
   timestamp: string;
   level: string;
   logger: string;
+  component: string;
   message: string;
   source: string;
 }

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import logging
 from copy import deepcopy
 from pathlib import Path
 from typing import Any, Protocol
@@ -66,6 +67,8 @@ from backend.app.services.storage_roots import (
 )
 from backend.app.services.templates import preview_template
 
+logger = logging.getLogger(__name__)
+
 
 class SearchAdapter(Protocol):
     async def search(self, query: str) -> list[SourceSearchResult]:
@@ -111,6 +114,12 @@ class ManualOrganizerService:
         recursive: bool,
         ignore_patterns: list[str],
     ) -> ManualScanResponse:
+        logger.info(
+            "Manual scan started directory=%s recursive=%s ignore_patterns=%s",
+            directory,
+            recursive,
+            len(ignore_patterns),
+        )
         try:
             validation = self._storage_roots.validate_inside_root(directory)
             items = scanner.scan_directory(
@@ -120,6 +129,7 @@ class ManualOrganizerService:
                 storage_roots=self._storage_roots,
             )
         except (StorageRootValidationError, ValueError) as exc:
+            logger.warning("Manual scan rejected directory=%s error=%s", directory, exc)
             raise ManualOrganizerError(str(exc)) from exc
 
         jobs: list[ManualJobSummary] = []
@@ -128,6 +138,13 @@ class ManualOrganizerService:
             job = self._get_or_create_manual_job(media, item)
             jobs.append(_job_summary(job))
         self._session.flush()
+        logger.info(
+            "Manual scan completed directory=%s scanned=%s jobs=%s root_id=%s",
+            directory,
+            len(items),
+            len(jobs),
+            validation.root.id,
+        )
         return ManualScanResponse(scanned_count=len(items), jobs=jobs)
 
     async def search(
@@ -144,6 +161,12 @@ class ManualOrganizerService:
             query=query,
             normalized_query=normalized_query,
         )
+        logger.info(
+            "Manual search started job_id=%s query=%r adapter=%s",
+            job.id,
+            search_text,
+            self._search_adapter is not None,
+        )
         match_input = MatchInput(search_text=search_text, title=search_text)
         search_row = SearchQuery(
             media_item_id=_first_media_item_id(job),
@@ -156,6 +179,8 @@ class ManualOrganizerService:
         results: list[SourceSearchResult] = []
         if self._search_adapter is not None:
             results = await self._search_adapter.search(search_text)
+        else:
+            logger.warning("Manual search skipped job_id=%s reason=search_adapter_unconfigured", job.id)
 
         candidates: list[ManualCandidateCard] = []
         for result in results:
@@ -184,6 +209,15 @@ class ManualOrganizerService:
         manual["candidate_ids"] = [candidate.candidate_id for candidate in candidates]
         job.payload = redact_payload(payload)
         self._session.flush()
+        top_candidate = candidates[0] if candidates else None
+        logger.info(
+            "Manual search completed job_id=%s query_id=%s candidates=%s top=%s score=%s",
+            job.id,
+            search_row.id,
+            len(candidates),
+            top_candidate.title if top_candidate else None,
+            top_candidate.confidence_score if top_candidate else None,
+        )
         return ManualSearchResponse(
             job_id=job.id,
             search_query_id=search_row.id,
@@ -202,6 +236,13 @@ class ManualOrganizerService:
         safety: ExecutionSafety,
         strict_assets: bool,
     ) -> ManualSelectCandidateResponse:
+        logger.info(
+            "Manual candidate selection started job_id=%s candidate_id=%s url_provided=%s strict_assets=%s",
+            job_id,
+            candidate_id,
+            bool(source_url),
+            strict_assets,
+        )
         job = self._jobs.get_job(job_id)
         row = self._candidate_row(candidate_id, source_url)
         if detail is None:
@@ -209,6 +250,7 @@ class ManualOrganizerService:
                 raise ManualOrganizerError("candidate_detail_unavailable")
             detail_url = source_url or (row.source_url if row is not None else None)
             if detail_url is None:
+                logger.warning("Manual candidate selection missing detail URL job_id=%s", job_id)
                 raise ManualOrganizerError("candidate_detail_url_required")
             detail = await self._search_adapter.fetch_video_detail(detail_url)
 
@@ -223,6 +265,12 @@ class ManualOrganizerService:
         decision = manual_selection_gate(candidate_metadata, effective_safety)
         card = _candidate_card(row) if row is not None else _candidate_card_from_detail(detail)
         if decision.action != "manual_approved":
+            logger.warning(
+                "Manual candidate selection refused job_id=%s candidate_id=%s reasons=%s",
+                job.id,
+                card.candidate_id,
+                decision.reasons,
+            )
             self._record_job_payload(
                 job,
                 {
@@ -258,6 +306,13 @@ class ManualOrganizerService:
                 payload={"candidate_id": card.candidate_id},
             )
         self._session.flush()
+        logger.info(
+            "Manual candidate selection accepted job_id=%s candidate_id=%s metadata_id=%s title=%s",
+            job.id,
+            card.candidate_id,
+            metadata_row.id,
+            record.title,
+        )
         return ManualSelectCandidateResponse(
             job_id=job.id,
             accepted=True,
@@ -271,6 +326,14 @@ class ManualOrganizerService:
         job_id: int,
         payload: ManualPreviewRequest,
     ) -> ManualPreviewResponse:
+        logger.info(
+            "Manual preview started job_id=%s destination=%s mode=%s asset_policy=%s snapshot=%s",
+            job_id,
+            payload.destination_root,
+            payload.mode,
+            payload.asset_policy,
+            payload.include_source_snapshot,
+        )
         job = self._jobs.get_job(job_id)
         record = _selected_metadata(job)
         media_items = _media_items_from_payload(job)
@@ -279,6 +342,12 @@ class ManualOrganizerService:
         try:
             self._storage_roots.validate_inside_root(payload.destination_root)
         except StorageRootValidationError as exc:
+            logger.warning(
+                "Manual preview rejected job_id=%s destination=%s error=%s",
+                job_id,
+                payload.destination_root,
+                exc,
+            )
             raise ManualOrganizerError(str(exc)) from exc
 
         materialized = await self._materialize_assets(
@@ -288,6 +357,11 @@ class ManualOrganizerService:
             include_source_snapshot=payload.include_source_snapshot,
         )
         if materialized.failed:
+            logger.warning(
+                "Manual preview asset materialization failed job_id=%s missing_required=%s",
+                job.id,
+                len([item for item in materialized.missing if item.required]),
+            )
             raise ManualOrganizerError(
                 "strict_asset_materialization_failed",
                 reasons=[item.reason for item in materialized.missing if item.required],
@@ -317,6 +391,11 @@ class ManualOrganizerService:
                 job_id=job.id,
             )
         except OperationPlanConflictError as exc:
+            logger.warning(
+                "Manual preview blocked by conflicts job_id=%s conflicts=%s",
+                job.id,
+                len(exc.conflicts),
+            )
             raise ManualOrganizerError(
                 "destination_collision",
                 status_code=409,
@@ -330,6 +409,14 @@ class ManualOrganizerService:
         self._record_job_payload(job, {"plan_id": plan.plan_id, "previewed_plan": plan.snapshot_json()})
         self._advance_preview_job(job)
         self._session.flush()
+        logger.info(
+            "Manual preview completed job_id=%s plan_id=%s steps=%s assets=%s missing=%s",
+            job.id,
+            plan.plan_id,
+            len(plan.steps),
+            len(materialized.assets),
+            len(materialized.missing),
+        )
         return ManualPreviewResponse(
             job_id=job.id,
             plan_id=plan.plan_id,
@@ -348,7 +435,14 @@ class ManualOrganizerService:
         approved: bool,
         plan_version: int,
     ) -> ManualExecutePlanResponse:
+        logger.info(
+            "Manual execute requested plan_id=%s approved=%s version=%s",
+            plan_id,
+            approved,
+            plan_version,
+        )
         if not approved:
+            logger.warning("Manual execute rejected plan_id=%s reason=approval_required", plan_id)
             raise ManualOrganizerError("plan_approval_required")
         row = self._plan_row(plan_id)
         if int(row.version) != plan_version:
@@ -368,6 +462,12 @@ class ManualOrganizerService:
             ).execute(plan)
         except OperationExecutionError as exc:
             row.status = "failed"
+            logger.error(
+                "Manual execute failed plan_id=%s job_id=%s error_code=%s",
+                plan_id,
+                row.job_id,
+                exc.error_code,
+            )
             if job is not None and "failed" in _valid_next_states(job.state):
                 self._jobs.transition_job(
                     job.id,
@@ -380,6 +480,7 @@ class ManualOrganizerService:
         if job is not None and job.state == "executing":
             self._jobs.transition_job(job.id, "completed", payload={"plan_id": plan_id})
         self._session.flush()
+        logger.info("Manual execute completed plan_id=%s job_id=%s", plan_id, row.job_id)
         return ManualExecutePlanResponse(
             plan_id=plan_id,
             job_id=row.job_id,

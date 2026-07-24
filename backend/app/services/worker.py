@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import uuid
 from collections.abc import Callable
 from copy import deepcopy
@@ -39,6 +40,8 @@ from backend.app.services.operation_executor import OperationExecutor, Operation
 from backend.app.services.organizer_plans import OrganizerPlanService
 from backend.app.services.storage_roots import StorageRootService
 from backend.app.services.templates import preview_template
+
+logger = logging.getLogger(__name__)
 
 
 DEFAULT_TRANSITIONS = {
@@ -106,19 +109,34 @@ class Worker:
                 session.commit()
                 return False
             if job.state == "cancelled":
+                logger.info("Worker skipped cancelled job job_id=%s", job.id)
                 service.release_lease(job)
                 session.commit()
                 return False
             try:
+                logger.info(
+                    "Worker processing job_id=%s state=%s manual=%s",
+                    job.id,
+                    job.state,
+                    job.manual,
+                )
                 target_state = await self._target_state(session, job)
                 if target_state is None:
+                    logger.info("Worker released job without state change job_id=%s state=%s", job.id, job.state)
                     service.release_lease(job)
                 else:
+                    logger.info("Worker job step completed job_id=%s %s->%s", job.id, job.state, target_state)
                     service.transition_job(job.id, target_state)
                     service.release_lease(job)
                 session.commit()
                 return True
             except Exception as exc:
+                logger.exception(
+                    "Worker job step failed job_id=%s state=%s error=%s",
+                    job.id,
+                    job.state,
+                    exc.__class__.__name__,
+                )
                 if job.state == "notifying_emby":
                     service.transition_job(
                         job.id,
@@ -138,10 +156,12 @@ class Worker:
                 return True
 
     async def run_forever(self) -> None:
+        logger.info("Worker loop started worker_id=%s poll_interval=%s", self._worker_id, self._poll_interval_seconds)
         while not self._stop.is_set():
             processed = await self.run_once()
             if not processed:
                 await asyncio.sleep(self._poll_interval_seconds)
+        logger.info("Worker loop stopped worker_id=%s", self._worker_id)
 
     def stop(self) -> None:
         self._stop.set()
@@ -193,6 +213,13 @@ class Worker:
         rule = _rule_for_job(session, job)
         payload = _payload(job)
         media_path = Path(str(payload.get("last_seen_path") or ""))
+        logger.info(
+            "Auto search started job_id=%s rule_id=%s path=%s threshold=%s",
+            job.id,
+            rule.rule_id,
+            media_path,
+            rule.confidence_threshold,
+        )
         media_item = _persist_media_item(
             session,
             settings,
@@ -213,6 +240,7 @@ class Worker:
         if self._search_adapter is None:
             auto_payload["gate_reasons"] = ["search_adapter_unconfigured"]
             job.payload = redact_payload(payload)
+            logger.warning("Auto search blocked job_id=%s reason=search_adapter_unconfigured", job.id)
             return "review_required"
 
         search_row = SearchQuery(
@@ -224,6 +252,7 @@ class Worker:
         session.flush()
 
         results = await self._search_adapter.search(query)
+        logger.info("Auto search results job_id=%s query=%r candidates=%s", job.id, query, len(results))
         candidates: list[CandidateMetadata] = []
         rows_by_source_id: dict[str, SearchCandidate] = {}
         for result in results:
@@ -268,14 +297,27 @@ class Worker:
         auto_payload["candidate_ids"] = [row.id for row in rows_by_source_id.values()]
         if decision.action != "auto_approved" or decision.selected is None:
             job.payload = redact_payload(payload)
+            logger.info(
+                "Auto gate requires review job_id=%s action=%s reasons=%s lead=%s",
+                job.id,
+                decision.action,
+                decision.reasons,
+                lead,
+            )
             return "review_required"
 
         selected_row = rows_by_source_id.get(decision.selected.source_id)
         if selected_row is None:
             auto_payload["gate_reasons"] = ["selected_candidate_missing"]
             job.payload = redact_payload(payload)
+            logger.warning("Auto gate selected candidate missing job_id=%s", job.id)
             return "review_required"
 
+        logger.info(
+            "Auto detail fetch started job_id=%s candidate_id=%s",
+            job.id,
+            selected_row.id,
+        )
         detail = await self._search_adapter.fetch_video_detail(selected_row.source_url)
         record = normalize_source_video(detail)
         selection = select_assets(record)
@@ -297,12 +339,20 @@ class Worker:
         if detail_decision.action != "auto_approved":
             auto_payload.update(_decision_payload(detail_decision, lead=lead))
             job.payload = redact_payload(payload)
+            logger.info(
+                "Auto detail gate requires review job_id=%s action=%s reasons=%s",
+                job.id,
+                detail_decision.action,
+                detail_decision.reasons,
+            )
             return "review_required"
         if self._asset_adapter is None:
             auto_payload["gate_reasons"] = ["asset_adapter_unconfigured"]
             job.payload = redact_payload(payload)
+            logger.warning("Auto asset materialization blocked job_id=%s reason=asset_adapter_unconfigured", job.id)
             return "review_required"
 
+        logger.info("Auto asset materialization started job_id=%s strict=%s", job.id, rule.asset_policy == "strict")
         materialized = await AssetMaterializer(
             self._asset_adapter,
             Path(rule.destination_directory) / ".xona-cache",
@@ -319,6 +369,11 @@ class Worker:
                 item.model_dump(mode="json") for item in materialized.missing
             ]
             job.payload = redact_payload(payload)
+            logger.warning(
+                "Auto asset materialization failed job_id=%s missing_required=%s",
+                job.id,
+                len([item for item in materialized.missing if item.required]),
+            )
             return "review_required"
 
         metadata_row = persist_metadata_record(
@@ -343,6 +398,13 @@ class Worker:
             }
         )
         job.payload = redact_payload(payload)
+        logger.info(
+            "Auto match accepted job_id=%s candidate_id=%s metadata_id=%s assets=%s",
+            job.id,
+            selected_row.id,
+            metadata_row.id,
+            len(materialized.assets),
+        )
         return "matched"
 
     def _create_operation_plan(self, session: Session, job: Job) -> None:
@@ -385,6 +447,7 @@ class Worker:
         auto["plan_id"] = plan.plan_id
         auto["previewed_plan"] = plan.snapshot_json()
         job.payload = redact_payload(payload)
+        logger.info("Auto plan created job_id=%s plan_id=%s steps=%s", job.id, plan.plan_id, len(plan.steps))
 
     def _execute_operation_plan(self, session: Session, job: Job) -> None:
         settings = self._require_settings()
@@ -419,6 +482,7 @@ class Worker:
         ]
         payload["local_operations_complete"] = True
         job.payload = redact_payload(payload)
+        logger.info("Auto plan executed job_id=%s plan_id=%s steps=%s", job.id, row.plan_id, len(plan.steps))
 
     def _require_settings(self) -> Settings:
         if self._settings is None:
@@ -432,6 +496,7 @@ class Worker:
             raise RuntimeError("emby_client_unconfigured")
         payload = _payload(job)
         rule = _rule_for_job(session, job)
+        logger.info("Emby notification started job_id=%s rule_id=%s", job.id, rule.rule_id)
         await self._emby_client.scan_library()
         emby_payload = payload.setdefault("emby", {})
         if not isinstance(emby_payload, dict):
@@ -448,8 +513,10 @@ class Worker:
                 if item_id:
                     await self._emby_client.refresh_item(item_id)
                     emby_payload["refreshed_item_id"] = item_id
+                    logger.info("Emby item refreshed job_id=%s item_id=%s", job.id, item_id)
         emby_payload["notified"] = True
         job.payload = redact_payload(payload)
+        logger.info("Emby notification completed job_id=%s mapped_path=%s", job.id, emby_payload.get("mapped_path"))
 
 
 def _payload(job: Job) -> dict[str, Any]:
