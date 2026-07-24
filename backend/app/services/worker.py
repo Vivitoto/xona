@@ -3,7 +3,8 @@ from __future__ import annotations
 import asyncio
 import logging
 import uuid
-from collections.abc import Callable
+from contextlib import asynccontextmanager
+from collections.abc import AsyncIterator, Callable
 from copy import deepcopy
 from pathlib import Path
 from typing import Any, Protocol, cast
@@ -13,6 +14,8 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from backend.app.core.redaction import redact_payload
 from backend.app.core.settings import Settings
+from backend.app.integrations.flaresolverr import FlareSolverrClient
+from backend.app.integrations.xchina import XChinaAdapter
 from backend.app.db.models import (
     Job,
     MediaItem,
@@ -38,6 +41,7 @@ from backend.app.services.nfo import render_movie_nfo
 from backend.app.services.normalization import normalize_filename_for_search
 from backend.app.services.operation_executor import OperationExecutor, OperationJournal
 from backend.app.services.organizer_plans import OrganizerPlanService
+from backend.app.services.settings_store import SettingsStore
 from backend.app.services.storage_roots import StorageRootService
 from backend.app.services.templates import preview_template
 
@@ -166,6 +170,35 @@ class Worker:
     def stop(self) -> None:
         self._stop.set()
 
+    @asynccontextmanager
+    async def _auto_adapters(
+        self,
+        session: Session,
+    ) -> AsyncIterator[tuple[SearchAdapter | None, AssetAdapter | None]]:
+        search_adapter = self._search_adapter
+        asset_adapter = self._asset_adapter
+        closer: Callable[[], Any] | None = None
+        if search_adapter is None or asset_adapter is None:
+            settings = self._require_settings()
+            store_settings = SettingsStore(session).xchina_settings()
+            endpoint = settings.flaresolverr_url or store_settings.get("flaresolverr_url")
+            if endpoint:
+                flaresolverr = FlareSolverrClient(
+                    str(endpoint),
+                    proxy_url=settings.proxy_url or store_settings.get("proxy_url"),
+                )
+                adapter = XChinaAdapter(flaresolverr, session)
+                closer = flaresolverr.close
+                if search_adapter is None:
+                    search_adapter = adapter
+                if asset_adapter is None:
+                    asset_adapter = adapter
+        try:
+            yield search_adapter, asset_adapter
+        finally:
+            if closer is not None:
+                await closer()
+
     async def _target_state(self, session: Session, job: Job) -> str | None:
         handler = self._handlers.get(job.state)
         if handler is not None:
@@ -237,174 +270,175 @@ class Worker:
             }
         )
 
-        if self._search_adapter is None:
-            auto_payload["gate_reasons"] = ["search_adapter_unconfigured"]
-            job.payload = redact_payload(payload)
-            logger.warning("Auto search blocked job_id=%s reason=search_adapter_unconfigured", job.id)
-            return "review_required"
+        async with self._auto_adapters(session) as (search_adapter, asset_adapter):
+            if search_adapter is None:
+                auto_payload["gate_reasons"] = ["search_adapter_unconfigured"]
+                job.payload = redact_payload(payload)
+                logger.warning("Auto search blocked job_id=%s reason=search_adapter_unconfigured", job.id)
+                return "review_required"
 
-        search_row = SearchQuery(
-            media_item_id=media_item.id,
-            query_text=query,
-            normalized_input=match_input.model_dump(mode="json"),
-        )
-        session.add(search_row)
-        session.flush()
-
-        results = await self._search_adapter.search(query)
-        logger.info("Auto search results job_id=%s query=%r candidates=%s", job.id, query, len(results))
-        candidates: list[CandidateMetadata] = []
-        rows_by_source_id: dict[str, SearchCandidate] = {}
-        for result in results:
-            candidate = _candidate_from_search_result(result)
-            score = score_candidate(match_input, candidate)
-            row = SearchCandidate(
-                search_query_id=search_row.id,
-                source=result.source,
-                source_candidate_id=result.source_candidate_id,
-                title=result.title,
-                source_url=result.url,
-                score=score.total,
-                candidate_json={
-                    "search_result": result.model_dump(mode="json"),
-                    "score_breakdown": score.breakdown,
-                },
+            search_row = SearchQuery(
+                media_item_id=media_item.id,
+                query_text=query,
+                normalized_input=match_input.model_dump(mode="json"),
             )
-            session.add(row)
+            session.add(search_row)
             session.flush()
-            candidates.append(candidate)
-            rows_by_source_id[result.source_candidate_id] = row
 
-        ranked_scores = sorted(
-            (score_candidate(match_input, candidate) for candidate in candidates),
-            key=lambda score: (score.total, score.candidate.source_id),
-            reverse=True,
-        )
-        lead = (
-            ranked_scores[0].total - ranked_scores[1].total
-            if len(ranked_scores) > 1
-            else None
-        )
-        decision = can_auto_execute(
-            match_input,
-            candidates,
-            ExecutionSafety(),
-            auto_threshold=rule.confidence_threshold,
-            required_lead=10,
-        )
-        auto_payload.update(_decision_payload(decision, lead=lead))
-        auto_payload["search_query_id"] = search_row.id
-        auto_payload["candidate_ids"] = [row.id for row in rows_by_source_id.values()]
-        if decision.action != "auto_approved" or decision.selected is None:
-            job.payload = redact_payload(payload)
+            results = await search_adapter.search(query)
+            logger.info("Auto search results job_id=%s query=%r candidates=%s", job.id, query, len(results))
+            candidates: list[CandidateMetadata] = []
+            rows_by_source_id: dict[str, SearchCandidate] = {}
+            for result in results:
+                candidate = _candidate_from_search_result(result)
+                score = score_candidate(match_input, candidate)
+                row = SearchCandidate(
+                    search_query_id=search_row.id,
+                    source=result.source,
+                    source_candidate_id=result.source_candidate_id,
+                    title=result.title,
+                    source_url=result.url,
+                    score=score.total,
+                    candidate_json={
+                        "search_result": result.model_dump(mode="json"),
+                        "score_breakdown": score.breakdown,
+                    },
+                )
+                session.add(row)
+                session.flush()
+                candidates.append(candidate)
+                rows_by_source_id[result.source_candidate_id] = row
+
+            ranked_scores = sorted(
+                (score_candidate(match_input, candidate) for candidate in candidates),
+                key=lambda score: (score.total, score.candidate.source_id),
+                reverse=True,
+            )
+            lead = (
+                ranked_scores[0].total - ranked_scores[1].total
+                if len(ranked_scores) > 1
+                else None
+            )
+            decision = can_auto_execute(
+                match_input,
+                candidates,
+                ExecutionSafety(),
+                auto_threshold=rule.confidence_threshold,
+                required_lead=10,
+            )
+            auto_payload.update(_decision_payload(decision, lead=lead))
+            auto_payload["search_query_id"] = search_row.id
+            auto_payload["candidate_ids"] = [row.id for row in rows_by_source_id.values()]
+            if decision.action != "auto_approved" or decision.selected is None:
+                job.payload = redact_payload(payload)
+                logger.info(
+                    "Auto gate requires review job_id=%s action=%s reasons=%s lead=%s",
+                    job.id,
+                    decision.action,
+                    decision.reasons,
+                    lead,
+                )
+                return "review_required"
+
+            selected_row = rows_by_source_id.get(decision.selected.source_id)
+            if selected_row is None:
+                auto_payload["gate_reasons"] = ["selected_candidate_missing"]
+                job.payload = redact_payload(payload)
+                logger.warning("Auto gate selected candidate missing job_id=%s", job.id)
+                return "review_required"
+
             logger.info(
-                "Auto gate requires review job_id=%s action=%s reasons=%s lead=%s",
+                "Auto detail fetch started job_id=%s candidate_id=%s",
                 job.id,
-                decision.action,
-                decision.reasons,
-                lead,
+                selected_row.id,
             )
-            return "review_required"
-
-        selected_row = rows_by_source_id.get(decision.selected.source_id)
-        if selected_row is None:
-            auto_payload["gate_reasons"] = ["selected_candidate_missing"]
-            job.payload = redact_payload(payload)
-            logger.warning("Auto gate selected candidate missing job_id=%s", job.id)
-            return "review_required"
-
-        logger.info(
-            "Auto detail fetch started job_id=%s candidate_id=%s",
-            job.id,
-            selected_row.id,
-        )
-        detail = await self._search_adapter.fetch_video_detail(selected_row.source_url)
-        record = normalize_source_video(detail)
-        selection = select_assets(record)
-        strict_assets_missing = rule.asset_policy == "strict" and bool(
-            selection.missing_required
-        )
-        detail_candidate = _candidate_from_detail(
-            detail,
-            strict_assets=rule.asset_policy == "strict",
-            strict_assets_missing=strict_assets_missing,
-        )
-        detail_decision = can_auto_execute(
-            match_input,
-            [detail_candidate],
-            ExecutionSafety(strict_assets_missing=strict_assets_missing),
-            auto_threshold=rule.confidence_threshold,
-            required_lead=10,
-        )
-        if detail_decision.action != "auto_approved":
-            auto_payload.update(_decision_payload(detail_decision, lead=lead))
-            job.payload = redact_payload(payload)
-            logger.info(
-                "Auto detail gate requires review job_id=%s action=%s reasons=%s",
-                job.id,
-                detail_decision.action,
-                detail_decision.reasons,
+            detail = await search_adapter.fetch_video_detail(selected_row.source_url)
+            record = normalize_source_video(detail)
+            selection = select_assets(record)
+            strict_assets_missing = rule.asset_policy == "strict" and bool(
+                selection.missing_required
             )
-            return "review_required"
-        if self._asset_adapter is None:
-            auto_payload["gate_reasons"] = ["asset_adapter_unconfigured"]
-            job.payload = redact_payload(payload)
-            logger.warning("Auto asset materialization blocked job_id=%s reason=asset_adapter_unconfigured", job.id)
-            return "review_required"
-
-        logger.info("Auto asset materialization started job_id=%s strict=%s", job.id, rule.asset_policy == "strict")
-        materialized = await AssetMaterializer(
-            self._asset_adapter,
-            Path(rule.destination_directory) / ".xona-cache",
-            session=session,
-        ).materialize(
-            selection,
-            AssetMaterializationPolicy(strict=rule.asset_policy == "strict"),
-        )
-        if materialized.failed:
-            auto_payload["gate_reasons"] = [
-                item.reason for item in materialized.missing if item.required
-            ] or ["asset_materialization_failed"]
-            auto_payload["missing_assets"] = [
-                item.model_dump(mode="json") for item in materialized.missing
-            ]
-            job.payload = redact_payload(payload)
-            logger.warning(
-                "Auto asset materialization failed job_id=%s missing_required=%s",
-                job.id,
-                len([item for item in materialized.missing if item.required]),
+            detail_candidate = _candidate_from_detail(
+                detail,
+                strict_assets=rule.asset_policy == "strict",
+                strict_assets_missing=strict_assets_missing,
             )
-            return "review_required"
+            detail_decision = can_auto_execute(
+                match_input,
+                [detail_candidate],
+                ExecutionSafety(strict_assets_missing=strict_assets_missing),
+                auto_threshold=rule.confidence_threshold,
+                required_lead=10,
+            )
+            if detail_decision.action != "auto_approved":
+                auto_payload.update(_decision_payload(detail_decision, lead=lead))
+                job.payload = redact_payload(payload)
+                logger.info(
+                    "Auto detail gate requires review job_id=%s action=%s reasons=%s",
+                    job.id,
+                    detail_decision.action,
+                    detail_decision.reasons,
+                )
+                return "review_required"
+            if asset_adapter is None:
+                auto_payload["gate_reasons"] = ["asset_adapter_unconfigured"]
+                job.payload = redact_payload(payload)
+                logger.warning("Auto asset materialization blocked job_id=%s reason=asset_adapter_unconfigured", job.id)
+                return "review_required"
 
-        metadata_row = persist_metadata_record(
-            session,
-            record,
-            media_item_id=media_item.id,
-        )
-        auto_payload.update(
-            {
-                "gate_reasons": [],
-                "selected_candidate_id": selected_row.id,
-                "selected_source_url": detail.source_url,
-                "selected_detail": detail.model_dump(mode="json"),
-                "metadata_record_id": metadata_row.id,
-                "metadata": record.model_dump(mode="json"),
-                "materialized_assets": [
-                    asset.model_dump(mode="json") for asset in materialized.assets
-                ],
-                "missing_assets": [
+            logger.info("Auto asset materialization started job_id=%s strict=%s", job.id, rule.asset_policy == "strict")
+            materialized = await AssetMaterializer(
+                asset_adapter,
+                Path(rule.destination_directory) / ".xona-cache",
+                session=session,
+            ).materialize(
+                selection,
+                AssetMaterializationPolicy(strict=rule.asset_policy == "strict"),
+            )
+            if materialized.failed:
+                auto_payload["gate_reasons"] = [
+                    item.reason for item in materialized.missing if item.required
+                ] or ["asset_materialization_failed"]
+                auto_payload["missing_assets"] = [
                     item.model_dump(mode="json") for item in materialized.missing
-                ],
-            }
-        )
-        job.payload = redact_payload(payload)
-        logger.info(
-            "Auto match accepted job_id=%s candidate_id=%s metadata_id=%s assets=%s",
-            job.id,
-            selected_row.id,
-            metadata_row.id,
-            len(materialized.assets),
-        )
+                ]
+                job.payload = redact_payload(payload)
+                logger.warning(
+                    "Auto asset materialization failed job_id=%s missing_required=%s",
+                    job.id,
+                    len([item for item in materialized.missing if item.required]),
+                )
+                return "review_required"
+
+            metadata_row = persist_metadata_record(
+                session,
+                record,
+                media_item_id=media_item.id,
+            )
+            auto_payload.update(
+                {
+                    "gate_reasons": [],
+                    "selected_candidate_id": selected_row.id,
+                    "selected_source_url": detail.source_url,
+                    "selected_detail": detail.model_dump(mode="json"),
+                    "metadata_record_id": metadata_row.id,
+                    "metadata": record.model_dump(mode="json"),
+                    "materialized_assets": [
+                        asset.model_dump(mode="json") for asset in materialized.assets
+                    ],
+                    "missing_assets": [
+                        item.model_dump(mode="json") for item in materialized.missing
+                    ],
+                }
+            )
+            job.payload = redact_payload(payload)
+            logger.info(
+                "Auto match accepted job_id=%s candidate_id=%s metadata_id=%s assets=%s",
+                job.id,
+                selected_row.id,
+                metadata_row.id,
+                len(materialized.assets),
+            )
         return "matched"
 
     def _create_operation_plan(self, session: Session, job: Job) -> None:
