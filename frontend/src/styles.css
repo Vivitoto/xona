@@ -1285,6 +1285,51 @@ nav {
   font-size: 1rem;
 }
 
+.candidate-heading,
+.selected-candidate-title-row {
+  display: flex;
+  gap: 0.7rem;
+  align-items: start;
+  justify-content: space-between;
+}
+
+.candidate-badges,
+.selected-candidate-chips {
+  display: flex;
+  gap: 0.35rem;
+  flex-wrap: wrap;
+  margin-bottom: 0.28rem;
+}
+
+.candidate-badges span,
+.selected-candidate-chips span {
+  border: 1px solid rgb(30 89 104 / 0.18);
+  border-radius: 999px;
+  padding: 0.12rem 0.44rem;
+  color: var(--primary);
+  background: var(--primary-soft);
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.01em;
+}
+
+.candidate-source-link {
+  flex: 0 0 auto;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 0.34rem 0.62rem;
+  color: var(--primary);
+  background: #ffffff;
+  font-size: 0.78rem;
+  font-weight: 800;
+  text-decoration: none;
+}
+
+.candidate-source-link:hover {
+  border-color: var(--primary);
+  background: var(--primary-soft);
+}
+
 .score {
   display: grid;
   width: 42px;
@@ -1306,6 +1351,62 @@ nav {
   padding: 0.2rem 0.42rem;
   background: #eef1ef;
   font-size: 0.78rem;
+}
+
+.selected-candidate-detail {
+  display: grid;
+  grid-template-columns: 176px minmax(0, 1fr);
+  gap: 1rem;
+  overflow: hidden;
+  border: 1px solid rgb(30 89 104 / 0.22);
+  border-radius: 16px;
+  padding: 0.85rem;
+  background:
+    linear-gradient(135deg, rgb(30 89 104 / 0.08), transparent 44%),
+    #ffffff;
+  box-shadow: 0 12px 28px rgb(30 89 104 / 0.1);
+}
+
+.selected-candidate-poster {
+  display: grid;
+  min-height: 244px;
+  place-items: center;
+  overflow: hidden;
+  border-radius: 12px;
+  color: var(--muted);
+  background: #e9eef2;
+  text-align: center;
+}
+
+.selected-candidate-poster img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.selected-candidate-main {
+  display: grid;
+  gap: 0.7rem;
+  min-width: 0;
+}
+
+.selected-candidate-main h3 {
+  margin: 0;
+  font-size: 1.15rem;
+}
+
+.selected-detail-list {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.selected-candidate-plot {
+  display: -webkit-box;
+  margin: 0;
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 0.9rem;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 4;
 }
 
 .safety-grid {

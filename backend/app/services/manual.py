@@ -825,6 +825,7 @@ def _candidate_card_from_detail(detail: SourceVideoDetail) -> ManualCandidateCar
         source=detail.source,
         source_candidate_id=detail.source_id,
         title=detail.title,
+        image_url=(detail.poster.url if detail.poster is not None else None),
         actors=[actor.name for actor in detail.actors],
         studio=detail.studio,
         series=detail.series,

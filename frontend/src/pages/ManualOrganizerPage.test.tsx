@@ -91,7 +91,7 @@ describe("ManualOrganizerPage", () => {
             source: "xchina",
             source_candidate_id: "XC-001",
             title: "Sample Work",
-            image_url: null,
+            image_url: "https://images.example.test/poster-detail.jpg",
             actors: ["Actor One"],
             studio: "Studio One",
             series: "Series One",
@@ -101,7 +101,23 @@ describe("ManualOrganizerPage", () => {
             score_breakdown: { title: 80, actors: 16 },
           },
           metadata_record_id: 5,
-          metadata: { title: "Sample Work" },
+          metadata: {
+            source: "xchina",
+            xchina_id: "XC-001",
+            source_url: "https://xchina.example.test/videos/xc-001.html",
+            title: "Sample Work",
+            original_title: "Original Sample Work",
+            plot: "A short plot for checking the selected detail card.",
+            release_date: "2026-01-02",
+            runtime_minutes: 88,
+            studio: "Studio One",
+            series: "Series One",
+            director: "Director One",
+            actors: [{ name: "Actor One" }, { name: "Actor Two" }],
+            genres: ["Drama"],
+            tags: ["Featured"],
+            assets: { poster_url: "https://images.example.test/poster-detail.jpg" },
+          },
         },
       },
       {
@@ -141,10 +157,29 @@ describe("ManualOrganizerPage", () => {
     });
     fireEvent.click(screen.getByRole("button", { name: "搜索" }));
     expect(await screen.findByRole("heading", { name: "Sample Work" })).toBeTruthy();
+    expect(screen.getByAltText("Sample Work 候选图片")).toHaveAttribute(
+      "src",
+      "https://images.example.test/poster.jpg",
+    );
+    expect(screen.getByText("ID XC-001")).toBeTruthy();
     expect(screen.getByText("Actor One")).toBeTruthy();
     expect(screen.getByText("title: 80")).toBeTruthy();
 
     fireEvent.click(screen.getByRole("button", { name: "选择候选项" }));
+    const selectedDetail = await screen.findByLabelText("已选候选详情");
+    expect(within(selectedDetail).getByAltText("Sample Work 已选详情图片")).toHaveAttribute(
+      "src",
+      "https://images.example.test/poster-detail.jpg",
+    );
+    expect(within(selectedDetail).getByText("原标题：Original Sample Work")).toBeTruthy();
+    expect(within(selectedDetail).getByText("Actor One, Actor Two")).toBeTruthy();
+    expect(within(selectedDetail).getByText("Director One")).toBeTruthy();
+    expect(within(selectedDetail).getByText("88 分钟")).toBeTruthy();
+    expect(within(selectedDetail).getByText("Drama")).toBeTruthy();
+    expect(within(selectedDetail).getByText("Featured")).toBeTruthy();
+    expect(
+      within(selectedDetail).getByText("A short plot for checking the selected detail card."),
+    ).toBeTruthy();
     expect(await screen.findByText("destination_collision")).toBeTruthy();
     expect(screen.getByText("unresolved_multipart")).toBeTruthy();
     expect(screen.getByText("incomplete_metadata")).toBeTruthy();

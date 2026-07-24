@@ -40,8 +40,14 @@ export function CandidateCard({
         )}
       </div>
       <div className="candidate-body">
-        <div className="row row-between">
-          <h3>{candidate.title}</h3>
+        <div className="candidate-heading">
+          <div>
+            <div className="candidate-badges" aria-label="候选来源信息">
+              <span>{candidate.source.toUpperCase()}</span>
+              <span>ID {candidate.source_candidate_id}</span>
+            </div>
+            <h3>{candidate.title}</h3>
+          </div>
           <strong className="score">{candidate.confidence_score}</strong>
         </div>
         <dl className="metadata-list compact">

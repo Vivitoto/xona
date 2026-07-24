@@ -8,11 +8,13 @@ import type {
   ManualPreviewResponse,
   ManualScanResponse,
   ManualSearchResponse,
+  ManualSelectCandidateResponse,
   OrganizationMode,
 } from "../api/types";
 import { CandidateCard } from "../components/CandidateCard";
 import { DirectoryPicker } from "../components/DirectoryPicker";
 import { CheckboxField, FormField, Section } from "../components/FormField";
+import { useImageSafetyMode } from "../components/ImageSafetyMode";
 import { OperationPlanView } from "../components/OperationPlanView";
 import { TemplateGuide } from "../components/TemplateGuide";
 import { linesToList } from "./settings/settingsForm";
@@ -39,6 +41,7 @@ export function ManualOrganizerPage() {
   const [searchQuery, setSearchQuery] = useState("");
   const [candidates, setCandidates] = useState<ManualCandidate[]>([]);
   const [selected, setSelected] = useState<ManualCandidate | null>(null);
+  const [selectedMetadata, setSelectedMetadata] = useState<Record<string, unknown> | null>(null);
   const [detailUrl, setDetailUrl] = useState("");
   const [strictAssets, setStrictAssets] = useState(false);
   const [safety, setSafety] = useState<Record<SafetyKey, boolean>>({
@@ -79,6 +82,7 @@ export function ManualOrganizerPage() {
     setSearchQuery(defaultQuery(activeJob, "filename"));
     setCandidates([]);
     setSelected(null);
+    setSelectedMetadata(null);
     setRefusalReasons([]);
     setPreview(null);
     setExecuteResult(null);
@@ -136,6 +140,7 @@ export function ManualOrganizerPage() {
     setError("");
     setCandidates([]);
     setSelected(null);
+    setSelectedMetadata(null);
     setPreview(null);
     setExecuteResult(null);
     try {
@@ -173,11 +178,7 @@ export function ManualOrganizerPage() {
     setError("");
     setStatus("正在刮削详情并校验");
     try {
-      const response = await apiFetch<{
-        accepted: boolean;
-        reasons: string[];
-        selected_candidate: ManualCandidate | null;
-      }>(`/api/manual/jobs/${activeJobId}/select-candidate`, {
+      const response = await apiFetch<ManualSelectCandidateResponse>(`/api/manual/jobs/${activeJobId}/select-candidate`, {
         method: "POST",
         body: {
           candidate_id: candidate?.candidate_id ?? null,
@@ -187,6 +188,7 @@ export function ManualOrganizerPage() {
         },
       });
       setSelected(response.selected_candidate ?? candidate);
+      setSelectedMetadata(response.metadata ?? null);
       setRefusalReasons(response.reasons);
       setStatus(response.accepted ? "已选择候选结果，可以预览整理计划" : "需要人工复核");
     } catch (exc) {
@@ -388,6 +390,9 @@ export function ManualOrganizerPage() {
                   feedback={searchFeedback}
                   state={searchState}
                 />
+                {selected ? (
+                  <SelectedCandidateDetail candidate={selected} metadata={selectedMetadata} />
+                ) : null}
                 {candidates.length ? (
                   <div className="candidate-grid candidate-grid-compact">
                     {candidates.map((candidate) => (
@@ -397,6 +402,7 @@ export function ManualOrganizerPage() {
                         selected={candidate.candidate_id === selected?.candidate_id}
                         onSelect={(nextCandidate) => {
                           setSelected(nextCandidate);
+                          setSelectedMetadata(null);
                           void selectCandidate(nextCandidate);
                         }}
                       />
@@ -508,6 +514,114 @@ export function ManualOrganizerPage() {
       {status ? <p className="status floating-status">{status}</p> : null}
       {error ? <p className="status error floating-status">{error}</p> : null}
     </div>
+  );
+}
+
+function SelectedCandidateDetail({
+  candidate,
+  metadata,
+}: {
+  candidate: ManualCandidate;
+  metadata: Record<string, unknown> | null;
+}) {
+  const { imageSafetyModeEnabled } = useImageSafetyMode();
+  const title = stringValue(metadata?.title) || candidate.title;
+  const originalTitle = stringValue(metadata?.original_title);
+  const source = stringValue(metadata?.source) || candidate.source;
+  const sourceId = stringValue(metadata?.xchina_id) || candidate.source_candidate_id;
+  const sourceUrl = stringValue(metadata?.source_url) || candidate.url;
+  const releaseDate = stringValue(metadata?.release_date) || candidate.release_date;
+  const studio = stringValue(metadata?.studio) || candidate.studio;
+  const series = stringValue(metadata?.series) || candidate.series;
+  const director = stringValue(metadata?.director);
+  const runtimeMinutes = numberValue(metadata?.runtime_minutes);
+  const plot = stringValue(metadata?.plot) || stringValue(metadata?.outline);
+  const actors = metadataActors(metadata) || candidate.actors;
+  const genres = stringList(metadata?.genres);
+  const tags = stringList(metadata?.tags);
+  const imageUrl = metadataPosterUrl(metadata) || candidate.image_url;
+  const safetyLabel = imageSafetyModeEnabled
+    ? `${title} 已选详情图片，安全模式已模糊，悬停、聚焦或轻点可临时查看`
+    : `${title} 已选详情图片`;
+
+  return (
+    <article className="selected-candidate-detail" aria-label="已选候选详情">
+      <div className="selected-candidate-poster">
+        {imageUrl ? (
+          <img
+            alt={`${title} 已选详情图片`}
+            aria-label={safetyLabel}
+            className={`safety-image${imageSafetyModeEnabled ? " is-blurred" : ""}`}
+            data-image-safety={imageSafetyModeEnabled ? "blurred" : "visible"}
+            src={imageUrl}
+            tabIndex={imageSafetyModeEnabled ? 0 : undefined}
+            title={
+              imageSafetyModeEnabled
+                ? "安全模式已开启，悬停、聚焦或轻点图片可临时查看。"
+                : "安全模式已关闭。"
+            }
+          />
+        ) : (
+          <span>暂无图片</span>
+        )}
+      </div>
+      <div className="selected-candidate-main">
+        <div className="selected-candidate-title-row">
+          <div>
+            <div className="candidate-badges" aria-label="已选来源信息">
+              <span>{source.toUpperCase()}</span>
+              <span>ID {sourceId}</span>
+              <span>匹配 {candidate.confidence_score}</span>
+            </div>
+            <h3>{title}</h3>
+            {originalTitle ? <p className="muted">原标题：{originalTitle}</p> : null}
+          </div>
+          <a className="candidate-source-link" href={sourceUrl} target="_blank" rel="noreferrer">
+            打开来源
+          </a>
+        </div>
+
+        <dl className="metadata-list selected-detail-list">
+          <div>
+            <dt>演员</dt>
+            <dd>{actors.length ? actors.join(", ") : "未知"}</dd>
+          </div>
+          <div>
+            <dt>制作方</dt>
+            <dd>{studio || "未知"}</dd>
+          </div>
+          <div>
+            <dt>系列</dt>
+            <dd>{series || "无"}</dd>
+          </div>
+          <div>
+            <dt>日期</dt>
+            <dd>{releaseDate || "未知"}</dd>
+          </div>
+          <div>
+            <dt>导演</dt>
+            <dd>{director || "未知"}</dd>
+          </div>
+          <div>
+            <dt>时长</dt>
+            <dd>{runtimeMinutes ? `${runtimeMinutes} 分钟` : "未知"}</dd>
+          </div>
+        </dl>
+
+        {genres.length || tags.length ? (
+          <div className="selected-candidate-chips" aria-label="类型和标签">
+            {genres.map((genre) => (
+              <span key={`genre:${genre}`}>{genre}</span>
+            ))}
+            {tags.map((tag) => (
+              <span key={`tag:${tag}`}>{tag}</span>
+            ))}
+          </div>
+        ) : null}
+
+        {plot ? <p className="selected-candidate-plot">{plot}</p> : null}
+      </div>
+    </article>
   );
 }
 
@@ -683,4 +797,46 @@ function parentName(path: string): string {
 
 function normalizeQuery(value: string): string {
   return value.replace(/[._-]+/g, " ").replace(/\s+/g, " ").trim();
+}
+
+function stringValue(value: unknown): string | null {
+  return typeof value === "string" && value.trim() ? value : null;
+}
+
+function numberValue(value: unknown): number | null {
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+function stringList(value: unknown): string[] {
+  return Array.isArray(value)
+    ? value.filter((item): item is string => typeof item === "string" && Boolean(item.trim()))
+    : [];
+}
+
+function metadataActors(metadata: Record<string, unknown> | null): string[] | null {
+  const actors = metadata?.actors;
+  if (!Array.isArray(actors)) {
+    return null;
+  }
+  const names = actors
+    .map((actor) => {
+      if (typeof actor === "string") {
+        return actor;
+      }
+      if (actor && typeof actor === "object" && "name" in actor) {
+        return stringValue((actor as { name?: unknown }).name) ?? "";
+      }
+      return "";
+    })
+    .filter((name) => Boolean(name.trim()));
+  return names.length ? names : null;
+}
+
+function metadataPosterUrl(metadata: Record<string, unknown> | null): string | null {
+  const assets = metadata?.assets;
+  if (!assets || typeof assets !== "object") {
+    return null;
+  }
+  return stringValue((assets as { poster_url?: unknown; thumb_url?: unknown }).poster_url)
+    ?? stringValue((assets as { poster_url?: unknown; thumb_url?: unknown }).thumb_url);
 }
