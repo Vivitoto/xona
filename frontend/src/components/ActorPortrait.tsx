@@ -1,9 +1,10 @@
 import type { ActorRead } from "../api/types";
+import { proxiedImageUrl } from "../utils/imageProxy";
 import { useImageSafetyMode } from "./ImageSafetyMode";
 
 export function ActorPortrait({ actor }: { actor: ActorRead }) {
   const { imageSafetyModeEnabled } = useImageSafetyMode();
-  const source = actor.portrait_source_url;
+  const source = proxiedImageUrl(actor.portrait_source_url);
   if (!source) {
     return (
       <div

@@ -1,8 +1,9 @@
 from __future__ import annotations
 
 from collections.abc import Awaitable, Callable
+from urllib.parse import urlsplit
 
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
 from sqlalchemy.orm import Session
 
 from backend.app.core.redaction import redact_payload
@@ -26,6 +27,13 @@ from backend.app.services.manual import ManualOrganizerError, ManualOrganizerSer
 from backend.app.services.settings_store import SettingsStore
 
 router = APIRouter(prefix="/api/manual", tags=["manual"])
+IMAGE_PROXY_ALLOWED_HOSTS = {
+    "www.xchina.co",
+    "xchina.co",
+    "img.xchina.download",
+    "upload.xchina.io",
+}
+IMAGE_PROXY_MAX_BYTES = 10 * 1024 * 1024
 
 
 async def get_db(request: Request):
@@ -170,6 +178,39 @@ async def get_manual_job(
             await closer()
 
 
+@router.get("/image-proxy")
+async def proxy_manual_image(
+    request: Request,
+    url: str = Query(..., min_length=1),
+    session: Session = Depends(get_db),
+) -> Response:
+    _validate_image_proxy_url(url)
+    adapter, closer = _asset_adapter_for(request, session)
+    if adapter is None:
+        raise HTTPException(status_code=400, detail="FlareSolverr URL required")
+    try:
+        fetched = await adapter.fetch_asset(url)
+    except Exception as exc:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=redact_payload({"error": str(exc)}),
+        ) from exc
+    finally:
+        if closer is not None:
+            await closer()
+
+    content_type = fetched.content_type.split(";", 1)[0].strip().lower()
+    if not content_type.startswith("image/"):
+        raise HTTPException(status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE, detail="Unsupported image content type")
+    if len(fetched.content) > IMAGE_PROXY_MAX_BYTES:
+        raise HTTPException(status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, detail="Image too large")
+    return Response(
+        content=fetched.content,
+        media_type=content_type,
+        headers={"Cache-Control": "private, max-age=86400"},
+    )
+
+
 def _service_for(
     request: Request,
     session: Session,
@@ -206,6 +247,36 @@ def _service_for(
         ),
         flaresolverr.close,
     )
+
+
+def _asset_adapter_for(
+    request: Request,
+    session: Session,
+):
+    settings: Settings = request.app.state.settings
+    adapter = getattr(request.app.state, "manual_search_adapter", None)
+    if adapter is None:
+        adapter = getattr(request.app.state, "xchina_adapter", None)
+    if adapter is not None:
+        return adapter, None
+    store_settings = SettingsStore(session).xchina_settings()
+    endpoint = settings.flaresolverr_url or store_settings.get("flaresolverr_url")
+    if not endpoint:
+        return None, None
+    flaresolverr = FlareSolverrClient(
+        str(endpoint),
+        proxy_url=settings.proxy_url or store_settings.get("proxy_url"),
+    )
+    return XChinaAdapter(flaresolverr, session), flaresolverr.close
+
+
+def _validate_image_proxy_url(url: str) -> None:
+    parsed = urlsplit(url)
+    if parsed.scheme.lower() != "https" or not parsed.hostname:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Unsupported image URL")
+    hostname = parsed.hostname.lower()
+    if hostname not in IMAGE_PROXY_ALLOWED_HOSTS:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Unsupported image host")
 
 
 def _http_error(exc: ManualOrganizerError) -> HTTPException:

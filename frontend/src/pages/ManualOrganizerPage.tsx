@@ -17,6 +17,7 @@ import { CheckboxField, FormField, Section } from "../components/FormField";
 import { useImageSafetyMode } from "../components/ImageSafetyMode";
 import { OperationPlanView } from "../components/OperationPlanView";
 import { TemplateGuide } from "../components/TemplateGuide";
+import { proxiedImageUrl } from "../utils/imageProxy";
 import { linesToList } from "./settings/settingsForm";
 
 const safetyLabels = [
@@ -539,7 +540,7 @@ function SelectedCandidateDetail({
   const actors = metadataActors(metadata) || candidate.actors;
   const genres = stringList(metadata?.genres);
   const tags = stringList(metadata?.tags);
-  const imageUrl = metadataPosterUrl(metadata) || candidate.image_url;
+  const imageUrl = proxiedImageUrl(metadataPosterUrl(metadata) || candidate.image_url);
   const safetyLabel = imageSafetyModeEnabled
     ? `${title} 已选详情图片，安全模式已模糊，悬停、聚焦或轻点可临时查看`
     : `${title} 已选详情图片`;

@@ -87,7 +87,7 @@ class FakeStoredSettingsXChina:
         raise AssertionError("not used in this test")
 
     async def fetch_asset(self, url: str) -> FetchedAsset:  # pragma: no cover
-        raise AssertionError("not used in this test")
+        return FetchedAsset(url=url, content=b"proxied-image-bytes", content_type="image/webp")
 
 
 def test_manual_api_scan_search_select_preview_execute(tmp_path: Path) -> None:
@@ -230,6 +230,82 @@ def test_manual_search_uses_saved_xchina_settings(
     assert FakeStoredSettingsFlareSolverr.instances[0].url == "http://solver:8191/v1"
     assert FakeStoredSettingsFlareSolverr.instances[0].proxy_url == "http://proxy:8080"
     assert FakeStoredSettingsFlareSolverr.instances[0].closed is True
+
+
+def test_manual_image_proxy_uses_saved_xchina_settings(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    FakeStoredSettingsFlareSolverr.instances.clear()
+    monkeypatch.setattr(manual_api, "FlareSolverrClient", FakeStoredSettingsFlareSolverr)
+    monkeypatch.setattr(manual_api, "XChinaAdapter", FakeStoredSettingsXChina)
+
+    root = tmp_path / "media"
+    root.mkdir()
+    settings = Settings(
+        config_dir=tmp_path / "config",
+        storage_roots=(root,),
+        auth_enabled=False,
+    )
+
+    async def run() -> httpx.Response:
+        app = create_app(settings)
+        async with app.router.lifespan_context(app):
+            with app.state.sessionmaker() as session:
+                SettingsStore(session).update_app_settings(
+                    {
+                        "xchina": {
+                            "flaresolverr_url": "http://solver:8191/v1",
+                            "proxy_url": "http://proxy:8080",
+                        }
+                    }
+                )
+                session.commit()
+
+            async with httpx.AsyncClient(
+                transport=httpx.ASGITransport(app=app),
+                base_url=ORIGIN,
+            ) as client:
+                return await client.get(
+                    "/api/manual/image-proxy",
+                    params={"url": "https://img.xchina.download/cover/demo.webp"},
+                )
+
+    response = asyncio.run(run())
+
+    assert response.status_code == 200, response.text
+    assert response.content == b"proxied-image-bytes"
+    assert response.headers["content-type"] == "image/webp"
+    assert FakeStoredSettingsFlareSolverr.instances
+    assert FakeStoredSettingsFlareSolverr.instances[0].url == "http://solver:8191/v1"
+    assert FakeStoredSettingsFlareSolverr.instances[0].proxy_url == "http://proxy:8080"
+    assert FakeStoredSettingsFlareSolverr.instances[0].closed is True
+
+
+def test_manual_image_proxy_rejects_untrusted_hosts(tmp_path: Path) -> None:
+    root = tmp_path / "media"
+    root.mkdir()
+    settings = Settings(
+        config_dir=tmp_path / "config",
+        storage_roots=(root,),
+        auth_enabled=False,
+    )
+
+    async def run() -> httpx.Response:
+        app = create_app(settings)
+        async with app.router.lifespan_context(app):
+            async with httpx.AsyncClient(
+                transport=httpx.ASGITransport(app=app),
+                base_url=ORIGIN,
+            ) as client:
+                return await client.get(
+                    "/api/manual/image-proxy",
+                    params={"url": "https://example.com/cover.jpg"},
+                )
+
+    response = asyncio.run(run())
+
+    assert response.status_code == 400
 
 
 def test_manual_selection_refuses_unsafe_paths(tmp_path: Path) -> None:

@@ -1,4 +1,5 @@
 import type { ManualCandidateCard as ManualCandidate } from "../api/types";
+import { proxiedImageUrl } from "../utils/imageProxy";
 import { useImageSafetyMode } from "./ImageSafetyMode";
 
 export function CandidateCard({
@@ -12,6 +13,7 @@ export function CandidateCard({
 }) {
   const breakdown = Object.entries(candidate.score_breakdown);
   const { imageSafetyModeEnabled } = useImageSafetyMode();
+  const imageSrc = proxiedImageUrl(candidate.image_url);
   const safetyLabel = imageSafetyModeEnabled
     ? `${candidate.title} 候选图片，安全模式已模糊，悬停、聚焦或轻点可临时查看`
     : `${candidate.title} 候选图片`;
@@ -19,13 +21,13 @@ export function CandidateCard({
   return (
     <article className={`candidate-card${selected ? " is-selected" : ""}`}>
       <div className="candidate-image">
-        {candidate.image_url ? (
+        {imageSrc ? (
           <img
             alt={`${candidate.title} 候选图片`}
             aria-label={safetyLabel}
             className={`safety-image${imageSafetyModeEnabled ? " is-blurred" : ""}`}
             data-image-safety={imageSafetyModeEnabled ? "blurred" : "visible"}
-            src={candidate.image_url}
+            src={imageSrc}
             tabIndex={imageSafetyModeEnabled ? 0 : undefined}
             title={
               imageSafetyModeEnabled

@@ -159,7 +159,7 @@ describe("ManualOrganizerPage", () => {
     expect(await screen.findByRole("heading", { name: "Sample Work" })).toBeTruthy();
     expect(screen.getByAltText("Sample Work 候选图片")).toHaveAttribute(
       "src",
-      "https://images.example.test/poster.jpg",
+      "/api/manual/image-proxy?url=https%3A%2F%2Fimages.example.test%2Fposter.jpg",
     );
     expect(screen.getByText("ID XC-001")).toBeTruthy();
     expect(screen.getByText("Actor One")).toBeTruthy();
@@ -169,7 +169,7 @@ describe("ManualOrganizerPage", () => {
     const selectedDetail = await screen.findByLabelText("已选候选详情");
     expect(within(selectedDetail).getByAltText("Sample Work 已选详情图片")).toHaveAttribute(
       "src",
-      "https://images.example.test/poster-detail.jpg",
+      "/api/manual/image-proxy?url=https%3A%2F%2Fimages.example.test%2Fposter-detail.jpg",
     );
     expect(within(selectedDetail).getByText("原标题：Original Sample Work")).toBeTruthy();
     expect(within(selectedDetail).getByText("Actor One, Actor Two")).toBeTruthy();
