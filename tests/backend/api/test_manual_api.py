@@ -4,11 +4,14 @@ import asyncio
 from pathlib import Path
 
 import httpx
+import pytest
 
+import backend.app.api.manual as manual_api
 from backend.app.core.settings import Settings
 from backend.app.integrations.xchina import FetchedAsset
 from backend.app.main import create_app
 from backend.app.schemas.source import SourceActorRef, SourceAsset, SourceSearchResult, SourceVideoDetail
+from backend.app.services.settings_store import SettingsStore
 
 
 ORIGIN = "http://testserver"
@@ -50,6 +53,41 @@ class FakeXChina:
 
     async def fetch_asset(self, url: str) -> FetchedAsset:
         return FetchedAsset(url=url, content=f"bytes:{url}".encode(), content_type="image/jpeg")
+
+
+class FakeStoredSettingsFlareSolverr:
+    instances: list["FakeStoredSettingsFlareSolverr"] = []
+
+    def __init__(self, url: str, *, proxy_url: str | None = None) -> None:
+        self.url = url
+        self.proxy_url = proxy_url
+        self.closed = False
+        self.instances.append(self)
+
+    async def close(self) -> None:
+        self.closed = True
+
+
+class FakeStoredSettingsXChina:
+    def __init__(self, flaresolverr: FakeStoredSettingsFlareSolverr, session) -> None:
+        self.flaresolverr = flaresolverr
+        self.session = session
+
+    async def search(self, query: str) -> list[SourceSearchResult]:
+        assert query == "同学的妈妈"
+        return [
+            SourceSearchResult(
+                source_candidate_id="XC-STORED",
+                title="同学的妈妈",
+                url="https://xchina.example.test/videos/xc-stored.html",
+            )
+        ]
+
+    async def fetch_video_detail(self, url: str) -> SourceVideoDetail:  # pragma: no cover
+        raise AssertionError("not used in this test")
+
+    async def fetch_asset(self, url: str) -> FetchedAsset:  # pragma: no cover
+        raise AssertionError("not used in this test")
 
 
 def test_manual_api_scan_search_select_preview_execute(tmp_path: Path) -> None:
@@ -132,6 +170,66 @@ def test_manual_api_scan_search_select_preview_execute(tmp_path: Path) -> None:
     assert responses["execute"].json()["state"] == "completed"
     assert responses["job"].json()["state"] == "completed"
     assert (destination / "Studio One" / "Sample Work Alpha" / "XC-001 - Sample Work Alpha.mkv").is_file()
+
+
+def test_manual_search_uses_saved_xchina_settings(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    FakeStoredSettingsFlareSolverr.instances.clear()
+    monkeypatch.setattr(manual_api, "FlareSolverrClient", FakeStoredSettingsFlareSolverr)
+    monkeypatch.setattr(manual_api, "XChinaAdapter", FakeStoredSettingsXChina)
+
+    root = tmp_path / "media"
+    incoming = root / "incoming"
+    incoming.mkdir(parents=True)
+    (incoming / "Sample.Work.Alpha.mkv").write_bytes(b"movie-bytes")
+    settings = Settings(
+        config_dir=tmp_path / "config",
+        storage_roots=(root,),
+        auth_enabled=False,
+    )
+
+    async def run() -> dict[str, httpx.Response]:
+        app = create_app(settings)
+        async with app.router.lifespan_context(app):
+            with app.state.sessionmaker() as session:
+                SettingsStore(session).update_app_settings(
+                    {
+                        "xchina": {
+                            "flaresolverr_url": "http://solver:8191/v1",
+                            "proxy_url": "http://proxy:8080",
+                        }
+                    }
+                )
+                session.commit()
+
+            async with httpx.AsyncClient(
+                transport=httpx.ASGITransport(app=app),
+                base_url=ORIGIN,
+            ) as client:
+                scan = await client.post(
+                    "/api/manual/scan",
+                    json={"directory": str(incoming)},
+                    headers={"Origin": ORIGIN},
+                )
+                job_id = scan.json()["jobs"][0]["job_id"]
+                search = await client.post(
+                    "/api/manual/search",
+                    json={"job_id": job_id, "query": "同学的妈妈"},
+                    headers={"Origin": ORIGIN},
+                )
+                return {"scan": scan, "search": search}
+
+    responses = asyncio.run(run())
+
+    assert responses["scan"].status_code == 200, responses["scan"].text
+    assert responses["search"].status_code == 200, responses["search"].text
+    assert responses["search"].json()["candidates"][0]["title"] == "同学的妈妈"
+    assert FakeStoredSettingsFlareSolverr.instances
+    assert FakeStoredSettingsFlareSolverr.instances[0].url == "http://solver:8191/v1"
+    assert FakeStoredSettingsFlareSolverr.instances[0].proxy_url == "http://proxy:8080"
+    assert FakeStoredSettingsFlareSolverr.instances[0].closed is True
 
 
 def test_manual_selection_refuses_unsafe_paths(tmp_path: Path) -> None:

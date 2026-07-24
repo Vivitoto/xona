@@ -23,6 +23,7 @@ from backend.app.schemas.manual import (
     ManualSelectCandidateResponse,
 )
 from backend.app.services.manual import ManualOrganizerError, ManualOrganizerService
+from backend.app.services.settings_store import SettingsStore
 
 router = APIRouter(prefix="/api/manual", tags=["manual"])
 
@@ -187,11 +188,13 @@ def _service_for(
             ),
             None,
         )
-    if not settings.flaresolverr_url:
+    store_settings = SettingsStore(session).xchina_settings()
+    endpoint = settings.flaresolverr_url or store_settings.get("flaresolverr_url")
+    if not endpoint:
         return ManualOrganizerService(settings, session), None
     flaresolverr = FlareSolverrClient(
-        settings.flaresolverr_url,
-        proxy_url=settings.proxy_url,
+        str(endpoint),
+        proxy_url=settings.proxy_url or store_settings.get("proxy_url"),
     )
     xchina = XChinaAdapter(flaresolverr, session)
     return (
