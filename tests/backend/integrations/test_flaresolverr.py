@@ -36,11 +36,19 @@ def test_request_get_calls_configured_endpoint_exactly_without_appending_v1() ->
     ]
 
 
-def test_unauthenticated_proxy_is_sent_on_request_get() -> None:
+def test_proxy_request_get_reuses_persistent_session_and_closes_it() -> None:
     payloads: list[dict[str, Any]] = []
 
     async def handler(request: httpx.Request) -> httpx.Response:
-        payloads.append(__import__("json").loads(request.content))
+        payload = __import__("json").loads(request.content)
+        payloads.append(payload)
+        if payload["cmd"] == "sessions.create":
+            return _ok_response({"status": "ok", "session": "session-id"})
+        if payload["cmd"] == "sessions.destroy":
+            return _ok_response({"status": "ok"})
+        assert payload["cmd"] == "request.get"
+        assert payload["session"] == "session-id"
+        assert "proxy" not in payload
         return _ok_response({"status": "ok", "solution": {"status": 200, "response": "ok"}})
 
     async def run() -> None:
@@ -51,10 +59,136 @@ def test_unauthenticated_proxy_is_sent_on_request_get() -> None:
                 http_client=http,
             )
             await client.request_get("https://target.example/item")
+            await client.request_get("https://target.example/second")
+            await client.close()
 
     asyncio.run(run())
 
-    assert payloads[0]["proxy"] == {"url": "http://proxy.example:8080"}
+    assert payloads == [
+        {
+            "cmd": "sessions.create",
+            "proxy": {"url": "http://proxy.example:8080"},
+        },
+        {
+            "cmd": "request.get",
+            "url": "https://target.example/item",
+            "maxTimeout": 60000,
+            "session": "session-id",
+        },
+        {
+            "cmd": "request.get",
+            "url": "https://target.example/second",
+            "maxTimeout": 60000,
+            "session": "session-id",
+        },
+        {"cmd": "sessions.destroy", "session": "session-id"},
+    ]
+
+
+def test_proxy_request_get_recreates_session_after_request_failure() -> None:
+    payloads: list[dict[str, Any]] = []
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        payload = __import__("json").loads(request.content)
+        payloads.append(payload)
+        if payload["cmd"] == "sessions.create":
+            session_number = sum(1 for item in payloads if item.get("cmd") == "sessions.create")
+            return _ok_response({"status": "ok", "session": f"session-{session_number}"})
+        if payload["cmd"] == "request.get" and payload.get("session") == "session-1":
+            return httpx.Response(500, json={"status": "error", "message": "blocked"})
+        if payload["cmd"] == "request.get" and payload.get("session") == "session-2":
+            return _ok_response({"status": "ok", "solution": {"status": 200, "response": "ok"}})
+        if payload["cmd"] == "sessions.destroy":
+            return _ok_response({"status": "ok"})
+        raise AssertionError(f"unexpected payload: {payload}")
+
+    async def run() -> None:
+        async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as http:
+            client = FlareSolverrClient(
+                "http://solver.example/v1",
+                proxy_url="http://proxy.example:8080",
+                http_client=http,
+            )
+            result = await client.request_get("https://target.example/item")
+            assert result.text == "ok"
+            await client.close()
+
+    asyncio.run(run())
+
+    assert payloads == [
+        {
+            "cmd": "sessions.create",
+            "proxy": {"url": "http://proxy.example:8080"},
+        },
+        {
+            "cmd": "request.get",
+            "url": "https://target.example/item",
+            "maxTimeout": 60000,
+            "session": "session-1",
+        },
+        {"cmd": "sessions.destroy", "session": "session-1"},
+        {
+            "cmd": "sessions.create",
+            "proxy": {"url": "http://proxy.example:8080"},
+        },
+        {
+            "cmd": "request.get",
+            "url": "https://target.example/item",
+            "maxTimeout": 60000,
+            "session": "session-2",
+        },
+        {"cmd": "sessions.destroy", "session": "session-2"},
+    ]
+
+
+def test_proxy_request_get_recreates_session_after_cloudflare_status() -> None:
+    payloads: list[dict[str, Any]] = []
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        payload = __import__("json").loads(request.content)
+        payloads.append(payload)
+        if payload["cmd"] == "sessions.create":
+            session_number = sum(1 for item in payloads if item.get("cmd") == "sessions.create")
+            return _ok_response({"status": "ok", "session": f"session-{session_number}"})
+        if payload["cmd"] == "request.get" and payload.get("session") == "session-1":
+            return _ok_response({"status": "ok", "solution": {"status": 503, "response": "blocked"}})
+        if payload["cmd"] == "request.get" and payload.get("session") == "session-2":
+            return _ok_response({"status": "ok", "solution": {"status": 200, "response": "ok"}})
+        if payload["cmd"] == "sessions.destroy":
+            return _ok_response({"status": "ok"})
+        raise AssertionError(f"unexpected payload: {payload}")
+
+    async def run() -> None:
+        async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as http:
+            client = FlareSolverrClient(
+                "http://solver.example/v1",
+                proxy_url="http://proxy.example:8080",
+                http_client=http,
+            )
+            result = await client.request_get("https://target.example/item")
+            assert result.text == "ok"
+            await client.close()
+
+    asyncio.run(run())
+
+    assert payloads == [
+        {"cmd": "sessions.create", "proxy": {"url": "http://proxy.example:8080"}},
+        {
+            "cmd": "request.get",
+            "url": "https://target.example/item",
+            "maxTimeout": 60000,
+            "session": "session-1",
+        },
+        {"cmd": "sessions.destroy", "session": "session-1"},
+        {"cmd": "sessions.create", "proxy": {"url": "http://proxy.example:8080"}},
+        {
+            "cmd": "request.get",
+            "url": "https://target.example/item",
+            "maxTimeout": 60000,
+            "session": "session-2",
+        },
+        {"cmd": "sessions.destroy", "session": "session-2"},
+    ]
 
 
 def test_credentialed_http_proxy_credentials_are_only_sent_on_session_create() -> None:

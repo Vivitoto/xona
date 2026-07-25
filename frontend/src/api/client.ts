@@ -68,6 +68,10 @@ function isJsonBody(body: ApiFetchOptions["body"]): body is JsonBody {
 }
 
 function formatDetail(detail: unknown): string {
+  const reasonLabel = firstReasonLabel(detail);
+  if (reasonLabel) {
+    return reasonLabel;
+  }
   if (typeof detail === "string") {
     return detail;
   }
@@ -81,3 +85,39 @@ function formatDetail(detail: unknown): string {
   }
   return "API 请求失败";
 }
+
+function firstReasonLabel(detail: unknown): string | null {
+  const codes = collectReasonCodes(detail);
+  for (const code of codes) {
+    const label = apiReasonLabels[code];
+    if (label) {
+      return label;
+    }
+  }
+  return null;
+}
+
+function collectReasonCodes(value: unknown): string[] {
+  if (typeof value === "string") {
+    return [value];
+  }
+  if (!value || typeof value !== "object") {
+    return [];
+  }
+  const record = value as Record<string, unknown>;
+  const codes: string[] = [];
+  if (typeof record.error === "string") {
+    codes.push(record.error);
+  }
+  if (Array.isArray(record.reasons)) {
+    codes.push(...record.reasons.filter((reason): reason is string => typeof reason === "string"));
+  }
+  if ("detail" in record) {
+    codes.push(...collectReasonCodes(record.detail));
+  }
+  return codes;
+}
+
+const apiReasonLabels: Record<string, string> = {
+  search_source_unavailable: "搜索服务暂时不可用，请稍后重试或检查 FlareSolverr / 代理。",
+};

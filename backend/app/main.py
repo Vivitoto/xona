@@ -19,7 +19,7 @@ from backend.app.api.health import router as health_router
 from backend.app.api.history import router as history_router
 from backend.app.api.jobs import router as jobs_router
 from backend.app.api.logs import router as logs_router
-from backend.app.api.manual import router as manual_router
+from backend.app.api.manual import close_shared_flaresolverr_client, router as manual_router
 from backend.app.api.settings import router as settings_router
 from backend.app.api.storage_roots import router as storage_roots_router
 from backend.app.api.watch_rules import router as watch_rules_router
@@ -108,7 +108,9 @@ def create_app(
                 worker_task.cancel()
                 with suppress(asyncio.CancelledError):
                     await worker_task
+                await app.state.worker.close()
                 logger.info("Worker service stopped")
+            await close_shared_flaresolverr_client(app.state)
             engine.dispose()
             logger.info("Xona stopped")
 

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from contextlib import suppress
 from dataclasses import dataclass
 from typing import Any
 from urllib.parse import quote, unquote, urlsplit, urlunsplit
@@ -19,6 +20,12 @@ SUPPORTED_PROXY_SCHEMES = {"http", "https", "socks4", "socks5"}
 
 class FlareSolverrError(RuntimeError):
     pass
+
+
+class FlareSolverrStatusError(FlareSolverrError):
+    def __init__(self, message: str, *, status_code: int) -> None:
+        super().__init__(message)
+        self.status_code = status_code
 
 
 @dataclass(frozen=True)
@@ -82,9 +89,10 @@ class FlareSolverrClient:
         self._owns_http_client = http_client is None
         self._owns_asset_http_client = asset_http_client is None
         self._max_timeout_ms = max_timeout_ms
-        self._credentialed_session_id: str | None = None
+        self._proxy_session_id: str | None = None
 
     async def close(self) -> None:
+        await self._destroy_persistent_proxy_session()
         if self._owns_http_client:
             await self._http_client.aclose()
         if self._owns_asset_http_client and self._asset_http_client is not None:
@@ -97,16 +105,43 @@ class FlareSolverrClient:
         await self.close()
 
     async def request_get(self, url: str, *, session_id: str | None = None) -> FlareSolverrResponse:
-        payload = await self._request_payload(url, session_id=session_id)
-        result = await self._post(payload)
+        if session_id is not None or self._proxy is None:
+            return await self._request_get_once(url, session_id=session_id)
+
+        return await self._request_get_with_persistent_proxy_session(url)
+
+    async def _request_get_with_persistent_proxy_session(self, url: str) -> FlareSolverrResponse:
+        for attempt in range(2):
+            session_id = await self._persistent_proxy_session()
+            try:
+                return await self._request_get_once(url, session_id=session_id)
+            except FlareSolverrStatusError as exc:
+                if exc.status_code not in {403, 503}:
+                    raise
+                await self._invalidate_proxy_session(session_id)
+                if attempt == 1:
+                    raise
+            except FlareSolverrError:
+                await self._invalidate_proxy_session(session_id)
+                if attempt == 1:
+                    raise
+        raise AssertionError("unreachable proxy session retry state")
+
+    async def _request_get_once(
+        self, url: str, *, session_id: str | None = None
+    ) -> FlareSolverrResponse:
+        result = await self._post(self._request_payload(url, session_id=session_id))
         solution = _solution(result)
-        status_code = int(solution.get("status") or 0)
+        try:
+            status_code = int(solution.get("status") or 0)
+        except (TypeError, ValueError) as exc:
+            raise self._error("Malformed FlareSolverr response", result) from exc
+        if status_code >= 400:
+            reason = "Cloudflare block" if status_code in {403, 503} else "HTTP error"
+            raise self._status_error(reason, result, status_code=status_code)
         text = solution.get("response")
         if not isinstance(text, str):
             raise self._error("Malformed FlareSolverr response", result)
-        if status_code >= 400:
-            reason = "Cloudflare block" if status_code in {403, 503} else "HTTP error"
-            raise self._error(reason, result)
         headers = solution.get("headers")
         return FlareSolverrResponse(
             url=str(solution.get("url") or url),
@@ -172,9 +207,7 @@ class FlareSolverrClient:
         await self.request_get(url)
         return True
 
-    async def _request_payload(
-        self, url: str, *, session_id: str | None = None
-    ) -> dict[str, Any]:
+    def _request_payload(self, url: str, *, session_id: str | None = None) -> dict[str, Any]:
         payload: dict[str, Any] = {
             "cmd": "request.get",
             "url": url,
@@ -182,16 +215,28 @@ class FlareSolverrClient:
         }
         if session_id is not None:
             payload["session"] = session_id
-            return payload
-        if self._proxy is None:
-            return payload
-        if self._proxy.credentialed:
-            if self._credentialed_session_id is None:
-                self._credentialed_session_id = await self.create_session()
-            payload["session"] = self._credentialed_session_id
-        else:
-            payload["proxy"] = self._proxy.request_payload()
         return payload
+
+    async def _persistent_proxy_session(self) -> str:
+        if self._proxy is None:
+            raise FlareSolverrError("Persistent proxy session requested without a proxy")
+        if self._proxy_session_id is None:
+            self._proxy_session_id = await self.create_session()
+        return self._proxy_session_id
+
+    async def _invalidate_proxy_session(self, session_id: str) -> None:
+        if self._proxy_session_id != session_id:
+            return
+        self._proxy_session_id = None
+        with suppress(Exception):
+            await self.destroy_session(session_id)
+
+    async def _destroy_persistent_proxy_session(self) -> None:
+        session_id = self._proxy_session_id
+        self._proxy_session_id = None
+        if session_id is not None:
+            with suppress(Exception):
+                await self.destroy_session(session_id)
 
     async def _post(self, payload: dict[str, Any]) -> dict[str, Any]:
         try:
@@ -211,6 +256,13 @@ class FlareSolverrClient:
     @staticmethod
     def _error(message: str, details: Any) -> FlareSolverrError:
         return FlareSolverrError(f"{message}: {redact_payload(details)!r}")
+
+    @staticmethod
+    def _status_error(message: str, details: Any, *, status_code: int) -> FlareSolverrStatusError:
+        return FlareSolverrStatusError(
+            f"{message}: {redact_payload(details)!r}",
+            status_code=status_code,
+        )
 
 
 def parse_proxy_url(proxy_url: str) -> ParsedProxy:

@@ -86,6 +86,11 @@ class FakeAutoAdapter:
         return FetchedAsset(url=url, content=b"asset-bytes", content_type="image/jpeg")
 
 
+class FailingAutoSearchAdapter:
+    async def search(self, query: str) -> list[SourceSearchResult]:
+        raise RuntimeError("FlareSolverr request failed")
+
+
 def test_worker_leases_pending_jobs_and_resumes_expired_leases(tmp_path: Path) -> None:
     engine, sessionmaker = _database(tmp_path)
     try:
@@ -220,8 +225,81 @@ def test_auto_worker_uses_saved_xchina_settings(
         assert FakeSavedSettingsFlareSolverr.instances
         assert FakeSavedSettingsFlareSolverr.instances[0].url == "http://solver:8191/v1"
         assert FakeSavedSettingsFlareSolverr.instances[0].proxy_url == "http://proxy:8080"
+        assert FakeSavedSettingsFlareSolverr.instances[0].closed is False
+        asyncio.run(worker.close())
         assert FakeSavedSettingsFlareSolverr.instances[0].closed is True
         assert FakeSavedSettingsXChina.instances[0].base_url == "https://auto.xchina.test"
+    finally:
+        engine.dispose()
+
+
+def test_auto_worker_sends_search_source_failure_to_review_without_retrying_job(
+    tmp_path: Path,
+) -> None:
+    root = tmp_path / "media"
+    source = root / "incoming"
+    destination = root / "organized"
+    source.mkdir(parents=True)
+    destination.mkdir()
+    media_file = source / "Sample.Work.Alpha.mkv"
+    media_file.write_bytes(b"movie-bytes")
+    settings = Settings(config_dir=tmp_path / "config", storage_roots=(root,))
+    run_migrations(settings=settings)
+    engine = create_engine_for_settings(settings)
+    sessionmaker = get_sessionmaker(engine)
+    try:
+        with sessionmaker() as session:
+            session.add(
+                WatchRule(
+                    rule_id="rule-auto-source-failure",
+                    source_directory=str(source),
+                    destination_directory=str(destination),
+                    recursive=True,
+                    realtime=True,
+                    polling_interval_seconds=60,
+                    stability_seconds=0,
+                    stable_check_count=1,
+                    organization_mode="copy",
+                    folder_templates=["{studio}", "{title}"],
+                    filename_template="{xchina_id} - {title}",
+                    asset_policy="strict",
+                    emby_options={},
+                    metadata_options={},
+                    include_patterns=["*.mkv"],
+                    exclude_patterns=[],
+                    excluded_destination_prefixes=[],
+                    confidence_threshold=92,
+                    enabled=True,
+                )
+            )
+            job = JobService(session).create_job(
+                media_identity="media-auto-source-failure",
+                rule_id="rule-auto-source-failure",
+                manual=False,
+                state="searching",
+                payload={"last_seen_path": str(media_file)},
+            )
+            session.commit()
+            job_id = job.id
+
+        worker = Worker(
+            sessionmaker,
+            settings=settings,
+            search_adapter=FailingAutoSearchAdapter(),
+            poll_interval_seconds=0,
+        )
+        assert asyncio.run(worker.run_once()) is True
+
+        with sessionmaker() as session:
+            loaded = session.get(Job, job_id)
+            assert loaded is not None
+            assert loaded.state == "review_required"
+            assert loaded.attempts == 0
+            auto_payload = loaded.payload["auto"]
+            assert auto_payload["gate_reasons"] == ["search_source_unavailable"]
+            assert auto_payload["candidate_ids"] == []
+            assert auto_payload["search_error"] == "search_source_unavailable"
+            assert auto_payload["search_query_id"]
     finally:
         engine.dispose()
 

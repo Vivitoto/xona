@@ -86,10 +86,12 @@ class ManualOrganizerError(ValueError):
         *,
         status_code: int = 400,
         reasons: list[str] | None = None,
+        rollback: bool = True,
     ) -> None:
         super().__init__(message)
         self.status_code = status_code
         self.reasons = reasons or [message]
+        self.rollback = rollback
 
 
 class ManualOrganizerService:
@@ -179,7 +181,29 @@ class ManualOrganizerService:
 
         results: list[SourceSearchResult] = []
         if self._search_adapter is not None:
-            results = await self._search_adapter.search(search_text)
+            try:
+                results = await self._search_adapter.search(search_text)
+            except Exception as exc:
+                logger.warning(
+                    "Manual search source unavailable job_id=%s query_id=%s error=%s",
+                    job.id,
+                    search_row.id,
+                    redact_payload(str(exc)),
+                )
+                payload = _payload(job)
+                manual = _manual_payload(payload)
+                manual["search_query_id"] = search_row.id
+                manual["normalized_query"] = search_text
+                manual["candidate_ids"] = []
+                manual["search_error"] = "search_source_unavailable"
+                job.payload = redact_payload(payload)
+                self._session.flush()
+                raise ManualOrganizerError(
+                    "search_source_unavailable",
+                    status_code=503,
+                    reasons=["search_source_unavailable"],
+                    rollback=False,
+                ) from exc
         else:
             logger.warning("Manual search skipped job_id=%s reason=search_adapter_unconfigured", job.id)
 

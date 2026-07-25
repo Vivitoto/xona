@@ -55,6 +55,14 @@ class FakeXChina:
         return FetchedAsset(url=url, content=f"bytes:{url}".encode(), content_type="image/jpeg")
 
 
+class FailingSearchXChina:
+    async def search(self, query: str) -> list[SourceSearchResult]:
+        raise RuntimeError("FlareSolverr request failed")
+
+    async def fetch_video_detail(self, url: str) -> SourceVideoDetail:  # pragma: no cover
+        raise AssertionError("not used in this test")
+
+
 class FakeImageAsset:
     def __init__(self, content: bytes, content_type: str) -> None:
         self.content = content
@@ -194,6 +202,50 @@ def test_manual_api_scan_search_select_preview_execute(tmp_path: Path) -> None:
     assert not (target_dir / "xchina-normalized.json").exists()
 
 
+def test_manual_search_source_failure_returns_service_unavailable_without_500(
+    tmp_path: Path,
+) -> None:
+    root = tmp_path / "media"
+    incoming = root / "incoming"
+    incoming.mkdir(parents=True)
+    (incoming / "Sample.Work.Alpha.mkv").write_bytes(b"movie-bytes")
+    settings = Settings(
+        config_dir=tmp_path / "config",
+        storage_roots=(root,),
+        auth_enabled=False,
+    )
+
+    async def run() -> dict[str, httpx.Response]:
+        app = create_app(settings)
+        app.state.manual_search_adapter = FailingSearchXChina()
+        async with app.router.lifespan_context(app):
+            async with httpx.AsyncClient(
+                transport=httpx.ASGITransport(app=app),
+                base_url=ORIGIN,
+            ) as client:
+                scan = await client.post(
+                    "/api/manual/scan",
+                    json={"directory": str(incoming)},
+                    headers={"Origin": ORIGIN},
+                )
+                job_id = scan.json()["jobs"][0]["job_id"]
+                search = await client.post(
+                    "/api/manual/search",
+                    json={"job_id": job_id, "query": "Sample Work Alpha"},
+                    headers={"Origin": ORIGIN},
+                )
+                job = await client.get(f"/api/manual/jobs/{job_id}")
+                return {"scan": scan, "search": search, "job": job}
+
+    responses = asyncio.run(run())
+
+    assert responses["scan"].status_code == 200, responses["scan"].text
+    assert responses["search"].status_code == 503, responses["search"].text
+    assert responses["search"].json()["detail"]["error"] == "search_source_unavailable"
+    assert responses["search"].json()["detail"]["reasons"] == ["search_source_unavailable"]
+    assert responses["job"].json()["payload"]["manual"]["search_error"] == "search_source_unavailable"
+
+
 def test_manual_search_uses_saved_xchina_settings(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -243,18 +295,115 @@ def test_manual_search_uses_saved_xchina_settings(
                     json={"job_id": job_id, "query": "同学的妈妈"},
                     headers={"Origin": ORIGIN},
                 )
-                return {"scan": scan, "search": search}
+                second_search = await client.post(
+                    "/api/manual/search",
+                    json={"job_id": job_id, "query": "同学的妈妈"},
+                    headers={"Origin": ORIGIN},
+                )
+                return {"scan": scan, "search": search, "second_search": second_search}
 
     responses = asyncio.run(run())
 
     assert responses["scan"].status_code == 200, responses["scan"].text
     assert responses["search"].status_code == 200, responses["search"].text
+    assert responses["second_search"].status_code == 200, responses["second_search"].text
     assert responses["search"].json()["candidates"][0]["title"] == "同学的妈妈"
-    assert FakeStoredSettingsFlareSolverr.instances
+    assert len(FakeStoredSettingsFlareSolverr.instances) == 1
     assert FakeStoredSettingsFlareSolverr.instances[0].url == "http://solver:8191/v1"
     assert FakeStoredSettingsFlareSolverr.instances[0].proxy_url == "http://proxy:8080"
     assert FakeStoredSettingsFlareSolverr.instances[0].closed is True
+    assert len(FakeStoredSettingsXChina.instances) == 3
+    assert all(
+        adapter.flaresolverr is FakeStoredSettingsFlareSolverr.instances[0]
+        for adapter in FakeStoredSettingsXChina.instances
+    )
     assert FakeStoredSettingsXChina.instances[0].base_url == "https://mirror.xchina.test"
+
+
+def test_manual_search_closes_shared_flaresolverr_client_when_saved_settings_change(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    FakeStoredSettingsFlareSolverr.instances.clear()
+    FakeStoredSettingsXChina.instances.clear()
+    monkeypatch.setattr(manual_api, "FlareSolverrClient", FakeStoredSettingsFlareSolverr)
+    monkeypatch.setattr(manual_api, "XChinaAdapter", FakeStoredSettingsXChina)
+
+    root = tmp_path / "media"
+    incoming = root / "incoming"
+    incoming.mkdir(parents=True)
+    (incoming / "Sample.Work.Alpha.mkv").write_bytes(b"movie-bytes")
+    settings = Settings(
+        config_dir=tmp_path / "config",
+        storage_roots=(root,),
+        auth_enabled=False,
+    )
+
+    async def run() -> dict[str, object]:
+        app = create_app(settings)
+        async with app.router.lifespan_context(app):
+            with app.state.sessionmaker() as session:
+                SettingsStore(session).update_app_settings(
+                    {
+                        "xchina": {
+                            "base_url": "https://mirror.xchina.test",
+                            "flaresolverr_url": "http://solver:8191/v1",
+                            "proxy_url": "http://proxy:8080",
+                        }
+                    }
+                )
+                session.commit()
+
+            async with httpx.AsyncClient(
+                transport=httpx.ASGITransport(app=app),
+                base_url=ORIGIN,
+            ) as client:
+                scan = await client.post(
+                    "/api/manual/scan",
+                    json={"directory": str(incoming)},
+                    headers={"Origin": ORIGIN},
+                )
+                job_id = scan.json()["jobs"][0]["job_id"]
+                first_search = await client.post(
+                    "/api/manual/search",
+                    json={"job_id": job_id, "query": "同学的妈妈"},
+                    headers={"Origin": ORIGIN},
+                )
+
+                with app.state.sessionmaker() as session:
+                    SettingsStore(session).update_app_settings(
+                        {
+                            "xchina": {
+                                "base_url": "https://mirror.xchina.test",
+                                "flaresolverr_url": "http://solver:8191/v1",
+                                "proxy_url": "http://proxy-2:8080",
+                            }
+                        }
+                    )
+                    session.commit()
+
+                second_search = await client.post(
+                    "/api/manual/search",
+                    json={"job_id": job_id, "query": "同学的妈妈"},
+                    headers={"Origin": ORIGIN},
+                )
+                return {
+                    "first_search": first_search,
+                    "second_search": second_search,
+                    "first_closed_after_rotation": FakeStoredSettingsFlareSolverr.instances[0].closed,
+                    "second_closed_before_shutdown": FakeStoredSettingsFlareSolverr.instances[1].closed,
+                }
+
+    responses = asyncio.run(run())
+
+    assert responses["first_search"].status_code == 200, responses["first_search"].text
+    assert responses["second_search"].status_code == 200, responses["second_search"].text
+    assert len(FakeStoredSettingsFlareSolverr.instances) == 2
+    assert FakeStoredSettingsFlareSolverr.instances[0].proxy_url == "http://proxy:8080"
+    assert FakeStoredSettingsFlareSolverr.instances[1].proxy_url == "http://proxy-2:8080"
+    assert responses["first_closed_after_rotation"] is True
+    assert responses["second_closed_before_shutdown"] is False
+    assert FakeStoredSettingsFlareSolverr.instances[1].closed is True
 
 
 def test_manual_image_proxy_uses_saved_xchina_settings(

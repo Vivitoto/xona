@@ -46,7 +46,7 @@ async def scan_manual_directory(
     request: Request,
     session: Session = Depends(get_db),
 ) -> ManualScanResponse:
-    service, closer = _service_for(request, session)
+    service, closer = await _service_for(request, session)
     try:
         response = service.scan(
             payload.directory,
@@ -56,8 +56,7 @@ async def scan_manual_directory(
         session.commit()
         return response
     except ManualOrganizerError as exc:
-        session.rollback()
-        raise _http_error(exc) from exc
+        raise _manual_error(session, exc) from exc
     finally:
         if closer is not None:
             await closer()
@@ -69,7 +68,7 @@ async def search_manual_candidates(
     request: Request,
     session: Session = Depends(get_db),
 ) -> ManualSearchResponse:
-    service, closer = _service_for(request, session)
+    service, closer = await _service_for(request, session)
     try:
         response = await service.search(
             job_id=payload.job_id,
@@ -80,8 +79,7 @@ async def search_manual_candidates(
         session.commit()
         return response
     except ManualOrganizerError as exc:
-        session.rollback()
-        raise _http_error(exc) from exc
+        raise _manual_error(session, exc) from exc
     finally:
         if closer is not None:
             await closer()
@@ -97,7 +95,7 @@ async def select_manual_candidate(
     request: Request,
     session: Session = Depends(get_db),
 ) -> ManualSelectCandidateResponse:
-    service, closer = _service_for(request, session)
+    service, closer = await _service_for(request, session)
     try:
         response = await service.select_candidate(
             job_id,
@@ -110,8 +108,7 @@ async def select_manual_candidate(
         session.commit()
         return response
     except ManualOrganizerError as exc:
-        session.rollback()
-        raise _http_error(exc) from exc
+        raise _manual_error(session, exc) from exc
     finally:
         if closer is not None:
             await closer()
@@ -124,14 +121,13 @@ async def preview_manual_plan(
     request: Request,
     session: Session = Depends(get_db),
 ) -> ManualPreviewResponse:
-    service, closer = _service_for(request, session)
+    service, closer = await _service_for(request, session)
     try:
         response = await service.preview(job_id, payload)
         session.commit()
         return response
     except ManualOrganizerError as exc:
-        session.rollback()
-        raise _http_error(exc) from exc
+        raise _manual_error(session, exc) from exc
     finally:
         if closer is not None:
             await closer()
@@ -144,14 +140,13 @@ async def organize_manual_job(
     request: Request,
     session: Session = Depends(get_db),
 ) -> ManualExecutePlanResponse:
-    service, closer = _service_for(request, session)
+    service, closer = await _service_for(request, session)
     try:
         response = await service.organize(job_id, payload)
         session.commit()
         return response
     except ManualOrganizerError as exc:
-        session.rollback()
-        raise _http_error(exc) from exc
+        raise _manual_error(session, exc) from exc
     finally:
         if closer is not None:
             await closer()
@@ -164,7 +159,7 @@ async def execute_manual_plan(
     request: Request,
     session: Session = Depends(get_db),
 ) -> ManualExecutePlanResponse:
-    service, closer = _service_for(request, session)
+    service, closer = await _service_for(request, session)
     try:
         response = service.execute_plan(
             plan_id,
@@ -174,8 +169,7 @@ async def execute_manual_plan(
         session.commit()
         return response
     except ManualOrganizerError as exc:
-        session.rollback()
-        raise _http_error(exc) from exc
+        raise _manual_error(session, exc) from exc
     finally:
         if closer is not None:
             await closer()
@@ -187,7 +181,7 @@ async def get_manual_job(
     request: Request,
     session: Session = Depends(get_db),
 ) -> ManualJobRead:
-    service, closer = _service_for(request, session)
+    service, closer = await _service_for(request, session)
     try:
         return service.get_job(job_id)
     except ManualOrganizerError as exc:
@@ -205,7 +199,7 @@ async def proxy_manual_image(
 ) -> Response:
     store_settings = SettingsStore(session).xchina_settings()
     _validate_image_proxy_url(url, store_settings)
-    adapter, closer = _asset_adapter_for(request, session)
+    adapter, closer = await _asset_adapter_for(request, session)
     if adapter is None:
         raise HTTPException(status_code=400, detail="FlareSolverr URL required")
     try:
@@ -232,7 +226,7 @@ async def proxy_manual_image(
     )
 
 
-def _service_for(
+async def _service_for(
     request: Request,
     session: Session,
 ) -> tuple[ManualOrganizerService, Callable[[], Awaitable[None]] | None]:
@@ -254,9 +248,10 @@ def _service_for(
     endpoint = settings.flaresolverr_url or store_settings.get("flaresolverr_url")
     if not endpoint:
         return ManualOrganizerService(settings, session), None
-    flaresolverr = FlareSolverrClient(
+    flaresolverr = await _shared_flaresolverr_client(
+        request,
         str(endpoint),
-        proxy_url=settings.proxy_url or store_settings.get("proxy_url"),
+        settings.proxy_url or store_settings.get("proxy_url"),
     )
     xchina = XChinaAdapter(flaresolverr, session, base_url=xchina_base_url(store_settings))
     return (
@@ -266,11 +261,11 @@ def _service_for(
             search_adapter=xchina,
             asset_adapter=xchina,
         ),
-        flaresolverr.close,
+        None,
     )
 
 
-def _asset_adapter_for(
+async def _asset_adapter_for(
     request: Request,
     session: Session,
 ):
@@ -284,16 +279,50 @@ def _asset_adapter_for(
     endpoint = settings.flaresolverr_url or store_settings.get("flaresolverr_url")
     if not endpoint:
         return None, None
-    flaresolverr = FlareSolverrClient(
+    flaresolverr = await _shared_flaresolverr_client(
+        request,
         str(endpoint),
-        proxy_url=settings.proxy_url or store_settings.get("proxy_url"),
+        settings.proxy_url or store_settings.get("proxy_url"),
     )
-    return XChinaAdapter(flaresolverr, session, base_url=xchina_base_url(store_settings)), flaresolverr.close
+    return XChinaAdapter(flaresolverr, session, base_url=xchina_base_url(store_settings)), None
+
+
+async def _shared_flaresolverr_client(
+    request: Request,
+    endpoint: str,
+    proxy_url: object | None,
+) -> FlareSolverrClient:
+    key = (endpoint, str(proxy_url or ""))
+    current_key = getattr(request.app.state, "xchina_flaresolverr_client_key", None)
+    client = getattr(request.app.state, "xchina_flaresolverr_client", None)
+    if client is None or current_key != key:
+        if client is not None:
+            await client.close()
+        client = FlareSolverrClient(endpoint, proxy_url=str(proxy_url) if proxy_url else None)
+        request.app.state.xchina_flaresolverr_client = client
+        request.app.state.xchina_flaresolverr_client_key = key
+    return client
+
+
+async def close_shared_flaresolverr_client(app_state: object) -> None:
+    client = getattr(app_state, "xchina_flaresolverr_client", None)
+    setattr(app_state, "xchina_flaresolverr_client", None)
+    setattr(app_state, "xchina_flaresolverr_client_key", None)
+    if client is not None:
+        await client.close()
 
 
 def _validate_image_proxy_url(url: str, store_settings: dict[str, object]) -> None:
     if not is_allowed_xchina_resource_url(url, store_settings):
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Unsupported image host")
+
+
+def _manual_error(session: Session, exc: ManualOrganizerError) -> HTTPException:
+    if exc.rollback:
+        session.rollback()
+    else:
+        session.commit()
+    return _http_error(exc)
 
 
 def _http_error(exc: ManualOrganizerError) -> HTTPException:

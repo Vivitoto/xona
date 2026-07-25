@@ -105,6 +105,8 @@ class Worker:
         self._handlers = handlers or {}
         self._poll_interval_seconds = poll_interval_seconds
         self._stop = asyncio.Event()
+        self._auto_flaresolverr_client: FlareSolverrClient | None = None
+        self._auto_flaresolverr_client_key: tuple[str, str] | None = None
 
     async def run_once(self) -> bool:
         with self._sessionmaker() as session:
@@ -171,6 +173,13 @@ class Worker:
     def stop(self) -> None:
         self._stop.set()
 
+    async def close(self) -> None:
+        client = self._auto_flaresolverr_client
+        self._auto_flaresolverr_client = None
+        self._auto_flaresolverr_client_key = None
+        if client is not None:
+            await client.close()
+
     @asynccontextmanager
     async def _auto_adapters(
         self,
@@ -178,27 +187,36 @@ class Worker:
     ) -> AsyncIterator[tuple[SearchAdapter | None, AssetAdapter | None]]:
         search_adapter = self._search_adapter
         asset_adapter = self._asset_adapter
-        closer: Callable[[], Any] | None = None
         if search_adapter is None or asset_adapter is None:
             settings = self._require_settings()
             store_settings = SettingsStore(session).xchina_settings()
             endpoint = settings.flaresolverr_url or store_settings.get("flaresolverr_url")
             if endpoint:
-                flaresolverr = FlareSolverrClient(
+                flaresolverr = await self._shared_auto_flaresolverr_client(
                     str(endpoint),
-                    proxy_url=settings.proxy_url or store_settings.get("proxy_url"),
+                    settings.proxy_url or store_settings.get("proxy_url"),
                 )
                 adapter = XChinaAdapter(flaresolverr, session, base_url=xchina_base_url(store_settings))
-                closer = flaresolverr.close
                 if search_adapter is None:
                     search_adapter = adapter
                 if asset_adapter is None:
                     asset_adapter = adapter
-        try:
-            yield search_adapter, asset_adapter
-        finally:
-            if closer is not None:
-                await closer()
+        yield search_adapter, asset_adapter
+
+    async def _shared_auto_flaresolverr_client(
+        self,
+        endpoint: str,
+        proxy_url: object | None,
+    ) -> FlareSolverrClient:
+        key = (endpoint, str(proxy_url or ""))
+        if self._auto_flaresolverr_client is None or self._auto_flaresolverr_client_key != key:
+            await self.close()
+            self._auto_flaresolverr_client = FlareSolverrClient(
+                endpoint,
+                proxy_url=str(proxy_url) if proxy_url else None,
+            )
+            self._auto_flaresolverr_client_key = key
+        return self._auto_flaresolverr_client
 
     async def _target_state(self, session: Session, job: Job) -> str | None:
         handler = self._handlers.get(job.state)
@@ -286,7 +304,21 @@ class Worker:
             session.add(search_row)
             session.flush()
 
-            results = await search_adapter.search(query)
+            try:
+                results = await search_adapter.search(query)
+            except Exception as exc:
+                auto_payload["gate_reasons"] = ["search_source_unavailable"]
+                auto_payload["search_query_id"] = search_row.id
+                auto_payload["candidate_ids"] = []
+                auto_payload["search_error"] = "search_source_unavailable"
+                job.payload = redact_payload(payload)
+                logger.warning(
+                    "Auto search source unavailable job_id=%s query=%r error=%s",
+                    job.id,
+                    query,
+                    redact_payload(str(exc)),
+                )
+                return "review_required"
             logger.info("Auto search results job_id=%s query=%r candidates=%s", job.id, query, len(results))
             candidates: list[CandidateMetadata] = []
             rows_by_source_id: dict[str, SearchCandidate] = {}
