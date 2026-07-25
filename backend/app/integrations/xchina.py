@@ -3,9 +3,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import json
-import mimetypes
 import re
-from dataclasses import dataclass
 from typing import Any, Protocol
 from urllib.parse import quote, urljoin
 
@@ -14,6 +12,12 @@ from sqlalchemy.orm import Session
 
 from backend.app.core.redaction import redact_payload
 from backend.app.db.models import HttpCache
+from backend.app.integrations.assets import (
+    FetchedAsset,
+    content_type_from_headers,
+    detect_content_type,
+    normalize_fetched_asset,
+)
 from backend.app.integrations.flaresolverr import FlareSolverrResponse
 from backend.app.schemas.source import (
     SourceActorDetail,
@@ -35,13 +39,6 @@ class XChinaParseError(ValueError):
 class FlareSolverrLike(Protocol):
     async def request_get(self, url: str) -> FlareSolverrResponse:
         ...
-
-
-@dataclass(frozen=True)
-class FetchedAsset:
-    url: str
-    content: bytes
-    content_type: str
 
 
 class XChinaAdapter:
@@ -87,11 +84,15 @@ class XChinaAdapter:
                 result = await request_asset(url)
                 return _coerce_fetched_asset(url, result)
             response = await self._flaresolverr.request_get(url)
+            content = response.text.encode("utf-8")
             return FetchedAsset(
                 url=response.url or url,
-                content=response.text.encode("utf-8"),
-                content_type=_content_type_from_headers(response.headers)
-                or _guess_content_type(url),
+                content=content,
+                content_type=detect_content_type(
+                    content,
+                    declared_content_type=content_type_from_headers(response.headers),
+                    url=response.url or url,
+                ),
             )
 
     async def _cached_get(self, url: str) -> str:
@@ -428,36 +429,34 @@ def _absolute(url: str | None, base_url: str) -> str:
 
 def _coerce_fetched_asset(url: str, result: Any) -> FetchedAsset:
     if isinstance(result, FetchedAsset):
-        return result
+        return normalize_fetched_asset(result, fallback_url=url)
     if isinstance(result, bytes):
         return FetchedAsset(
             url=url,
             content=result,
-            content_type=_guess_content_type(url),
+            content_type=detect_content_type(result, url=url),
         )
     if isinstance(result, FlareSolverrResponse):
+        content = result.text.encode("utf-8")
         return FetchedAsset(
             url=result.url or url,
-            content=result.text.encode("utf-8"),
-            content_type=_content_type_from_headers(result.headers)
-            or _guess_content_type(url),
+            content=content,
+            content_type=detect_content_type(
+                content,
+                declared_content_type=content_type_from_headers(result.headers),
+                url=result.url or url,
+            ),
         )
     if isinstance(result, tuple) and len(result) == 2:
         content, content_type = result
         if isinstance(content, bytes) and isinstance(content_type, str):
-            return FetchedAsset(url=url, content=content, content_type=content_type)
+            return FetchedAsset(
+                url=url,
+                content=content,
+                content_type=detect_content_type(
+                    content,
+                    declared_content_type=content_type,
+                    url=url,
+                ),
+            )
     raise TypeError("Unsupported fetched asset response")
-
-
-def _guess_content_type(url: str) -> str:
-    guessed, _encoding = mimetypes.guess_type(url)
-    return guessed or "application/octet-stream"
-
-
-def _content_type_from_headers(headers: dict[str, str] | None) -> str | None:
-    if not headers:
-        return None
-    for key, value in headers.items():
-        if key.lower() == "content-type":
-            return value.split(";", 1)[0].strip().lower()
-    return None

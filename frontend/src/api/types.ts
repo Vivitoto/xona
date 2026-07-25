@@ -63,6 +63,14 @@ export interface AppSettings {
     asset_policy: string;
     max_asset_bytes: number;
   };
+  organization_defaults: {
+    destination_directory: string | null;
+    organization_mode: OrganizationMode;
+    folder_templates: string[];
+    filename_template: string;
+    asset_policy: string;
+    include_source_snapshot: boolean;
+  };
   confidence_safety: {
     confidence_threshold: number;
     refuse_destination_collisions: boolean;
@@ -81,6 +89,7 @@ export type AppSettingsUpdate = Partial<{
   emby: Partial<AppSettings["emby"]>;
   naming: Partial<AppSettings["naming"]>;
   metadata_assets: Partial<AppSettings["metadata_assets"]>;
+  organization_defaults: Partial<AppSettings["organization_defaults"]>;
   confidence_safety: Partial<AppSettings["confidence_safety"]>;
   auth: Partial<AppSettings["auth"]>;
 }>;

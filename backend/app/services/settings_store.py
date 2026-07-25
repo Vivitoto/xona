@@ -47,19 +47,25 @@ class SettingsStore:
         return setting
 
     def get_app_settings(self, *, include_secrets: bool = False) -> dict[str, Any]:
-        merged = _deep_merge(_default_app_settings(), self.get(APP_SETTINGS_KEY, {}))
+        stored = _normalize_app_settings(self.get(APP_SETTINGS_KEY, {}))
+        merged = _deep_merge(_default_app_settings(), stored)
         if include_secrets:
             return merged
         return redact_payload(merged)
 
     def update_app_settings(self, patch: Mapping[str, Any]) -> dict[str, Any]:
-        cleaned_patch = _plain_mapping(patch)
+        cleaned_patch = _normalize_app_settings(_plain_mapping(patch))
         _reject_redacted_placeholders(cleaned_patch)
         current = self.get_app_settings(include_secrets=True)
         merged = _deep_merge(current, cleaned_patch)
         self.set(APP_SETTINGS_KEY, merged, secret=False)
         self._session.flush()
         return redact_payload(merged)
+
+    def organization_defaults(self) -> dict[str, Any]:
+        settings = self.get_app_settings(include_secrets=True)
+        defaults = settings.get("organization_defaults")
+        return dict(defaults) if isinstance(defaults, dict) else {}
 
     def emby_settings(self) -> dict[str, Any]:
         settings = self.get_app_settings(include_secrets=True)
@@ -74,6 +80,16 @@ class SettingsStore:
 
 def _default_app_settings() -> dict[str, Any]:
     return AppSettingsRead().model_dump(mode="json")
+
+
+def _normalize_app_settings(value: Any) -> dict[str, Any]:
+    if not isinstance(value, Mapping):
+        return {}
+    normalized = _plain_mapping(value)
+    legacy_defaults = normalized.pop("manual_defaults", None)
+    if "organization_defaults" not in normalized and isinstance(legacy_defaults, Mapping):
+        normalized["organization_defaults"] = _plain_mapping(legacy_defaults)
+    return normalized
 
 
 def _deep_merge(base: Mapping[str, Any], patch: Mapping[str, Any]) -> dict[str, Any]:

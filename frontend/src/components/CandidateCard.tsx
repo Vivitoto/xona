@@ -12,6 +12,8 @@ export function CandidateCard({
   onSelect: (candidate: ManualCandidate) => void;
 }) {
   const breakdown = Object.entries(candidate.score_breakdown);
+  const visibleBreakdown = breakdown.slice(0, 3);
+  const hiddenBreakdownCount = Math.max(0, breakdown.length - visibleBreakdown.length);
   const { imageSafetyModeEnabled } = useImageSafetyMode();
   const imageSrc = proxiedImageUrl(candidate.image_url);
   const safetyLabel = imageSafetyModeEnabled
@@ -43,7 +45,7 @@ export function CandidateCard({
       </div>
       <div className="candidate-body">
         <div className="candidate-heading">
-          <div>
+          <div className="candidate-title-block">
             <div className="candidate-badges" aria-label="候选来源信息">
               <span>{candidate.source.toUpperCase()}</span>
               <span>ID {candidate.source_candidate_id}</span>
@@ -69,27 +71,41 @@ export function CandidateCard({
             <dt>日期</dt>
             <dd>{candidate.release_date || "未知"}</dd>
           </div>
-          <div>
-            <dt>URL</dt>
-            <dd>
-              <a href={candidate.url}>{candidate.url}</a>
-            </dd>
-          </div>
         </dl>
-        <div className="breakdown" aria-label="评分明细">
-          {breakdown.length ? (
-            breakdown.map(([key, value]) => (
-              <span key={key}>
-                {key}: {value}
-              </span>
-            ))
-          ) : (
-            <span>无明细</span>
-          )}
+        <div className="candidate-footer">
+          <div className="breakdown" aria-label="评分明细">
+            {visibleBreakdown.length ? (
+              <>
+                {visibleBreakdown.map(([key, value]) => (
+                  <span key={key}>
+                    {key}: {value}
+                  </span>
+                ))}
+                {hiddenBreakdownCount ? <span>+{hiddenBreakdownCount}</span> : null}
+              </>
+            ) : (
+              <span>无明细</span>
+            )}
+          </div>
+          <div className="candidate-actions">
+            <a
+              aria-label={`打开 ${candidate.title} 的来源页面`}
+              className="candidate-source-link"
+              href={candidate.url}
+              rel="noreferrer"
+              target="_blank"
+            >
+              打开来源
+            </a>
+            <button
+              className="candidate-select-button"
+              type="button"
+              onClick={() => onSelect(candidate)}
+            >
+              {selected ? "已选择" : "选择候选项"}
+            </button>
+          </div>
         </div>
-        <button type="button" onClick={() => onSelect(candidate)}>
-          {selected ? "已选择" : "选择候选项"}
-        </button>
       </div>
     </article>
   );

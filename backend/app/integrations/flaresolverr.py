@@ -1,13 +1,17 @@
 from __future__ import annotations
 
-import base64
 from dataclasses import dataclass
 from typing import Any
-from urllib.parse import unquote, urlsplit, urlunsplit
+from urllib.parse import quote, unquote, urlsplit, urlunsplit
 
 import httpx
 
 from backend.app.core.redaction import redact_payload
+from backend.app.integrations.assets import (
+    FetchedAsset,
+    content_type_from_headers,
+    detect_content_type,
+)
 
 
 SUPPORTED_PROXY_SCHEMES = {"http", "https", "socks4", "socks5"}
@@ -46,6 +50,18 @@ class ParsedProxy:
             payload["password"] = self.password
         return payload
 
+    def httpx_url(self) -> str:
+        if self.username is None and self.password is None:
+            return self.url
+        parts = urlsplit(self.url)
+        credentials = quote(self.username or "", safe="")
+        if self.password is not None:
+            credentials = f"{credentials}:{quote(self.password, safe='')}"
+        netloc = f"{credentials}@{parts.hostname or ''}"
+        if parts.port is not None:
+            netloc = f"{netloc}:{parts.port}"
+        return urlunsplit((parts.scheme, netloc, parts.path, parts.query, parts.fragment))
+
 
 class FlareSolverrClient:
     def __init__(
@@ -54,6 +70,7 @@ class FlareSolverrClient:
         *,
         proxy_url: str | None = None,
         http_client: httpx.AsyncClient | None = None,
+        asset_http_client: httpx.AsyncClient | None = None,
         max_timeout_ms: int = 60_000,
     ) -> None:
         self._endpoint = endpoint
@@ -61,13 +78,17 @@ class FlareSolverrClient:
         self._http_client = http_client or httpx.AsyncClient(
             timeout=httpx.Timeout((max_timeout_ms / 1000) + 10)
         )
+        self._asset_http_client = asset_http_client
         self._owns_http_client = http_client is None
+        self._owns_asset_http_client = asset_http_client is None
         self._max_timeout_ms = max_timeout_ms
         self._credentialed_session_id: str | None = None
 
     async def close(self) -> None:
         if self._owns_http_client:
             await self._http_client.aclose()
+        if self._owns_asset_http_client and self._asset_http_client is not None:
+            await self._asset_http_client.aclose()
 
     async def __aenter__(self) -> "FlareSolverrClient":
         return self
@@ -94,22 +115,43 @@ class FlareSolverrClient:
             headers=headers if isinstance(headers, dict) else None,
         )
 
-    async def request_asset(self, url: str, *, session_id: str | None = None) -> bytes:
-        payload = await self._request_payload(url, session_id=session_id)
-        result = await self._post(payload)
-        solution = _solution(result)
-        status_code = int(solution.get("status") or 0)
-        if status_code >= 400:
-            raise self._error("Asset request failed", result)
-        response = solution.get("response")
-        if not isinstance(response, str):
-            raise self._error("Malformed asset response", result)
-        if solution.get("encoding") == "base64":
-            try:
-                return base64.b64decode(response)
-            except ValueError as exc:
-                raise self._error("Malformed base64 asset response", result) from exc
-        return response.encode("utf-8")
+    async def request_asset(self, url: str, *, session_id: str | None = None) -> FetchedAsset:
+        try:
+            response = await self._asset_client().get(url)
+            response.raise_for_status()
+        except httpx.TimeoutException as exc:
+            raise self._error("Asset request timeout", {"url": url, "proxy": self._proxy.session_payload() if self._proxy else None}) from exc
+        except httpx.HTTPError as exc:
+            raise self._error("Asset request failed", {"url": url, "proxy": self._proxy.session_payload() if self._proxy else None}) from exc
+        content = response.content
+        final_url = str(response.url or url)
+        declared_content_type = content_type_from_headers(response.headers)
+        return FetchedAsset(
+            url=final_url,
+            content=content,
+            content_type=detect_content_type(
+                content,
+                declared_content_type=declared_content_type,
+                url=final_url,
+            ),
+        )
+
+    def _asset_client(self) -> httpx.AsyncClient:
+        if self._asset_http_client is None:
+            self._asset_http_client = httpx.AsyncClient(
+                timeout=httpx.Timeout((self._max_timeout_ms / 1000) + 10),
+                follow_redirects=True,
+                proxy=self._proxy.httpx_url() if self._proxy is not None else None,
+                headers={
+                    "User-Agent": (
+                        "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
+                        "(KHTML, like Gecko) Chrome/142.0.0.0 Safari/537.36"
+                    ),
+                    "Accept": "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8",
+                },
+            )
+            self._owns_asset_http_client = True
+        return self._asset_http_client
 
     async def create_session(self) -> str:
         payload: dict[str, Any] = {"cmd": "sessions.create"}

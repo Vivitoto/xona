@@ -11,6 +11,7 @@ import { ConfidenceSafetySettings } from "./settings/ConfidenceSafetySettings";
 import { EmbySettings } from "./settings/EmbySettings";
 import { MetadataAssetSettings } from "./settings/MetadataAssetSettings";
 import { NamingSettings } from "./settings/NamingSettings";
+import { OrganizationDefaultsSettings } from "./settings/OrganizationDefaultsSettings";
 import { StorageSettings } from "./settings/StorageSettings";
 import { XChinaSettings } from "./settings/XChinaSettings";
 import {
@@ -26,6 +27,7 @@ type SettingsTab =
   | "storage"
   | "naming"
   | "metadata"
+  | "organization"
   | "confidence"
   | "auth";
 
@@ -35,6 +37,7 @@ const settingsTabs: readonly TabItem<SettingsTab>[] = [
   { id: "storage", label: "媒体目录" },
   { id: "naming", label: "命名模板" },
   { id: "metadata", label: "元数据/资源" },
+  { id: "organization", label: "整理默认值" },
   { id: "confidence", label: "置信度/安全" },
   { id: "auth", label: "认证" },
 ];
@@ -147,6 +150,13 @@ export function SettingsPage() {
           <MetadataAssetSettings
             settings={settings.metadata_assets}
             onChange={(patch) => patchSettings("metadata_assets", patch)}
+          />
+        );
+      case "organization":
+        return (
+          <OrganizationDefaultsSettings
+            settings={settings.organization_defaults}
+            onChange={(patch) => patchSettings("organization_defaults", patch)}
           />
         );
       case "confidence":

@@ -30,15 +30,16 @@ describe("SettingsPage", () => {
       "http://********:********@proxy.test:8080",
     );
 
-    for (const heading of [
-      "Emby",
-      "媒体目录",
-      "命名模板",
-      "元数据/资源",
-      "置信度/安全",
-      "认证",
+    for (const [tab, heading] of [
+      ["Emby", "Emby"],
+      ["媒体目录", "媒体目录"],
+      ["命名模板", "命名模板"],
+      ["元数据/资源", "元数据/资源"],
+      ["整理默认值", "全局整理"],
+      ["置信度/安全", "置信度/安全"],
+      ["认证", "认证"],
     ]) {
-      fireEvent.click(screen.getByRole("tab", { name: heading }));
+      fireEvent.click(screen.getByRole("tab", { name: tab }));
       expect(screen.getByRole("heading", { name: heading })).toBeTruthy();
     }
   });
@@ -81,6 +82,35 @@ describe("SettingsPage", () => {
     expect((secondPut.body as AppSettings).xchina.proxy_url).toBe(
       "http://user:pass@proxy.test:8080",
     );
+  });
+
+  it("submits global organization defaults", async () => {
+    const { calls } = installFetchMock([
+      { path: "/api/settings", response: settingsFixture() },
+      { method: "PUT", path: "/api/settings", response: settingsFixture() },
+    ]);
+
+    render(<SettingsPage />);
+    await screen.findByRole("heading", { name: "XChina" });
+    fireEvent.click(screen.getByRole("tab", { name: "整理默认值" }));
+    fireEvent.change(await screen.findByLabelText(/默认目标目录/i), {
+      target: { value: "/media/defaults" },
+    });
+    fireEvent.change(screen.getByLabelText(/默认整理模式/i), {
+      target: { value: "move" },
+    });
+    fireEvent.click(screen.getByLabelText(/默认包含源快照/i));
+    fireEvent.click(screen.getByRole("button", { name: "保存设置" }));
+
+    await waitFor(() =>
+      expect(calls.some((call) => call.method === "PUT")).toBe(true),
+    );
+    const put = calls.find((call) => call.method === "PUT");
+    expect((put?.body as AppSettings).organization_defaults).toMatchObject({
+      destination_directory: "/media/defaults",
+      organization_mode: "move",
+      include_source_snapshot: true,
+    });
   });
 
   it("previews naming templates through the backend endpoint", async () => {
@@ -137,7 +167,7 @@ describe("SettingsPage", () => {
 
 function settingsFixture(): AppSettings {
   return {
-    storage: { roots: ["/media"] },
+    storage: { roots: ["/media"], env_roots: [] },
     xchina: {
       base_url: "https://www.xchina.co",
       flaresolverr_url: "http://solver:8191/custom",
@@ -160,6 +190,14 @@ function settingsFixture(): AppSettings {
       include_source_snapshot: false,
       asset_policy: "strict",
       max_asset_bytes: 10485760,
+    },
+    organization_defaults: {
+      destination_directory: "/media/organized",
+      organization_mode: "hardlink",
+      folder_templates: ["{studio}", "{xchina_id} - {title}"],
+      filename_template: "{xchina_id} - {title}",
+      asset_policy: "strict",
+      include_source_snapshot: false,
     },
     confidence_safety: {
       confidence_threshold: 92,

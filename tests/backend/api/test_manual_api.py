@@ -55,6 +55,15 @@ class FakeXChina:
         return FetchedAsset(url=url, content=f"bytes:{url}".encode(), content_type="image/jpeg")
 
 
+class FakeImageAsset:
+    def __init__(self, content: bytes, content_type: str) -> None:
+        self.content = content
+        self.content_type = content_type
+
+    async def fetch_asset(self, url: str) -> FetchedAsset:
+        return FetchedAsset(url=url, content=self.content, content_type=self.content_type)
+
+
 class FakeStoredSettingsFlareSolverr:
     instances: list["FakeStoredSettingsFlareSolverr"] = []
 
@@ -322,6 +331,77 @@ def test_manual_image_proxy_rejects_untrusted_hosts(tmp_path: Path) -> None:
     response = asyncio.run(run())
 
     assert response.status_code == 400
+
+
+@pytest.mark.parametrize(
+    ("content", "expected_content_type"),
+    [
+        (b"\xff\xd8\xff\xe0jpeg-bytes", "image/jpeg"),
+        (b"\x89PNG\r\n\x1a\npng-bytes", "image/png"),
+        (b"RIFF\x0c\x00\x00\x00WEBPwebp-bytes", "image/webp"),
+    ],
+)
+def test_manual_image_proxy_sniffs_images_when_content_type_is_missing(
+    tmp_path: Path,
+    content: bytes,
+    expected_content_type: str,
+) -> None:
+    root = tmp_path / "media"
+    root.mkdir()
+    settings = Settings(
+        config_dir=tmp_path / "config",
+        storage_roots=(root,),
+        auth_enabled=False,
+    )
+
+    async def run() -> httpx.Response:
+        app = create_app(settings)
+        app.state.manual_search_adapter = FakeImageAsset(content, "")
+        async with app.router.lifespan_context(app):
+            async with httpx.AsyncClient(
+                transport=httpx.ASGITransport(app=app),
+                base_url=ORIGIN,
+            ) as client:
+                return await client.get(
+                    "/api/manual/image-proxy",
+                    params={"url": "https://img.xchina.download/cover"},
+                )
+
+    response = asyncio.run(run())
+
+    assert response.status_code == 200, response.text
+    assert response.content == content
+    assert response.headers["content-type"] == expected_content_type
+
+
+def test_manual_image_proxy_rejects_html_masquerading_as_image(tmp_path: Path) -> None:
+    root = tmp_path / "media"
+    root.mkdir()
+    settings = Settings(
+        config_dir=tmp_path / "config",
+        storage_roots=(root,),
+        auth_enabled=False,
+    )
+
+    async def run() -> httpx.Response:
+        app = create_app(settings)
+        app.state.manual_search_adapter = FakeImageAsset(
+            b"<!doctype html><html><body>blocked</body></html>",
+            "image/jpeg",
+        )
+        async with app.router.lifespan_context(app):
+            async with httpx.AsyncClient(
+                transport=httpx.ASGITransport(app=app),
+                base_url=ORIGIN,
+            ) as client:
+                return await client.get(
+                    "/api/manual/image-proxy",
+                    params={"url": "https://img.xchina.download/cover.jpg"},
+                )
+
+    response = asyncio.run(run())
+
+    assert response.status_code == 415
 
 
 def test_manual_selection_refuses_unsafe_paths(tmp_path: Path) -> None:

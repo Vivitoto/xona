@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session
 
 from backend.app.core.redaction import redact_payload
 from backend.app.core.settings import Settings
+from backend.app.integrations.assets import normalize_content_type, normalize_fetched_asset
 from backend.app.integrations.flaresolverr import FlareSolverrClient
 from backend.app.integrations.xchina import XChinaAdapter
 from backend.app.integrations.xchina_config import (
@@ -197,7 +198,8 @@ async def proxy_manual_image(
         if closer is not None:
             await closer()
 
-    content_type = fetched.content_type.split(";", 1)[0].strip().lower()
+    fetched = normalize_fetched_asset(fetched, fallback_url=url)
+    content_type = normalize_content_type(fetched.content_type)
     if not content_type.startswith("image/"):
         raise HTTPException(status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE, detail="Unsupported image content type")
     if len(fetched.content) > IMAGE_PROXY_MAX_BYTES:

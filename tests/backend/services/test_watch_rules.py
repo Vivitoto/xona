@@ -8,6 +8,7 @@ from backend.app.core.settings import Settings
 from backend.app.db.migrations import run_migrations
 from backend.app.db.session import create_engine_for_settings, get_sessionmaker
 from backend.app.schemas.watch_rules import WatchRuleCreate, WatchRuleUpdate
+from backend.app.services.settings_store import SettingsStore
 from backend.app.services.watch_rules import WatchRuleService, WatchRuleValidationError
 
 
@@ -97,5 +98,48 @@ def test_watch_rule_validation_checks_readable_source_and_writable_destination(
                         destination_directory=destination,
                     )
                 )
+    finally:
+        engine.dispose()
+
+
+def test_watch_rule_create_uses_organization_defaults_for_empty_fields(
+    tmp_path: Path,
+) -> None:
+    root = tmp_path / "media"
+    source = root / "incoming"
+    destination = root / "organized"
+    source.mkdir(parents=True)
+    destination.mkdir()
+    settings, engine, sessionmaker = _database(tmp_path, root)
+    try:
+        with sessionmaker() as session:
+            SettingsStore(session).update_app_settings(
+                {
+                    "organization_defaults": {
+                        "destination_directory": str(destination),
+                        "organization_mode": "move",
+                        "folder_templates": ["{studio}", "{xchina_id}"],
+                        "filename_template": "{xchina_id} - {title}",
+                        "asset_policy": "strict",
+                        "include_source_snapshot": True,
+                    }
+                }
+            )
+            service = WatchRuleService(settings, session)
+            rule = service.create_rule(
+                WatchRuleCreate(
+                    source_directory=source,
+                    destination_directory=None,
+                    folder_templates=[],
+                    filename_template=None,
+                    asset_policy=None,
+                )
+            )
+
+            assert rule.destination_directory == str(destination)
+            assert rule.organization_mode == "move"
+            assert rule.folder_templates == ["{studio}", "{xchina_id}"]
+            assert rule.filename_template == "{xchina_id} - {title}"
+            assert rule.asset_policy == "strict"
     finally:
         engine.dispose()

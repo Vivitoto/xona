@@ -355,7 +355,10 @@ class Worker:
             )
             detail = await search_adapter.fetch_video_detail(selected_row.source_url)
             record = normalize_source_video(detail)
-            selection = select_assets(record)
+            selection = select_assets(
+                record,
+                include_source_snapshot=_include_source_snapshot(session, rule),
+            )
             strict_assets_missing = rule.asset_policy == "strict" and bool(
                 selection.missing_required
             )
@@ -736,3 +739,11 @@ def _template_context(record: MetadataRecordData, item: MediaScanItem) -> Templa
 def _emby_enabled(session: Session, job: Job) -> bool:
     rule = _rule_for_job(session, job)
     return bool((rule.emby_options or {}).get("enabled"))
+
+
+def _include_source_snapshot(session: Session, rule: WatchRule) -> bool:
+    option = (rule.metadata_options or {}).get("include_source_snapshot")
+    if isinstance(option, bool):
+        return option
+    defaults = SettingsStore(session).organization_defaults()
+    return bool(defaults.get("include_source_snapshot"))

@@ -1,7 +1,8 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import { apiFetch } from "../api/client";
 import type {
+  AppSettings,
   JobListResponse,
   JobSummaryRead,
   ScanNowResponse,
@@ -15,6 +16,7 @@ import {
   WatchRuleEditor,
   emptyWatchRuleDraft,
 } from "../components/WatchRuleEditor";
+import { normalizeSettings } from "./settings/settingsForm";
 
 type MonitorTab = "rules" | "queue";
 
@@ -30,10 +32,27 @@ export function AutomaticMonitorsPage() {
   const [draft, setDraft] = useState<WatchRuleDraft>(emptyWatchRuleDraft);
   const [status, setStatus] = useState("");
   const [error, setError] = useState("");
+  const draftTouched = useRef(false);
 
   const updateDraft = useCallback((nextDraft: WatchRuleDraft) => {
+    draftTouched.current = true;
     setDraft(nextDraft);
   }, []);
+
+  async function loadSettingsDefaults() {
+    try {
+      const response = await apiFetch<AppSettings>("/api/settings");
+      const normalized = normalizeSettings(response);
+      setDraft((current) => {
+        if (draftTouched.current || current.rule_id) {
+          return current;
+        }
+        return applyOrganizationDefaults(current, normalized);
+      });
+    } catch {
+      return;
+    }
+  }
 
   async function loadRules() {
     setError("");
@@ -60,6 +79,7 @@ export function AutomaticMonitorsPage() {
   }
 
   useEffect(() => {
+    void loadSettingsDefaults();
     void loadRules();
   }, []);
 
@@ -165,7 +185,10 @@ export function AutomaticMonitorsPage() {
                           <div className="button-row">
                             <button
                               type="button"
-                              onClick={() => setDraft({ ...rule })}
+                              onClick={() => {
+                                draftTouched.current = true;
+                                setDraft({ ...rule });
+                              }}
                             >
                               编辑
                             </button>
@@ -233,4 +256,32 @@ function candidateTitle(candidate: Record<string, unknown> | null): string {
     return "无候选项";
   }
   return typeof candidate.title === "string" ? candidate.title : "已选择候选项";
+}
+
+function applyOrganizationDefaults(
+  draft: WatchRuleDraft,
+  settings: AppSettings,
+): WatchRuleDraft {
+  const defaults = settings.organization_defaults;
+  const folderTemplates = defaults.folder_templates.length
+    ? defaults.folder_templates
+    : settings.naming.folder_templates;
+  return {
+    ...draft,
+    destination_directory: defaults.destination_directory ?? draft.destination_directory,
+    organization_mode: defaults.organization_mode,
+    folder_templates: folderTemplates.length ? folderTemplates : draft.folder_templates,
+    filename_template:
+      defaults.filename_template ||
+      settings.naming.filename_template ||
+      draft.filename_template,
+    asset_policy:
+      defaults.asset_policy ||
+      settings.metadata_assets.asset_policy ||
+      draft.asset_policy,
+    metadata_options: {
+      ...draft.metadata_options,
+      include_source_snapshot: defaults.include_source_snapshot,
+    },
+  };
 }

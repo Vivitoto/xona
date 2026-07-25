@@ -1,7 +1,8 @@
-import { FormEvent, useEffect, useMemo, useState } from "react";
+import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 
 import { apiFetch } from "../api/client";
 import type {
+  AppSettings,
   ManualCandidateCard as ManualCandidate,
   ManualExecutePlanResponse,
   ManualJobSummary,
@@ -18,7 +19,7 @@ import { useImageSafetyMode } from "../components/ImageSafetyMode";
 import { OperationPlanView } from "../components/OperationPlanView";
 import { TemplateGuide } from "../components/TemplateGuide";
 import { proxiedImageUrl } from "../utils/imageProxy";
-import { linesToList } from "./settings/settingsForm";
+import { linesToList, listToLines, normalizeSettings } from "./settings/settingsForm";
 
 const safetyLabels = [
   ["file_conflict", "文件冲突拒绝"],
@@ -56,8 +57,8 @@ export function ManualOrganizerPage() {
   const [destinationRoot, setDestinationRoot] = useState("");
   const [mode, setMode] = useState<OrganizationMode>("copy");
   const [folderTemplates, setFolderTemplates] = useState("{studio}\n{title}");
-  const [filenameTemplate, setFilenameTemplate] = useState("{xchina_id} - {title}");
-  const [assetPolicy, setAssetPolicy] = useState("strict");
+  const [filenameTemplate, setFilenameTemplate] = useState("{title}");
+  const [assetPolicy, setAssetPolicy] = useState("lenient");
   const [includeSourceSnapshot, setIncludeSourceSnapshot] = useState(false);
   const [preview, setPreview] = useState<ManualPreviewResponse | null>(null);
   const [executeResult, setExecuteResult] =
@@ -68,12 +69,31 @@ export function ManualOrganizerPage() {
     "idle" | "searching" | "success" | "error"
   >("idle");
   const [searchFeedback, setSearchFeedback] = useState("");
+  const [resultsFocused, setResultsFocused] = useState(false);
+  const previewConfigTouched = useRef(false);
 
   const activeJob = useMemo(
     () => jobs.find((job) => String(job.job_id) === jobId) ?? jobs[0] ?? null,
     [jobId, jobs],
   );
   const activeMedia = activeJob?.media_items[0] ?? null;
+
+  useEffect(() => {
+    let active = true;
+    apiFetch<AppSettings>("/api/settings")
+      .then((payload) => {
+        if (!active) {
+          return;
+        }
+        applyOrganizationDefaults(normalizeSettings(payload));
+      })
+      .catch(() => {
+        // Organizer defaults are a convenience; scanning/searching should still work.
+      });
+    return () => {
+      active = false;
+    };
+  }, []);
 
   useEffect(() => {
     if (!activeJob) {
@@ -89,6 +109,7 @@ export function ManualOrganizerPage() {
     setExecuteResult(null);
     setSearchState("idle");
     setSearchFeedback("");
+    setResultsFocused(false);
   }, [activeJob?.job_id]);
 
   async function scan(event?: FormEvent) {
@@ -112,6 +133,7 @@ export function ManualOrganizerPage() {
       }
       setSearchState("idle");
       setSearchFeedback("");
+      setResultsFocused(false);
       setStatus(`已扫描 ${response.scanned_count} 个视频文件`);
     } catch (exc) {
       setError(exc instanceof Error ? exc.message : "扫描失败");
@@ -136,6 +158,7 @@ export function ManualOrganizerPage() {
     setQuerySource(nextSource);
     setSearchQuery(query);
     setSearchState("searching");
+    setResultsFocused(false);
     setSearchFeedback(`正在搜索「${query}」…`);
     setStatus("");
     setError("");
@@ -157,6 +180,7 @@ export function ManualOrganizerPage() {
       setSearchQuery(response.normalized_query);
       setCandidates(response.candidates);
       setSearchState("success");
+      setResultsFocused(true);
       setSearchFeedback(
         response.candidates.length
           ? `搜索完成：找到 ${response.candidates.length} 个候选结果。`
@@ -256,6 +280,44 @@ export function ManualOrganizerPage() {
     setQuerySource("filename");
   }
 
+  function markPreviewConfigTouched() {
+    previewConfigTouched.current = true;
+  }
+
+  function applyOrganizationDefaults(settings: AppSettings) {
+    const defaults = settings.organization_defaults;
+    const nextFolderTemplates = defaults.folder_templates.length
+      ? defaults.folder_templates
+      : settings.naming.folder_templates;
+    const nextFilenameTemplate =
+      defaults.filename_template || settings.naming.filename_template;
+
+    setDestinationRoot((current) =>
+      shouldPrefillText(current, previewConfigTouched.current)
+        ? defaults.destination_directory ?? ""
+        : current,
+    );
+    setFolderTemplates((current) =>
+      shouldPrefillText(current, previewConfigTouched.current)
+        ? listToLines(nextFolderTemplates)
+        : current,
+    );
+    setFilenameTemplate((current) =>
+      shouldPrefillText(current, previewConfigTouched.current)
+        ? nextFilenameTemplate
+        : current,
+    );
+    setMode((current) =>
+      previewConfigTouched.current ? current : defaults.organization_mode,
+    );
+    setAssetPolicy((current) =>
+      previewConfigTouched.current ? current : defaults.asset_policy,
+    );
+    setIncludeSourceSnapshot((current) =>
+      previewConfigTouched.current ? current : defaults.include_source_snapshot,
+    );
+  }
+
   function safetyPayload(): Record<string, boolean> {
     return {
       file_conflict: safety.file_conflict,
@@ -322,68 +384,83 @@ export function ManualOrganizerPage() {
                 <small>父目录：{activeMedia ? parentName(activeMedia.path) : "未知"}</small>
               </div>
 
-              <div className="query-toolbar">
-                <button className={querySource === "filename" ? "" : "secondary"} disabled={searchState === "searching"} type="button" onClick={() => void search("filename")}>
-                  用文件名搜索
-                </button>
-                <button className={querySource === "parent" ? "" : "secondary"} disabled={searchState === "searching"} type="button" onClick={() => void search("parent")}>
-                  用父目录搜索
-                </button>
-              </div>
-
-              <div className="manual-search-row">
-                <FormField label="搜索关键词">
-                  <input
-                    placeholder="番号、文件名或父目录名"
-                    value={searchQuery}
-                    onChange={(event) => {
-                      setQuerySource("custom");
-                      setSearchQuery(event.target.value);
-                    }}
-                  />
-                </FormField>
-                <button disabled={searchState === "searching"} type="button" onClick={() => void search("custom")}>
-                  {searchState === "searching" ? "搜索中…" : "搜索"}
-                </button>
-              </div>
-
-              <div className="manual-detail-url">
-                <FormField
-                  description="搜索不到时可粘贴详情页 URL。"
-                  label="详情 URL"
-                >
-                  <input
-                    placeholder="https://www.xchina.co/movie/xxxx"
-                    value={detailUrl}
-                    onChange={(event) => setDetailUrl(event.target.value)}
-                  />
-                </FormField>
-                <button type="button" onClick={() => void selectCandidate()}>
-                  使用 URL 刮削
-                </button>
-              </div>
-
-              <details className="advanced-options">
-                <summary>高级安全选项</summary>
-                <div className="safety-grid" aria-label="安全门禁">
-                  <CheckboxField
-                    checked={strictAssets}
-                    label="严格资源"
-                    description="要求图片和元数据资源完整。"
-                    onChange={setStrictAssets}
-                  />
-                  {safetyLabels.map(([key, label]) => (
-                    <CheckboxField
-                      key={key}
-                      checked={safety[key]}
-                      label={label}
-                      onChange={(checked) =>
-                        setSafety((current) => ({ ...current, [key]: checked }))
-                      }
-                    />
-                  ))}
+              {resultsFocused && searchState === "success" ? (
+                <div className="results-refine-bar">
+                  <button
+                    className="secondary"
+                    type="button"
+                    onClick={() => setResultsFocused(false)}
+                  >
+                    返回修改搜索
+                  </button>
+                  <span>当前关键词：{searchQuery}</span>
                 </div>
-              </details>
+              ) : (
+                <>
+                  <div className="query-toolbar">
+                    <button className={querySource === "filename" ? "" : "secondary"} disabled={searchState === "searching"} type="button" onClick={() => void search("filename")}>
+                      用文件名搜索
+                    </button>
+                    <button className={querySource === "parent" ? "" : "secondary"} disabled={searchState === "searching"} type="button" onClick={() => void search("parent")}>
+                      用父目录搜索
+                    </button>
+                  </div>
+
+                  <div className="manual-search-row">
+                    <FormField label="搜索关键词">
+                      <input
+                        placeholder="番号、文件名或父目录名"
+                        value={searchQuery}
+                        onChange={(event) => {
+                          setQuerySource("custom");
+                          setSearchQuery(event.target.value);
+                        }}
+                      />
+                    </FormField>
+                    <button disabled={searchState === "searching"} type="button" onClick={() => void search("custom")}>
+                      {searchState === "searching" ? "搜索中…" : "搜索"}
+                    </button>
+                  </div>
+
+                  <div className="manual-detail-url">
+                    <FormField
+                      description="搜索不到时可粘贴详情页 URL。"
+                      label="详情 URL"
+                    >
+                      <input
+                        placeholder="https://www.xchina.co/movie/xxxx"
+                        value={detailUrl}
+                        onChange={(event) => setDetailUrl(event.target.value)}
+                      />
+                    </FormField>
+                    <button type="button" onClick={() => void selectCandidate()}>
+                      使用 URL 刮削
+                    </button>
+                  </div>
+
+                  <details className="advanced-options">
+                    <summary>高级安全选项</summary>
+                    <div className="safety-grid" aria-label="安全门禁">
+                      <CheckboxField
+                        checked={strictAssets}
+                        label="严格资源"
+                        description="要求图片和元数据资源完整。"
+                        onChange={setStrictAssets}
+                      />
+                      {safetyLabels.map(([key, label]) => (
+                        <CheckboxField
+                          key={key}
+                          checked={safety[key]}
+                          label={label}
+                          onChange={(checked) =>
+                            setSafety((current) => ({ ...current, [key]: checked }))
+                          }
+                        />
+                      ))}
+                    </div>
+                  </details>
+                </>
+              )}
 
               <div className="candidate-results-panel" aria-label="候选结果">
                 <SearchFeedback
@@ -438,19 +515,28 @@ export function ManualOrganizerPage() {
               <input
                 placeholder="/media/organized"
                 value={destinationRoot}
-                onChange={(event) => setDestinationRoot(event.target.value)}
+                onChange={(event) => {
+                  markPreviewConfigTouched();
+                  setDestinationRoot(event.target.value);
+                }}
               />
             </FormField>
             <DirectoryPicker
               initialPath={destinationRoot}
-              onSelect={setDestinationRoot}
+              onSelect={(path) => {
+                markPreviewConfigTouched();
+                setDestinationRoot(path);
+              }}
               title="选择目标目录"
             />
           </div>
           <FormField label="整理模式">
             <select
               value={mode}
-              onChange={(event) => setMode(event.target.value as OrganizationMode)}
+              onChange={(event) => {
+                markPreviewConfigTouched();
+                setMode(event.target.value as OrganizationMode);
+              }}
             >
               <option value="preview">只预览</option>
               <option value="copy">复制</option>
@@ -463,7 +549,10 @@ export function ManualOrganizerPage() {
           <FormField label="资源策略">
             <select
               value={assetPolicy}
-              onChange={(event) => setAssetPolicy(event.target.value)}
+              onChange={(event) => {
+                markPreviewConfigTouched();
+                setAssetPolicy(event.target.value);
+              }}
             >
               <option value="lenient">宽松</option>
               <option value="strict">严格</option>
@@ -472,7 +561,10 @@ export function ManualOrganizerPage() {
           <CheckboxField
             checked={includeSourceSnapshot}
             label="包含源快照"
-            onChange={setIncludeSourceSnapshot}
+            onChange={(checked) => {
+              markPreviewConfigTouched();
+              setIncludeSourceSnapshot(checked);
+            }}
           />
         </div>
         <div className="grid two">
@@ -480,14 +572,20 @@ export function ManualOrganizerPage() {
             <textarea
               placeholder={'{studio}\n{xchina_id} - {title}'}
               value={folderTemplates}
-              onChange={(event) => setFolderTemplates(event.target.value)}
+              onChange={(event) => {
+                markPreviewConfigTouched();
+                setFolderTemplates(event.target.value);
+              }}
             />
           </FormField>
           <FormField label="文件名模板">
             <input
               placeholder="{xchina_id} - {title}"
               value={filenameTemplate}
-              onChange={(event) => setFilenameTemplate(event.target.value)}
+              onChange={(event) => {
+                markPreviewConfigTouched();
+                setFilenameTemplate(event.target.value);
+              }}
             />
           </FormField>
         </div>
@@ -679,25 +777,27 @@ function MediaFileList({
           </select>
         </label>
       </div>
-      {visibleJobs.map((job) => {
-        const item = job.media_items[0];
-        const active = job.job_id === activeJobId;
-        return (
-          <button
-            aria-pressed={active}
-            className={`media-file-card${active ? " is-active" : ""}`}
-            key={job.job_id}
-            type="button"
-            onClick={() => onPick(job)}
-          >
-            <span className="media-file-main">
-              <strong>{item ? fileName(item.path) : job.media_identity}</strong>
-              <small>父目录：{item ? parentName(item.path) : "未知"}</small>
-            </span>
-            <span className="status-pill">{job.state}</span>
-          </button>
-        );
-      })}
+      <div className="media-file-scroll">
+        {visibleJobs.map((job) => {
+          const item = job.media_items[0];
+          const active = job.job_id === activeJobId;
+          return (
+            <button
+              aria-pressed={active}
+              className={`media-file-card${active ? " is-active" : ""}`}
+              key={job.job_id}
+              type="button"
+              onClick={() => onPick(job)}
+            >
+              <span className="media-file-main">
+                <strong>{item ? fileName(item.path) : job.media_identity}</strong>
+                <small>父目录：{item ? parentName(item.path) : "未知"}</small>
+              </span>
+              <span className="status-pill">{job.state}</span>
+            </button>
+          );
+        })}
+      </div>
       <div className="media-file-pagination-controls">
         <button
           className="secondary"
@@ -770,6 +870,10 @@ function SearchFeedback({
       </span>
     </div>
   );
+}
+
+function shouldPrefillText(current: string, touched: boolean): boolean {
+  return !touched || !current.trim();
 }
 
 function defaultQuery(job: ManualJobSummary, source: QuerySource): string {

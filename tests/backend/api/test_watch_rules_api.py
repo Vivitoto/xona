@@ -32,18 +32,31 @@ def test_watch_rule_api_crud_and_scan_now(tmp_path: Path) -> None:
                 transport=httpx.ASGITransport(app=app),
                 base_url=ORIGIN,
             ) as client:
+                settings_update = await client.put(
+                    "/api/settings",
+                    json={
+                        "organization_defaults": {
+                            "destination_directory": str(destination),
+                            "organization_mode": "hardlink",
+                            "folder_templates": ["{studio}", "{xchina_id}"],
+                            "filename_template": "{xchina_id} - {title}",
+                            "asset_policy": "lenient",
+                            "include_source_snapshot": True,
+                        },
+                    },
+                    headers={"Origin": ORIGIN},
+                )
                 created = await client.post(
                     "/api/watch-rules",
                     json={
                         "source_directory": str(source),
-                        "destination_directory": str(destination),
                         "include_patterns": ["*.mkv"],
-                        "organization_mode": "copy",
                     },
                     headers={"Origin": ORIGIN},
                 )
                 rule_id = created.json()["rule_id"]
                 return {
+                    "settings_update": settings_update,
                     "created": created,
                     "listed": await client.get("/api/watch-rules"),
                     "updated": await client.put(
@@ -62,7 +75,13 @@ def test_watch_rule_api_crud_and_scan_now(tmp_path: Path) -> None:
                 }
 
     responses = asyncio.run(run())
+    assert responses["settings_update"].status_code == 200, responses["settings_update"].text
     assert responses["created"].status_code == 201, responses["created"].text
+    assert responses["created"].json()["destination_directory"] == str(destination)
+    assert responses["created"].json()["organization_mode"] == "hardlink"
+    assert responses["created"].json()["folder_templates"] == ["{studio}", "{xchina_id}"]
+    assert responses["created"].json()["filename_template"] == "{xchina_id} - {title}"
+    assert responses["created"].json()["asset_policy"] == "lenient"
     assert responses["listed"].json()["rules"][0]["source_directory"] == str(source)
     assert responses["updated"].json()["enabled"] is False
     assert responses["scan"].status_code == 200

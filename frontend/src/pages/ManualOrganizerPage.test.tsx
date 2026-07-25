@@ -1,6 +1,7 @@
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import type { AppSettings } from "../api/types";
 import { ManualOrganizerPage } from "./ManualOrganizerPage";
 import { installFetchMock } from "../test/mockFetch";
 
@@ -164,6 +165,10 @@ describe("ManualOrganizerPage", () => {
     expect(screen.getByText("ID XC-001")).toBeTruthy();
     expect(screen.getByText("Actor One")).toBeTruthy();
     expect(screen.getByText("title: 80")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "返回修改搜索" })).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "返回修改搜索" }));
+    expect(screen.getByLabelText(/搜索关键词/i)).toHaveValue("Sample Work");
 
     fireEvent.click(screen.getByRole("button", { name: "选择候选项" }));
     const selectedDetail = await screen.findByLabelText("已选候选详情");
@@ -297,6 +302,52 @@ describe("ManualOrganizerPage", () => {
     });
     expect(within(fileList).getByText("共 12 个视频，显示第 1-5 个")).toBeTruthy();
   });
+
+  it("prefills preview configuration from organization defaults", async () => {
+    installFetchMock([
+      {
+        path: "/api/settings",
+        response: manualSettingsFixture(),
+      },
+    ]);
+
+    render(<ManualOrganizerPage />);
+
+    expect(await screen.findByLabelText(/目标目录/i)).toHaveValue("/media/default");
+    expect(screen.getByLabelText(/整理模式/i)).toHaveValue("hardlink");
+    expect(screen.getByLabelText(/资源策略/i)).toHaveValue("strict");
+    expect(screen.getByLabelText(/包含源快照/i)).toBeChecked();
+    expect(screen.getByLabelText(/文件夹模板/i)).toHaveValue(
+      "{studio}\n{xchina_id} - {title}",
+    );
+    expect(screen.getByLabelText(/文件名模板/i)).toHaveValue(
+      "{xchina_id} - {title}",
+    );
+  });
+
+  it("does not overwrite edited preview fields when defaults load late", async () => {
+    let resolveSettings: (settings: AppSettings) => void = () => undefined;
+    const settingsPromise = new Promise<AppSettings>((resolve) => {
+      resolveSettings = resolve;
+    });
+    installFetchMock([
+      {
+        path: "/api/settings",
+        response: async () => settingsPromise,
+      },
+    ]);
+
+    render(<ManualOrganizerPage />);
+
+    fireEvent.change(screen.getByLabelText(/目标目录/i), {
+      target: { value: "/media/user-choice" },
+    });
+    resolveSettings(manualSettingsFixture());
+
+    await waitFor(() =>
+      expect(screen.getByLabelText(/目标目录/i)).toHaveValue("/media/user-choice"),
+    );
+  });
 });
 
 function manualJobFixture({
@@ -406,5 +457,52 @@ function operationPlanFixture() {
         metadata: {},
       },
     ],
+  };
+}
+
+function manualSettingsFixture(): AppSettings {
+  return {
+    storage: { roots: ["/media"], env_roots: [] },
+    xchina: {
+      base_url: "https://www.xchina.co",
+      flaresolverr_url: null,
+      proxy_url: null,
+      cache_dir: null,
+    },
+    emby: {
+      enabled: false,
+      server_url: null,
+      api_key: null,
+      path_mappings: [],
+      upload_actor_portraits: true,
+    },
+    naming: {
+      folder_templates: ["{studio}", "{title}"],
+      filename_template: "{title}",
+    },
+    metadata_assets: {
+      write_nfo: true,
+      include_source_snapshot: false,
+      asset_policy: "lenient",
+      max_asset_bytes: 10485760,
+    },
+    organization_defaults: {
+      destination_directory: "/media/default",
+      organization_mode: "hardlink",
+      folder_templates: ["{studio}", "{xchina_id} - {title}"],
+      filename_template: "{xchina_id} - {title}",
+      asset_policy: "strict",
+      include_source_snapshot: true,
+    },
+    confidence_safety: {
+      confidence_threshold: 92,
+      refuse_destination_collisions: true,
+      refuse_unresolved_multipart: true,
+      cache_dir: null,
+    },
+    auth: {
+      enabled: false,
+      username: null,
+    },
   };
 }

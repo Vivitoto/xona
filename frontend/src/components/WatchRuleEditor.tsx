@@ -36,6 +36,7 @@ export const emptyWatchRuleDraft: WatchRuleDraft = {
     poster: true,
     fanart: true,
     actor_outputs: true,
+    include_source_snapshot: false,
   },
   include_patterns: ["*.mkv", "*.mp4"],
   exclude_patterns: [],
@@ -285,6 +286,11 @@ export function WatchRuleEditor({
           checked={Boolean(draft.metadata_options.actor_outputs)}
           label="写入 .actors 输出"
           onChange={(checked) => patchMetadata("actor_outputs", checked)}
+        />
+        <CheckboxField
+          checked={Boolean(draft.metadata_options.include_source_snapshot)}
+          label="包含源快照"
+          onChange={(checked) => patchMetadata("include_source_snapshot", checked)}
         />
         <CheckboxField
           checked={Boolean(draft.emby_options.notify)}

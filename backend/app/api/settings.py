@@ -58,9 +58,11 @@ async def update_settings(
     _remove_read_only_runtime_settings(patch)
     settings: Settings = request.app.state.settings
     logger.info("Settings update requested sections=%s", sorted(patch.keys()))
+    store = SettingsStore(session)
     try:
-        _validate_settings_patch(settings, session, patch)
-        values = SettingsStore(session).update_app_settings(patch)
+        current_values = store.get_app_settings(include_secrets=True)
+        _validate_settings_patch(settings, session, patch, current_values=current_values)
+        values = store.update_app_settings(patch)
         _sync_storage_roots(settings, session, patch)
         session.commit()
     except (SettingsUpdateError, StorageRootValidationError, ValueError) as exc:
@@ -226,7 +228,10 @@ def _validate_settings_patch(
     settings: Settings,
     session: Session,
     patch: dict[str, Any],
+    *,
+    current_values: dict[str, Any],
 ) -> None:
+    validation_values = _deep_merge_for_validation(current_values, patch)
     storage = patch.get("storage")
     if isinstance(storage, dict):
         for root in storage.get("roots") or []:
@@ -235,6 +240,14 @@ def _validate_settings_patch(
                 raise ValueError("Storage roots must be absolute safe paths")
             if not root_path.exists() or not root_path.is_dir():
                 raise ValueError(f"Storage root is not available: {root_path}")
+
+    storage_roots_replaced = isinstance(storage, dict) and "roots" in storage
+    _validate_organization_defaults(
+        settings,
+        session,
+        validation_values,
+        include_persisted_roots=not storage_roots_replaced,
+    )
 
     emby = patch.get("emby")
     if isinstance(emby, dict):
@@ -259,6 +272,56 @@ def _validate_settings_patch(
 
     if "storage" in patch:
         StorageRootService(settings, session).reconcile_roots()
+
+
+def _validate_organization_defaults(
+    settings: Settings,
+    session: Session,
+    values: dict[str, Any],
+    *,
+    include_persisted_roots: bool,
+) -> None:
+    organization_defaults = values.get("organization_defaults")
+    if not isinstance(organization_defaults, dict):
+        return
+    destination = organization_defaults.get("destination_directory")
+    if destination in (None, ""):
+        return
+    destination_path = Path(destination)
+    if "\0" in str(destination_path) or not destination_path.is_absolute():
+        raise ValueError(
+            "Organization default destination directory must be an absolute safe path"
+        )
+    if destination_path.exists() and not destination_path.is_dir():
+        raise ValueError("Organization default destination directory must be a directory")
+
+    storage = values.get("storage")
+    user_roots = storage.get("roots") if isinstance(storage, dict) else []
+    root_paths = [path for path, _source in settings.bootstrap_storage_roots()]
+    root_paths.extend(Path(root) for root in (user_roots or []))
+    if include_persisted_roots:
+        root_paths.extend(
+            Path(root.path)
+            for root in StorageRootService(settings, session).list_roots()
+        )
+    if not root_paths:
+        raise ValueError(
+            "Organization default destination directory must be inside configured storage roots"
+        )
+
+    safe_destination = _resolve_existing_path(destination_path)
+    for root in root_paths:
+        root_path = Path(root)
+        if not root_path.exists() or not root_path.is_dir():
+            continue
+        try:
+            safe_destination.relative_to(root_path.resolve(strict=True))
+        except ValueError:
+            continue
+        return
+    raise ValueError(
+        "Organization default destination directory must be inside configured storage roots"
+    )
 
 
 def _validate_cache_dir(settings: Settings, path: Path) -> None:
@@ -289,3 +352,32 @@ def _sync_storage_roots(
     for root in service.list_roots(include_disabled=True):
         if root.source == "user":
             root.enabled = root.path in desired_paths
+
+
+def _deep_merge_for_validation(
+    base: dict[str, Any],
+    patch: dict[str, Any],
+) -> dict[str, Any]:
+    result = dict(base)
+    for key, value in patch.items():
+        if isinstance(value, dict) and isinstance(result.get(key), dict):
+            result[key] = _deep_merge_for_validation(result[key], value)
+        else:
+            result[key] = value
+    return result
+
+
+def _resolve_existing_path(path: Path) -> Path:
+    if path.exists():
+        return path.resolve(strict=True)
+    existing = path
+    missing_parts: list[str] = []
+    while not existing.exists() and existing.parent != existing:
+        missing_parts.append(existing.name)
+        existing = existing.parent
+    if not existing.exists():
+        return path.resolve(strict=False)
+    resolved = existing.resolve(strict=True)
+    for part in reversed(missing_parts):
+        resolved = resolved / part
+    return resolved

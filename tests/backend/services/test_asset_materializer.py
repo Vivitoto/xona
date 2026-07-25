@@ -123,3 +123,58 @@ def test_lenient_records_missing_required_assets_without_failing(tmp_path: Path)
             assert result.assets == []
     finally:
         engine.dispose()
+
+
+def test_strict_materializer_sniffs_extensionless_images_and_rejects_html(
+    tmp_path: Path,
+) -> None:
+    settings, engine, sessionmaker = _database(tmp_path)
+    try:
+        selection = AssetSelection(
+            assets=[
+                LogicalAsset(
+                    kind="poster",
+                    relative_path="poster.jpg",
+                    source_url="https://images.example.test/poster",
+                    required=True,
+                ),
+                LogicalAsset(
+                    kind="fanart",
+                    relative_path="fanart.jpg",
+                    source_url="https://images.example.test/fanart",
+                    required=True,
+                ),
+            ]
+        )
+        adapter = FakeAssetAdapter(
+            {
+                "https://images.example.test/poster": FetchedAsset(
+                    url="https://images.example.test/poster",
+                    content=b"\xff\xd8\xff\xe0poster-bytes",
+                    content_type="",
+                ),
+                "https://images.example.test/fanart": FetchedAsset(
+                    url="https://images.example.test/fanart",
+                    content=b"<html><body>not an image</body></html>",
+                    content_type="image/jpeg",
+                ),
+            }
+        )
+
+        with sessionmaker() as session:
+            result = asyncio.run(
+                AssetMaterializer(adapter, settings.config_dir, session=session).materialize(
+                    selection,
+                    AssetMaterializationPolicy(strict=True),
+                )
+            )
+
+            assert result.failed is True
+            poster = result.by_relative_path("poster.jpg")
+            assert poster is not None
+            assert poster.content_type == "image/jpeg"
+            assert [(item.relative_path, item.reason) for item in result.missing] == [
+                ("fanart.jpg", "content_type_not_allowed")
+            ]
+    finally:
+        engine.dispose()

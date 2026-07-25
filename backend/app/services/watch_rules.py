@@ -3,6 +3,7 @@ from __future__ import annotations
 import fnmatch
 import uuid
 from pathlib import Path
+from typing import Any
 
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
@@ -13,6 +14,7 @@ from backend.app.db.models import Job, MonitorMediaState, WatchRule
 from backend.app.schemas.watch_rules import WatchRuleCreate, WatchRuleUpdate
 from backend.app.services.jobs import ACTIVE_STATES, JobService
 from backend.app.services.scanner import scan_directory
+from backend.app.services.settings_store import SettingsStore
 from backend.app.services.storage_roots import (
     StorageRootService,
     StorageRootValidationError,
@@ -42,6 +44,7 @@ class WatchRuleService:
 
     def create_rule(self, payload: WatchRuleCreate) -> WatchRule:
         values = payload.model_dump()
+        self._fill_create_organization_defaults(values)
         source = Path(values["source_directory"])
         destination = Path(values["destination_directory"])
         excluded = self._validated_excluded_prefixes(
@@ -78,6 +81,7 @@ class WatchRuleService:
     def update_rule(self, rule_id: str, payload: WatchRuleUpdate) -> WatchRule:
         rule = self.get_rule(rule_id)
         updates = payload.model_dump(exclude_unset=True)
+        self._fill_update_organization_defaults(updates)
         source = Path(updates.get("source_directory") or rule.source_directory)
         destination = Path(updates.get("destination_directory") or rule.destination_directory)
         excluded_input = updates.get(
@@ -99,6 +103,61 @@ class WatchRuleService:
         rule.excluded_destination_prefixes = [str(path) for path in excluded]
         self._session.flush()
         return rule
+
+    def _fill_create_organization_defaults(self, values: dict[str, Any]) -> None:
+        defaults = self._organization_defaults()
+        destination = _non_empty_path(
+            values.get("destination_directory")
+        ) or _non_empty_path(defaults.get("destination_directory"))
+        if destination is None:
+            raise WatchRuleValidationError("destination directory is required")
+        values["destination_directory"] = destination
+        values["organization_mode"] = (
+            _non_empty_text(values.get("organization_mode"))
+            or _non_empty_text(defaults.get("organization_mode"))
+            or "copy"
+        )
+        values["folder_templates"] = _non_empty_list(
+            values.get("folder_templates")
+        ) or _non_empty_list(defaults.get("folder_templates")) or ["{studio}", "{title}"]
+        values["filename_template"] = (
+            _non_empty_text(values.get("filename_template"))
+            or _non_empty_text(defaults.get("filename_template"))
+            or "{title}"
+        )
+        values["asset_policy"] = (
+            _non_empty_text(values.get("asset_policy"))
+            or _non_empty_text(defaults.get("asset_policy"))
+            or "lenient"
+        )
+
+    def _fill_update_organization_defaults(self, updates: dict[str, Any]) -> None:
+        organization_fields = {
+            "destination_directory",
+            "organization_mode",
+            "folder_templates",
+            "filename_template",
+            "asset_policy",
+        }
+        if not organization_fields.intersection(updates):
+            return
+        defaults = self._organization_defaults()
+        if "destination_directory" in updates and _non_empty_path(updates.get("destination_directory")) is None:
+            destination = _non_empty_path(defaults.get("destination_directory"))
+            if destination is not None:
+                updates["destination_directory"] = destination
+        for key in ("organization_mode", "filename_template", "asset_policy"):
+            if key in updates and _non_empty_text(updates.get(key)) is None:
+                default_value = _non_empty_text(defaults.get(key))
+                if default_value is not None:
+                    updates[key] = default_value
+        if "folder_templates" in updates and not _non_empty_list(updates.get("folder_templates")):
+            default_templates = _non_empty_list(defaults.get("folder_templates"))
+            if default_templates:
+                updates["folder_templates"] = default_templates
+
+    def _organization_defaults(self) -> dict[str, Any]:
+        return SettingsStore(self._session).organization_defaults()
 
     def delete_rule(self, rule_id: str) -> None:
         rule = self.get_rule(rule_id)
@@ -315,6 +374,29 @@ def _is_relative_to(path: Path, base: Path) -> bool:
     except ValueError:
         return False
     return True
+
+
+def _non_empty_path(value: Any) -> Path | None:
+    if value is None:
+        return None
+    text = str(value).strip()
+    if not text or text == ".":
+        return None
+    return Path(text)
+
+
+def _non_empty_text(value: Any) -> str | None:
+    if value is None:
+        return None
+    text = str(value).strip()
+    return text or None
+
+
+def _non_empty_list(value: Any) -> list[str] | None:
+    if not isinstance(value, list):
+        return None
+    cleaned = [str(item).strip() for item in value if str(item).strip()]
+    return cleaned or None
 
 
 def _can_read(path: Path) -> bool:

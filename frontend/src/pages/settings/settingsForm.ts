@@ -30,6 +30,14 @@ export const emptySettings: AppSettings = {
     asset_policy: "lenient",
     max_asset_bytes: 10485760,
   },
+  organization_defaults: {
+    destination_directory: null,
+    organization_mode: "copy",
+    folder_templates: ["{studio}", "{title}"],
+    filename_template: "{title}",
+    asset_policy: "lenient",
+    include_source_snapshot: false,
+  },
   confidence_safety: {
     confidence_threshold: 92,
     refuse_destination_collisions: true,
@@ -40,6 +48,10 @@ export const emptySettings: AppSettings = {
     enabled: false,
     username: null,
   },
+};
+
+type LegacySettingsInput = Partial<AppSettings> & {
+  manual_defaults?: Partial<AppSettings["organization_defaults"]>;
 };
 
 export const namingTemplateVariables = new Set([
@@ -62,7 +74,9 @@ export interface SettingsValidationResult {
   changes: string[];
 }
 
-export function normalizeSettings(input: Partial<AppSettings>): AppSettings {
+export function normalizeSettings(input: LegacySettingsInput): AppSettings {
+  const organizationDefaults =
+    input.organization_defaults ?? input.manual_defaults ?? {};
   return {
     storage: { ...emptySettings.storage, ...input.storage },
     xchina: { ...emptySettings.xchina, ...input.xchina },
@@ -71,6 +85,10 @@ export function normalizeSettings(input: Partial<AppSettings>): AppSettings {
     metadata_assets: {
       ...emptySettings.metadata_assets,
       ...input.metadata_assets,
+    },
+    organization_defaults: {
+      ...emptySettings.organization_defaults,
+      ...organizationDefaults,
     },
     confidence_safety: {
       ...emptySettings.confidence_safety,
@@ -111,6 +129,18 @@ export function buildSettingsPayload(settings: AppSettings): AppSettingsUpdate {
     },
     metadata_assets: {
       ...settings.metadata_assets,
+    },
+    organization_defaults: {
+      destination_directory: cleanOptional(
+        settings.organization_defaults.destination_directory,
+      ),
+      organization_mode: settings.organization_defaults.organization_mode,
+      folder_templates: settings.organization_defaults.folder_templates.filter(Boolean),
+      filename_template:
+        cleanOptional(settings.organization_defaults.filename_template) ??
+        emptySettings.organization_defaults.filename_template,
+      asset_policy: settings.organization_defaults.asset_policy,
+      include_source_snapshot: settings.organization_defaults.include_source_snapshot,
     },
     confidence_safety: {
       ...settings.confidence_safety,
@@ -206,6 +236,40 @@ export function validateSettings(
   if (settings.metadata_assets.max_asset_bytes <= 0) {
     errors.push("最大资源大小必须大于 0。 ");
   }
+  const organizationDestination = cleanOptional(settings.organization_defaults.destination_directory);
+  if (organizationDestination && !organizationDestination.startsWith("/")) {
+    errors.push("全局整理默认目标目录必须是绝对路径。");
+  }
+  const availableRoots = uniqueClean([
+    ...settings.storage.env_roots,
+    ...settings.storage.roots,
+  ]);
+  if (
+    organizationDestination &&
+    availableRoots.length &&
+    !isPathInsideAnyRoot(organizationDestination, availableRoots)
+  ) {
+    warnings.push("全局整理默认目标目录不在已配置媒体目录下，保存时后端会拒绝不可用路径。");
+  }
+  const organizationFolderTemplates = settings.organization_defaults.folder_templates
+    .map((template) => template.trim())
+    .filter(Boolean);
+  const organizationFilenameTemplate = settings.organization_defaults.filename_template.trim();
+  if (!organizationFilenameTemplate) {
+    errors.push("整理默认文件名模板不能为空。");
+  }
+  if (!organizationFolderTemplates.length) {
+    errors.push("整理默认文件夹模板至少需要一个。");
+  }
+  const organizationUnknownVariables = Array.from(
+    new Set([
+      ...organizationFolderTemplates.flatMap(extractUnknownTemplateVariables),
+      ...extractUnknownTemplateVariables(organizationFilenameTemplate),
+    ]),
+  );
+  if (organizationUnknownVariables.length) {
+    errors.push(`整理默认模板包含未知变量：${organizationUnknownVariables.map((name) => `{${name}}`).join("、")}`);
+  }
 
   if (baseline) {
     changes.push(...summarizeChanges(settings, baseline));
@@ -268,6 +332,9 @@ function summarizeChanges(settings: AppSettings, baseline: AppSettings): string[
   if (JSON.stringify(settings.metadata_assets) !== JSON.stringify(baseline.metadata_assets)) {
     changes.push("元数据/资源策略将更新");
   }
+  if (JSON.stringify(settings.organization_defaults) !== JSON.stringify(baseline.organization_defaults)) {
+    changes.push("整理默认值将更新");
+  }
   if (JSON.stringify(settings.confidence_safety) !== JSON.stringify(baseline.confidence_safety)) {
     changes.push("置信度/安全策略将更新");
   }
@@ -302,6 +369,19 @@ function duplicates(values: string[]): string[] {
 
 function sameList(a: string[], b: string[]): boolean {
   return JSON.stringify(a) === JSON.stringify(b);
+}
+
+function isPathInsideAnyRoot(path: string, roots: string[]): boolean {
+  const normalizedPath = normalizePathPrefix(path);
+  return roots.some((root) => {
+    const normalizedRoot = normalizePathPrefix(root);
+    return normalizedPath === normalizedRoot || normalizedPath.startsWith(`${normalizedRoot}/`);
+  });
+}
+
+function normalizePathPrefix(path: string): string {
+  const cleaned = path.trim().replace(/\/+$/, "");
+  return cleaned || "/";
 }
 
 function looksLikeHttpUrl(value: string): boolean {

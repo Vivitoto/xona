@@ -2,14 +2,18 @@ from __future__ import annotations
 
 import hashlib
 import logging
-import mimetypes
 from pathlib import Path
 from typing import Protocol
 
 from sqlalchemy.orm import Session
 
 from backend.app.db.models import AssetMaterialization
-from backend.app.integrations.xchina import FetchedAsset
+from backend.app.integrations.assets import (
+    FetchedAsset,
+    detect_content_type,
+    normalize_content_type,
+    normalize_fetched_asset,
+)
 from backend.app.schemas.assets import (
     AssetMaterializationPolicy,
     AssetSelection,
@@ -21,6 +25,15 @@ from backend.app.schemas.assets import (
 from backend.app.services.normalization import sanitize_path_component
 
 logger = logging.getLogger(__name__)
+IMAGE_ASSET_KINDS = {
+    "poster",
+    "fanart",
+    "backdrop",
+    "extrafanart",
+    "thumb",
+    "clearlogo",
+    "actor_portrait",
+}
 
 
 class AssetAdapter(Protocol):
@@ -151,7 +164,7 @@ class AssetMaterializer:
         cache_path = Path(record.cache_path)
         if not _valid_cached_file(cache_path, record.size_bytes, record.sha256):
             return "cache_integrity_failed"
-        if not _content_type_allowed(record.content_type, policy):
+        if not _content_type_allowed_for_asset(asset, record.content_type, policy):
             return "cache_integrity_failed"
         return MaterializedAsset(
             kind=record.kind,
@@ -174,13 +187,21 @@ class AssetMaterializer:
             fetched = FetchedAsset(
                 url=asset.source_url or f"inline:{asset.kind}",
                 content=asset.inline_bytes,
-                content_type=asset.content_type or _guess_content_type(asset.relative_path),
+                content_type=detect_content_type(
+                    asset.inline_bytes,
+                    declared_content_type=asset.content_type,
+                    url=asset.relative_path,
+                ),
             )
         else:
             assert asset.source_url is not None
             fetched = await self._adapter.fetch_asset(asset.source_url)
-        content_type = fetched.content_type.split(";", 1)[0].strip().lower()
-        if not _content_type_allowed(content_type, policy):
+        fetched = normalize_fetched_asset(
+            fetched,
+            fallback_url=asset.source_url or asset.relative_path,
+        )
+        content_type = normalize_content_type(fetched.content_type)
+        if not _content_type_allowed_for_asset(asset, content_type, policy):
             return _missing(asset, "content_type_not_allowed")
         if len(fetched.content) > policy.max_bytes:
             return _missing(asset, "download_too_large")
@@ -266,10 +287,16 @@ def _valid_cached_file(path: Path, expected_size: int, expected_sha256: str) -> 
 
 
 def _content_type_allowed(content_type: str, policy: AssetMaterializationPolicy) -> bool:
-    normalized = content_type.split(";", 1)[0].strip().lower()
+    normalized = normalize_content_type(content_type)
     return normalized in {item.lower() for item in policy.allowed_content_types}
 
 
-def _guess_content_type(path: str) -> str:
-    guessed, _encoding = mimetypes.guess_type(path)
-    return guessed or "application/octet-stream"
+def _content_type_allowed_for_asset(
+    asset: LogicalAsset,
+    content_type: str,
+    policy: AssetMaterializationPolicy,
+) -> bool:
+    normalized = normalize_content_type(content_type)
+    if asset.kind in IMAGE_ASSET_KINDS:
+        return normalized.startswith("image/") and _content_type_allowed(normalized, policy)
+    return _content_type_allowed(normalized, policy)

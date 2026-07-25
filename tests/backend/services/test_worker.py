@@ -11,7 +11,9 @@ from backend.app.core.settings import Settings
 from backend.app.db.migrations import run_migrations
 from backend.app.db.models import Job, WatchRule
 from backend.app.db.session import create_engine_for_settings, get_sessionmaker
-from backend.app.schemas.source import SourceSearchResult
+from backend.app.integrations.assets import FetchedAsset
+from backend.app.schemas.assets import AssetSelection
+from backend.app.schemas.source import SourceAsset, SourceSearchResult, SourceVideoDetail
 from backend.app.services.jobs import JobService
 from backend.app.services.settings_store import SettingsStore
 from backend.app.services.worker import Worker
@@ -55,6 +57,33 @@ class FakeSavedSettingsXChina:
     async def search(self, query: str) -> list[SourceSearchResult]:
         assert query == "Sample Work Alpha"
         return []
+
+
+class FakeAutoAdapter:
+    async def search(self, query: str) -> list[SourceSearchResult]:
+        assert query == "Sample Work Alpha"
+        return [
+            SourceSearchResult(
+                source_candidate_id="XC-001",
+                title="Sample Work Alpha",
+                url="https://xchina.example.test/videos/xc-001.html",
+                thumbnail_url="https://images.example.test/thumb.jpg",
+            )
+        ]
+
+    async def fetch_video_detail(self, url: str) -> SourceVideoDetail:
+        assert url.endswith("xc-001.html")
+        return SourceVideoDetail(
+            source_id="XC-001",
+            source_url=url,
+            title="Sample Work Alpha",
+            poster=SourceAsset(url="https://images.example.test/poster.jpg", kind="poster"),
+            fanart=SourceAsset(url="https://images.example.test/fanart.jpg", kind="fanart"),
+            is_complete=True,
+        )
+
+    async def fetch_asset(self, url: str) -> FetchedAsset:
+        return FetchedAsset(url=url, content=b"asset-bytes", content_type="image/jpeg")
 
 
 def test_worker_leases_pending_jobs_and_resumes_expired_leases(tmp_path: Path) -> None:
@@ -193,5 +222,102 @@ def test_auto_worker_uses_saved_xchina_settings(
         assert FakeSavedSettingsFlareSolverr.instances[0].proxy_url == "http://proxy:8080"
         assert FakeSavedSettingsFlareSolverr.instances[0].closed is True
         assert FakeSavedSettingsXChina.instances[0].base_url == "https://auto.xchina.test"
+    finally:
+        engine.dispose()
+
+
+@pytest.mark.parametrize(
+    ("metadata_options", "expected_include_source_snapshot"),
+    [
+        ({}, True),
+        ({"include_source_snapshot": False}, False),
+    ],
+)
+def test_auto_worker_passes_snapshot_default_to_asset_selection(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    metadata_options: dict[str, object],
+    expected_include_source_snapshot: bool,
+) -> None:
+    seen: list[bool] = []
+
+    def fake_select_assets(
+        _record,
+        *,
+        include_source_snapshot: bool = False,
+    ) -> AssetSelection:
+        seen.append(include_source_snapshot)
+        return AssetSelection()
+
+    monkeypatch.setattr(worker_module, "select_assets", fake_select_assets)
+
+    root = tmp_path / "media"
+    source = root / "incoming"
+    destination = root / "organized"
+    source.mkdir(parents=True)
+    destination.mkdir()
+    media_file = source / "Sample.Work.Alpha.mkv"
+    media_file.write_bytes(b"movie-bytes")
+    settings = Settings(config_dir=tmp_path / "config", storage_roots=(root,))
+    run_migrations(settings=settings)
+    engine = create_engine_for_settings(settings)
+    sessionmaker = get_sessionmaker(engine)
+    try:
+        with sessionmaker() as session:
+            SettingsStore(session).update_app_settings(
+                {
+                    "organization_defaults": {
+                        "include_source_snapshot": True,
+                    }
+                }
+            )
+            session.add(
+                WatchRule(
+                    rule_id="rule-auto-snapshot",
+                    source_directory=str(source),
+                    destination_directory=str(destination),
+                    recursive=True,
+                    realtime=True,
+                    polling_interval_seconds=60,
+                    stability_seconds=0,
+                    stable_check_count=1,
+                    organization_mode="copy",
+                    folder_templates=["{studio}", "{title}"],
+                    filename_template="{xchina_id} - {title}",
+                    asset_policy="strict",
+                    emby_options={},
+                    metadata_options=metadata_options,
+                    include_patterns=["*.mkv"],
+                    exclude_patterns=[],
+                    excluded_destination_prefixes=[],
+                    confidence_threshold=60,
+                    enabled=True,
+                )
+            )
+            job = JobService(session).create_job(
+                media_identity=f"media-auto-snapshot-{expected_include_source_snapshot}",
+                rule_id="rule-auto-snapshot",
+                manual=False,
+                state="searching",
+                payload={"last_seen_path": str(media_file)},
+            )
+            session.commit()
+            job_id = job.id
+
+        adapter = FakeAutoAdapter()
+        worker = Worker(
+            sessionmaker,
+            settings=settings,
+            search_adapter=adapter,
+            asset_adapter=adapter,
+            poll_interval_seconds=0,
+        )
+        assert asyncio.run(worker.run_once()) is True
+
+        with sessionmaker() as session:
+            loaded = session.get(Job, job_id)
+            assert loaded is not None
+            assert loaded.state == "matched"
+        assert seen == [expected_include_source_snapshot]
     finally:
         engine.dispose()

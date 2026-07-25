@@ -3,23 +3,23 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from backend.app.schemas.operations import OrganizationMode
 
 
 class WatchRuleCreate(BaseModel):
     source_directory: Path
-    destination_directory: Path
+    destination_directory: Path | None = None
     recursive: bool = True
     realtime: bool = True
     polling_interval_seconds: int = Field(default=60, ge=1)
     stability_seconds: int = Field(default=30, ge=0)
     stable_check_count: int = Field(default=2, ge=1)
-    organization_mode: OrganizationMode = "copy"
+    organization_mode: OrganizationMode | None = None
     folder_templates: list[str] = Field(default_factory=list)
-    filename_template: str = "{source_filename}"
-    asset_policy: str = "strict"
+    filename_template: str | None = None
+    asset_policy: str | None = None
     emby_options: dict[str, Any] = Field(default_factory=dict)
     metadata_options: dict[str, Any] = Field(default_factory=dict)
     include_patterns: list[str] = Field(default_factory=lambda: ["*"])
@@ -27,6 +27,13 @@ class WatchRuleCreate(BaseModel):
     excluded_destination_prefixes: list[Path] = Field(default_factory=list)
     confidence_threshold: int = Field(default=92, ge=0, le=100)
     enabled: bool = True
+
+    @field_validator("destination_directory", "filename_template", "asset_policy", mode="before")
+    @classmethod
+    def empty_string_as_none(cls, value: Any) -> Any:
+        if isinstance(value, str) and not value.strip():
+            return None
+        return value
 
 
 class WatchRuleUpdate(BaseModel):

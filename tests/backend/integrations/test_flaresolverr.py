@@ -150,32 +150,58 @@ def test_failures_redact_credentials() -> None:
     asyncio.run(run())
 
 
-def test_asset_requests_use_same_endpoint_and_proxy_semantics() -> None:
-    seen: list[dict[str, Any]] = []
+def test_asset_requests_use_direct_http_client_not_flaresolverr_preview_page() -> None:
+    solver_seen: list[dict[str, Any]] = []
+    asset_seen: list[str] = []
 
-    async def handler(request: httpx.Request) -> httpx.Response:
-        payload = __import__("json").loads(request.content)
-        seen.append(payload)
-        return _ok_response(
-            {"status": "ok", "solution": {"status": 200, "response": "asset-bytes"}}
+    async def solver_handler(request: httpx.Request) -> httpx.Response:
+        solver_seen.append(__import__("json").loads(request.content))
+        return _ok_response({"status": "ok", "solution": {"status": 200, "response": "html"}})
+
+    async def asset_handler(request: httpx.Request) -> httpx.Response:
+        asset_seen.append(str(request.url))
+        return httpx.Response(
+            200,
+            content=b"\xff\xd8\xffjpg-bytes",
+            headers={"Content-Type": "image/jpeg"},
         )
 
     async def run() -> None:
-        async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as http:
-            client = FlareSolverrClient(
-                "http://solver.example/custom",
-                proxy_url="http://proxy.example:8080",
-                http_client=http,
-            )
-            assert await client.request_asset("https://target.example/asset.jpg") == b"asset-bytes"
+        async with httpx.AsyncClient(transport=httpx.MockTransport(solver_handler)) as http:
+            async with httpx.AsyncClient(transport=httpx.MockTransport(asset_handler)) as asset_http:
+                client = FlareSolverrClient(
+                    "http://solver.example/custom",
+                    proxy_url="http://proxy.example:8080",
+                    http_client=http,
+                    asset_http_client=asset_http,
+                )
+                result = await client.request_asset("https://target.example/asset.jpg")
+                assert result.content == b"\xff\xd8\xffjpg-bytes"
+                assert result.content_type == "image/jpeg"
 
     asyncio.run(run())
 
-    assert seen == [
-        {
-            "cmd": "request.get",
-            "url": "https://target.example/asset.jpg",
-            "maxTimeout": 60000,
-            "proxy": {"url": "http://proxy.example:8080"},
-        }
-    ]
+    assert solver_seen == []
+    assert asset_seen == ["https://target.example/asset.jpg"]
+
+
+def test_request_asset_returns_fetched_asset_with_header_content_type() -> None:
+    async def asset_handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            content=b"\x89PNG\r\n\x1a\npng-bytes",
+            headers={"Content-Type": "image/png; charset=binary"},
+        )
+
+    async def run() -> None:
+        async with httpx.AsyncClient(transport=httpx.MockTransport(asset_handler)) as asset_http:
+            client = FlareSolverrClient(
+                "http://solver.example/custom",
+                asset_http_client=asset_http,
+            )
+            result = await client.request_asset("https://target.example/asset")
+            assert result.url == "https://target.example/asset"
+            assert result.content == b"\x89PNG\r\n\x1a\npng-bytes"
+            assert result.content_type == "image/png"
+
+    asyncio.run(run())

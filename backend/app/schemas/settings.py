@@ -3,9 +3,10 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from backend.app.schemas.emby import EmbyPathMapping
+from backend.app.schemas.operations import OrganizationMode
 
 
 class StorageSettings(BaseModel):
@@ -40,6 +41,15 @@ class MetadataAssetSettings(BaseModel):
     max_asset_bytes: int = Field(default=10 * 1024 * 1024, ge=1)
 
 
+class OrganizationDefaultsSettings(BaseModel):
+    destination_directory: Path | None = None
+    organization_mode: OrganizationMode = "copy"
+    folder_templates: list[str] = Field(default_factory=lambda: ["{studio}", "{title}"])
+    filename_template: str = "{title}"
+    asset_policy: str = "lenient"
+    include_source_snapshot: bool = False
+
+
 class ConfidenceSafetySettings(BaseModel):
     confidence_threshold: int = Field(default=92, ge=0, le=100)
     refuse_destination_collisions: bool = True
@@ -58,6 +68,9 @@ class AppSettingsRead(BaseModel):
     emby: EmbySettings = Field(default_factory=EmbySettings)
     naming: NamingSettings = Field(default_factory=NamingSettings)
     metadata_assets: MetadataAssetSettings = Field(default_factory=MetadataAssetSettings)
+    organization_defaults: OrganizationDefaultsSettings = Field(
+        default_factory=OrganizationDefaultsSettings
+    )
     confidence_safety: ConfidenceSafetySettings = Field(
         default_factory=ConfidenceSafetySettings
     )
@@ -65,13 +78,27 @@ class AppSettingsRead(BaseModel):
 
 
 class AppSettingsUpdate(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
     storage: StorageSettings | None = None
     xchina: XChinaSettings | None = None
     emby: EmbySettings | None = None
     naming: NamingSettings | None = None
     metadata_assets: MetadataAssetSettings | None = None
+    organization_defaults: OrganizationDefaultsSettings | None = None
     confidence_safety: ConfidenceSafetySettings | None = None
     auth: AuthSettings | None = None
+
+    @model_validator(mode="before")
+    @classmethod
+    def migrate_legacy_defaults(cls, values: Any) -> Any:
+        if not isinstance(values, dict):
+            return values
+        migrated = dict(values)
+        if "organization_defaults" not in migrated and "manual_defaults" in migrated:
+            migrated["organization_defaults"] = migrated["manual_defaults"]
+        migrated.pop("manual_defaults", None)
+        return migrated
 
 
 class FlareSolverrTestRequest(BaseModel):
