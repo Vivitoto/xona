@@ -18,6 +18,7 @@ from backend.app.schemas.manual import (
     ManualExecutePlanRequest,
     ManualExecutePlanResponse,
     ManualJobRead,
+    ManualOrganizeRequest,
     ManualPreviewRequest,
     ManualPreviewResponse,
     ManualScanRequest,
@@ -126,6 +127,26 @@ async def preview_manual_plan(
     service, closer = _service_for(request, session)
     try:
         response = await service.preview(job_id, payload)
+        session.commit()
+        return response
+    except ManualOrganizerError as exc:
+        session.rollback()
+        raise _http_error(exc) from exc
+    finally:
+        if closer is not None:
+            await closer()
+
+
+@router.post("/jobs/{job_id}/organize", response_model=ManualExecutePlanResponse)
+async def organize_manual_job(
+    job_id: int,
+    payload: ManualOrganizeRequest,
+    request: Request,
+    session: Session = Depends(get_db),
+) -> ManualExecutePlanResponse:
+    service, closer = _service_for(request, session)
+    try:
+        response = await service.organize(job_id, payload)
         session.commit()
         return response
     except ManualOrganizerError as exc:

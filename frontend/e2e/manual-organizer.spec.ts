@@ -8,7 +8,7 @@ interface FixturePaths {
 
 const backendURL = `http://127.0.0.1:${process.env.XONA_E2E_BACKEND_PORT ?? 8765}`;
 
-test("手动整理 scans, searches, previews assets, and executes preview/copy modes", async ({
+test("手动整理 scans, searches, and starts organization from one action", async ({
   page,
   request,
 }) => {
@@ -32,27 +32,16 @@ test("手动整理 scans, searches, previews assets, and executes preview/copy m
   await expect(firstCandidate.getByLabel("评分明细")).toContainText("actors: 20");
 
   await page.getByRole("button", { name: "选择候选项" }).first().click();
-  await expect(page.getByText("已选择候选结果，可以预览整理计划")).toBeVisible();
+  await expect(page.getByText("已选择候选结果，可以开始整理")).toBeVisible();
 
   await page.getByLabel("目标目录").fill(fixture.destination_dir);
-  await page.getByLabel("整理模式").selectOption("preview");
-  await page.getByRole("button", { name: "预览整理计划" }).click();
-  await expect(page.getByLabel("操作计划")).toContainText("模式 preview");
-  await expect(page.getByLabel("操作计划")).toContainText("已缓存资源");
-  await expect(page.getByLabel("操作计划")).toContainText("poster.png");
-
-  await page.getByRole("button", { name: "执行已批准预览" }).click();
-  await expect(page.getByText(/计划 fixture-plan-\d+ 状态为 previewed/)).toBeVisible();
-
   await page.getByLabel("整理模式").selectOption("copy");
-  await page.getByRole("button", { name: "预览整理计划" }).click();
-  await expect(page.getByLabel("操作计划")).toContainText("模式 copy");
-  await expect(page.getByLabel("操作计划")).toContainText(
-    "XC-001 - Sample Work Alpha.mkv",
-  );
-
-  await page.getByRole("button", { name: "执行已批准预览" }).click();
-  await expect(page.getByText(/计划 fixture-plan-\d+ 状态为 completed/)).toBeVisible();
+  await page.getByRole("button", { name: "开始整理" }).click();
+  await expect(page.getByLabel("整理进度日志")).toContainText("规划整理");
+  await expect(page.getByLabel("整理进度日志")).toContainText("安全计划完成");
+  await expect(page.getByLabel("整理进度日志")).toContainText("执行整理");
+  await expect(page.getByLabel("整理进度日志")).toContainText("整理完成");
+  await expect(page.getByText(/计划 fixture-plan-\d+：整理完成/)).toBeVisible();
   await expectNoOverlappingControls(page);
 });
 

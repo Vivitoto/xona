@@ -12,7 +12,6 @@ const modeOptions: OrganizationMode[] = [
   "hardlink",
   "symlink",
   "in_place",
-  "preview",
 ];
 
 export const emptyWatchRuleDraft: WatchRuleDraft = {
@@ -221,13 +220,13 @@ export function WatchRuleEditor({
             }
           />
         </FormField>
-        <FormField label="资源策略">
+        <FormField label="资源缺失处理">
           <select
             value={draft.asset_policy}
             onChange={(event) => patch({ asset_policy: event.target.value })}
           >
-            <option value="strict">严格</option>
-            <option value="lenient">宽松</option>
+            <option value="strict">缺失停止整理</option>
+            <option value="lenient">缺失继续整理</option>
           </select>
         </FormField>
       </div>
@@ -235,7 +234,7 @@ export function WatchRuleEditor({
       <div className="segmented" aria-label="整理模式">
         {modeOptions.map((mode) => (
           <button
-            aria-pressed={draft.organization_mode === mode}
+            aria-pressed={organizationModeOrCopy(draft.organization_mode) === mode}
             key={mode}
             type="button"
             onClick={() => patch({ organization_mode: mode })}
@@ -361,8 +360,12 @@ function organizationModeLabel(mode: OrganizationMode): string {
     case "in_place":
       return "原地处理";
     case "preview":
-      return "预览";
+      return "复制";
   }
+}
+
+function organizationModeOrCopy(mode: string): OrganizationMode {
+  return mode === "preview" ? "copy" : (mode as OrganizationMode);
 }
 
 function lines(value: string): string[] {

@@ -10,9 +10,7 @@ import { AuthSettings } from "./settings/AuthSettings";
 import { ConfidenceSafetySettings } from "./settings/ConfidenceSafetySettings";
 import { EmbySettings } from "./settings/EmbySettings";
 import { MetadataAssetSettings } from "./settings/MetadataAssetSettings";
-import { NamingSettings } from "./settings/NamingSettings";
-import { OrganizationDefaultsSettings } from "./settings/OrganizationDefaultsSettings";
-import { StorageSettings } from "./settings/StorageSettings";
+import { OrganizationConfigSettings } from "./settings/OrganizationConfigSettings";
 import { XChinaSettings } from "./settings/XChinaSettings";
 import {
   buildSettingsPayload,
@@ -24,20 +22,16 @@ import {
 type SettingsTab =
   | "xchina"
   | "emby"
-  | "storage"
-  | "naming"
+  | "organization_config"
   | "metadata"
-  | "organization"
   | "confidence"
   | "auth";
 
 const settingsTabs: readonly TabItem<SettingsTab>[] = [
   { id: "xchina", label: "XChina" },
   { id: "emby", label: "Emby" },
-  { id: "storage", label: "媒体目录" },
-  { id: "naming", label: "命名模板" },
+  { id: "organization_config", label: "整理配置" },
   { id: "metadata", label: "元数据/资源" },
-  { id: "organization", label: "整理默认值" },
   { id: "confidence", label: "置信度/安全" },
   { id: "auth", label: "认证" },
 ];
@@ -131,18 +125,15 @@ export function SettingsPage() {
             onChange={(patch) => patchSettings("emby", patch)}
           />
         );
-      case "storage":
+      case "organization_config":
         return (
-          <StorageSettings
-            settings={settings.storage}
-            onChange={(patch) => patchSettings("storage", patch)}
-          />
-        );
-      case "naming":
-        return (
-          <NamingSettings
-            settings={settings.naming}
-            onChange={(patch) => patchSettings("naming", patch)}
+          <OrganizationConfigSettings
+            settings={settings}
+            onNamingChange={(patch) => patchSettings("naming", patch)}
+            onOrganizationDefaultsChange={(patch) =>
+              patchSettings("organization_defaults", patch)
+            }
+            onStorageChange={(patch) => patchSettings("storage", patch)}
           />
         );
       case "metadata":
@@ -150,13 +141,6 @@ export function SettingsPage() {
           <MetadataAssetSettings
             settings={settings.metadata_assets}
             onChange={(patch) => patchSettings("metadata_assets", patch)}
-          />
-        );
-      case "organization":
-        return (
-          <OrganizationDefaultsSettings
-            settings={settings.organization_defaults}
-            onChange={(patch) => patchSettings("organization_defaults", patch)}
           />
         );
       case "confidence":

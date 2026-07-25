@@ -5,6 +5,7 @@ import type { JobListResponse, JobSummaryRead } from "../api/types";
 import { EmptyState } from "../components/EmptyState";
 import { Section } from "../components/FormField";
 import { LoadingSkeleton } from "../components/LoadingSkeleton";
+import { codeLabel, stateLabel } from "../components/ProgressLog";
 
 export function ReviewQueuePage() {
   const [jobs, setJobs] = useState<JobSummaryRead[]>([]);
@@ -44,9 +45,9 @@ export function ReviewQueuePage() {
           <small>因置信度阈值或安全门禁暂停</small>
         </div>
         <div className="metric metric-primary">
-          <span>已生成计划</span>
+          <span>已准备整理</span>
           <strong>{loading ? "-" : plannedCount}</strong>
-          <small>可进入预览或执行确认的项目</small>
+          <small>已有安全计划，可继续处理的项目</small>
         </div>
         <div className="metric metric-warning">
           <span>安全门禁</span>
@@ -86,7 +87,7 @@ export function ReviewQueuePage() {
                     </td>
                     <td>
                       <span className="status-pill status-pill-warning">
-                        {job.state}
+                        {stateLabel(job.state)}
                       </span>
                     </td>
                     <td>{job.media_identity}</td>
@@ -130,7 +131,7 @@ function ReasonList({ reasons }: { reasons: string[] }) {
     <div className="reason-list">
       {reasons.map((reason) => (
         <span className="status-pill status-pill-warning" key={reason}>
-          {reason}
+          {codeLabel(reason)}
         </span>
       ))}
     </div>

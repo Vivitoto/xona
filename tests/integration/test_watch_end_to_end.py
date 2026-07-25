@@ -74,6 +74,8 @@ def test_watch_monitor_auto_flow_materializes_plans_executes_and_completes(
     assert job["payload"]["auto"]["score"]["lead"] >= 10
     target = media_layout.output / "Studio One" / "Sample Work Alpha" / "XC-001 - Sample Work Alpha.mkv"
     assert target.read_bytes() == MEDIA_BYTES
+    assert (target.parent / "XC-001 - Sample Work Alpha.nfo").is_file()
+    assert not (target.parent / "xchina-normalized.json").exists()
     assert (target.parent / "poster.jpg").is_file()
     assert (target.parent / ".actors" / "Actor One.jpg").is_file()
     assert_disposable_database_paths(app, media_layout.root)

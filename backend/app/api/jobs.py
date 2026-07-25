@@ -30,11 +30,17 @@ async def get_db(request: Request):
 @router.get("", response_model=JobListResponse)
 async def list_jobs(
     state: str | None = None,
+    manual: bool | None = None,
     session: Session = Depends(get_db),
 ) -> JobListResponse:
     service = JobService(session)
-    jobs = service.list_jobs(state=state)
-    logger.info("Jobs listed state=%s count=%s", state or "all", len(jobs))
+    jobs = service.list_jobs(state=state, manual=manual)
+    logger.info(
+        "Jobs listed state=%s manual=%s count=%s",
+        state or "all",
+        "all" if manual is None else manual,
+        len(jobs),
+    )
     return JobListResponse(
         jobs=[_job_summary(session, job) for job in jobs]
     )

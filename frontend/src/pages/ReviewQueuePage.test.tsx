@@ -40,8 +40,10 @@ describe("ReviewQueuePage", () => {
     render(<ReviewQueuePage />);
 
     expect(await screen.findByText("media-review")).toBeTruthy();
-    expect(screen.getByText(/confidence_below_threshold/)).toBeTruthy();
-    expect(screen.getByText(/unsafe_path/)).toBeTruthy();
+    expect(screen.getByText(/置信度低于阈值/)).toBeTruthy();
+    expect(screen.getByText(/路径不安全/)).toBeTruthy();
+    expect(screen.queryByText(/confidence_below_threshold/)).toBeNull();
+    expect(screen.queryByText(/unsafe_path/)).toBeNull();
     expect(screen.getByText("Candidate Title")).toBeTruthy();
     expect(calls[0]?.url).toBe("/api/jobs?state=review_required");
   });

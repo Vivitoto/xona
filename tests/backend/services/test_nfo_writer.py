@@ -5,10 +5,18 @@ from xml.etree import ElementTree
 
 from backend.app.integrations.xchina import parse_video_detail
 from backend.app.services.metadata import normalize_source_video
-from backend.app.services.nfo import render_movie_nfo
+from backend.app.services.nfo import movie_nfo_relative_path, render_movie_nfo
 
 
 FIXTURE_ROOT = Path(__file__).resolve().parents[1] / "fixtures" / "xchina"
+
+
+def test_movie_nfo_relative_path_uses_rendered_template_stem() -> None:
+    assert movie_nfo_relative_path("Sample Work Alpha") == "Sample Work Alpha.nfo"
+    assert (
+        movie_nfo_relative_path("XC-001 - Sample Work Alpha.mkv")
+        == "XC-001 - Sample Work Alpha.nfo"
+    )
 
 
 def test_movie_nfo_contains_emby_kodi_metadata() -> None:

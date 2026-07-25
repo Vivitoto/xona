@@ -89,6 +89,10 @@ export function normalizeSettings(input: LegacySettingsInput): AppSettings {
     organization_defaults: {
       ...emptySettings.organization_defaults,
       ...organizationDefaults,
+      organization_mode: organizationModeOrCopy(
+        organizationDefaults.organization_mode ??
+          emptySettings.organization_defaults.organization_mode,
+      ),
     },
     confidence_safety: {
       ...emptySettings.confidence_safety,
@@ -134,7 +138,9 @@ export function buildSettingsPayload(settings: AppSettings): AppSettingsUpdate {
       destination_directory: cleanOptional(
         settings.organization_defaults.destination_directory,
       ),
-      organization_mode: settings.organization_defaults.organization_mode,
+      organization_mode: organizationModeOrCopy(
+        settings.organization_defaults.organization_mode,
+      ),
       folder_templates: settings.organization_defaults.folder_templates.filter(Boolean),
       filename_template:
         cleanOptional(settings.organization_defaults.filename_template) ??
@@ -330,7 +336,7 @@ function summarizeChanges(settings: AppSettings, baseline: AppSettings): string[
     changes.push("命名模板将更新");
   }
   if (JSON.stringify(settings.metadata_assets) !== JSON.stringify(baseline.metadata_assets)) {
-    changes.push("元数据/资源策略将更新");
+    changes.push("元数据/资源将更新");
   }
   if (JSON.stringify(settings.organization_defaults) !== JSON.stringify(baseline.organization_defaults)) {
     changes.push("整理默认值将更新");
@@ -391,6 +397,12 @@ function looksLikeHttpUrl(value: string): boolean {
 function cleanOptional(value: string | null | undefined): string | null {
   const trimmed = value?.trim() ?? "";
   return trimmed ? trimmed : null;
+}
+
+function organizationModeOrCopy(
+  mode: AppSettings["organization_defaults"]["organization_mode"],
+): AppSettings["organization_defaults"]["organization_mode"] {
+  return mode === "preview" ? "copy" : mode;
 }
 
 function cleanOptionalSecret(value: string | null | undefined): string | null | undefined {

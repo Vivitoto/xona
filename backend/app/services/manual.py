@@ -32,6 +32,7 @@ from backend.app.schemas.manual import (
     ManualJobRead,
     ManualJobSummary,
     ManualMediaItemRead,
+    ManualOrganizeRequest,
     ManualPreviewRequest,
     ManualPreviewResponse,
     ManualScanResponse,
@@ -50,7 +51,7 @@ from backend.app.services.assets import select_assets
 from backend.app.services.jobs import ACTIVE_STATES, JobService
 from backend.app.services.matching import manual_selection_gate, score_candidate
 from backend.app.services.metadata import normalize_source_video, persist_metadata_record
-from backend.app.services.nfo import render_movie_nfo
+from backend.app.services.nfo import movie_nfo_relative_path, render_movie_nfo
 from backend.app.services.operation_executor import (
     OperationExecutionError,
     OperationExecutor,
@@ -266,7 +267,7 @@ class ManualOrganizerService:
         card = _candidate_card(row) if row is not None else _candidate_card_from_detail(detail)
         if decision.action != "manual_approved":
             logger.warning(
-                "Manual candidate selection refused job_id=%s candidate_id=%s reasons=%s",
+                "Manual candidate selection requires review job_id=%s candidate_id=%s reasons=%s",
                 job.id,
                 card.candidate_id,
                 decision.reasons,
@@ -276,12 +277,25 @@ class ManualOrganizerService:
                 {
                     "selection_refused": True,
                     "selection_refusal_reasons": decision.reasons,
+                    "selected_candidate_id": card.candidate_id,
+                    "selected_source_url": detail.source_url,
+                    "selected_detail": detail.model_dump(mode="json"),
+                    "metadata": record.model_dump(mode="json"),
                 },
             )
+            if job.state == "searching":
+                self._jobs.transition_job(
+                    job.id,
+                    "review_required",
+                    payload={"candidate_id": card.candidate_id, "reasons": decision.reasons},
+                )
             self._session.flush()
-            raise ManualOrganizerError(
-                "manual_selection_refused",
+            return ManualSelectCandidateResponse(
+                job_id=job.id,
+                accepted=False,
                 reasons=decision.reasons,
+                selected_candidate=card,
+                metadata=record.model_dump(mode="json"),
             )
 
         metadata_row = persist_metadata_record(
@@ -372,14 +386,16 @@ class ManualOrganizerService:
             filename_template=payload.filename_template,
             context=_template_context(record, media_items[0]),
         )
-        generated = [
-            GeneratedArtifact(
-                relative_path="movie.nfo",
-                artifact_type="nfo",
-                content_text=render_movie_nfo(record).decode("utf-8"),
-                allow_replace_existing=True,
-            )
-        ]
+        generated: list[GeneratedArtifact] = []
+        if template.filename:
+            generated = [
+                GeneratedArtifact(
+                    relative_path=movie_nfo_relative_path(template.filename),
+                    artifact_type="nfo",
+                    content_text=render_movie_nfo(record).decode("utf-8"),
+                    allow_replace_existing=True,
+                )
+            ]
         try:
             plan = OrganizerPlanService(self._session, self._storage_roots).create_plan(
                 mode=payload.mode,
@@ -426,6 +442,21 @@ class ManualOrganizerService:
             ],
             missing_assets=[item.model_dump(mode="json") for item in materialized.missing],
             plan=plan.snapshot_json(),
+        )
+
+    async def organize(
+        self,
+        job_id: int,
+        payload: ManualOrganizeRequest,
+    ) -> ManualExecutePlanResponse:
+        safe_payload = payload.model_copy(
+            update={"mode": _organization_mode_or_copy(payload.mode)}
+        )
+        plan_preview = await self.preview(job_id, safe_payload)
+        return self.execute_plan(
+            plan_preview.plan_id,
+            approved=True,
+            plan_version=int(plan_preview.plan.get("version", 1)),
         )
 
     def execute_plan(
@@ -910,3 +941,7 @@ def _valid_next_states(state: str) -> set[str]:
     from backend.app.services.jobs import VALID_TRANSITIONS
 
     return VALID_TRANSITIONS[state]
+
+
+def _organization_mode_or_copy(value: str) -> str:
+    return "copy" if value == "preview" else value

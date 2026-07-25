@@ -31,12 +31,11 @@ export function OrganizationDefaultsSettings({
         </div>
         <FormField label="默认整理模式">
           <select
-            value={settings.organization_mode}
+            value={organizationModeOrCopy(settings.organization_mode)}
             onChange={(event) =>
               onChange({ organization_mode: event.target.value as OrganizationMode })
             }
           >
-            <option value="preview">只预览</option>
             <option value="copy">复制</option>
             <option value="move">移动</option>
             <option value="hardlink">硬链接</option>
@@ -44,13 +43,13 @@ export function OrganizationDefaultsSettings({
             <option value="in_place">原地处理</option>
           </select>
         </FormField>
-        <FormField label="默认资源策略">
+        <FormField label="资源缺失处理">
           <select
             value={settings.asset_policy}
             onChange={(event) => onChange({ asset_policy: event.target.value })}
           >
-            <option value="lenient">宽松</option>
-            <option value="strict">严格</option>
+            <option value="lenient">缺失继续整理</option>
+            <option value="strict">缺失停止整理</option>
           </select>
         </FormField>
         <CheckboxField
@@ -83,4 +82,8 @@ export function OrganizationDefaultsSettings({
       </div>
     </Section>
   );
+}
+
+function organizationModeOrCopy(mode: OrganizationMode): OrganizationMode {
+  return mode === "preview" ? "copy" : mode;
 }

@@ -6,7 +6,6 @@ import type {
   ManualCandidateCard as ManualCandidate,
   ManualExecutePlanResponse,
   ManualJobSummary,
-  ManualPreviewResponse,
   ManualScanResponse,
   ManualSearchResponse,
   ManualSelectCandidateResponse,
@@ -16,14 +15,19 @@ import { CandidateCard } from "../components/CandidateCard";
 import { DirectoryPicker } from "../components/DirectoryPicker";
 import { CheckboxField, FormField, Section } from "../components/FormField";
 import { useImageSafetyMode } from "../components/ImageSafetyMode";
-import { OperationPlanView } from "../components/OperationPlanView";
+import {
+  ProgressLog,
+  codeLabel,
+  stateLabel,
+  type ProgressLogLine,
+  type ProgressLogTone,
+} from "../components/ProgressLog";
 import { TemplateGuide } from "../components/TemplateGuide";
 import { proxiedImageUrl } from "../utils/imageProxy";
 import { linesToList, listToLines, normalizeSettings } from "./settings/settingsForm";
 
 const safetyLabels = [
   ["file_conflict", "文件冲突拒绝"],
-  ["unresolved_multipart", "未解决的分段文件"],
   ["incomplete_metadata", "元数据不完整"],
   ["unsafe_path", "不安全路径"],
   ["strict_assets_missing", "严格资源失败"],
@@ -48,21 +52,22 @@ export function ManualOrganizerPage() {
   const [strictAssets, setStrictAssets] = useState(false);
   const [safety, setSafety] = useState<Record<SafetyKey, boolean>>({
     file_conflict: false,
-    unresolved_multipart: false,
     incomplete_metadata: false,
     unsafe_path: false,
     strict_assets_missing: false,
   });
   const [refusalReasons, setRefusalReasons] = useState<string[]>([]);
+  const [selectionAccepted, setSelectionAccepted] = useState(false);
   const [destinationRoot, setDestinationRoot] = useState("");
   const [mode, setMode] = useState<OrganizationMode>("copy");
   const [folderTemplates, setFolderTemplates] = useState("{studio}\n{title}");
   const [filenameTemplate, setFilenameTemplate] = useState("{title}");
   const [assetPolicy, setAssetPolicy] = useState("lenient");
   const [includeSourceSnapshot, setIncludeSourceSnapshot] = useState(false);
-  const [preview, setPreview] = useState<ManualPreviewResponse | null>(null);
   const [executeResult, setExecuteResult] =
     useState<ManualExecutePlanResponse | null>(null);
+  const [organizing, setOrganizing] = useState(false);
+  const [progressLines, setProgressLines] = useState<ProgressLogLine[]>([]);
   const [status, setStatus] = useState("");
   const [error, setError] = useState("");
   const [searchState, setSearchState] = useState<
@@ -70,7 +75,8 @@ export function ManualOrganizerPage() {
   >("idle");
   const [searchFeedback, setSearchFeedback] = useState("");
   const [resultsFocused, setResultsFocused] = useState(false);
-  const previewConfigTouched = useRef(false);
+  const organizationConfigTouched = useRef(false);
+  const progressCounter = useRef(0);
 
   const activeJob = useMemo(
     () => jobs.find((job) => String(job.job_id) === jobId) ?? jobs[0] ?? null,
@@ -95,27 +101,11 @@ export function ManualOrganizerPage() {
     };
   }, []);
 
-  useEffect(() => {
-    if (!activeJob) {
-      return;
-    }
-    setQuerySource("filename");
-    setSearchQuery(defaultQuery(activeJob, "filename"));
-    setCandidates([]);
-    setSelected(null);
-    setSelectedMetadata(null);
-    setRefusalReasons([]);
-    setPreview(null);
-    setExecuteResult(null);
-    setSearchState("idle");
-    setSearchFeedback("");
-    setResultsFocused(false);
-  }, [activeJob?.job_id]);
-
   async function scan(event?: FormEvent) {
     event?.preventDefault();
     setStatus("正在扫描");
     setError("");
+    resetProgressLog("扫描源目录", "active");
     try {
       const response = await apiFetch<ManualScanResponse>("/api/manual/scan", {
         method: "POST",
@@ -127,16 +117,20 @@ export function ManualOrganizerPage() {
       });
       setJobs(response.jobs);
       if (response.jobs[0]) {
-        setJobId(String(response.jobs[0].job_id));
-        setQuerySource("filename");
-        setSearchQuery(defaultQuery(response.jobs[0], "filename"));
+        resetForJob(response.jobs[0]);
+      } else {
+        setJobId("");
+        clearSelectedCandidate();
       }
       setSearchState("idle");
       setSearchFeedback("");
       setResultsFocused(false);
       setStatus(`已扫描 ${response.scanned_count} 个视频文件`);
+      pushProgressLog(`扫描完成：${response.scanned_count} 个视频文件`, "success");
     } catch (exc) {
-      setError(exc instanceof Error ? exc.message : "扫描失败");
+      const message = exc instanceof Error ? exc.message : "扫描失败";
+      pushProgressLog(`扫描失败：${message}`, "danger");
+      setError(message);
     }
   }
 
@@ -165,8 +159,9 @@ export function ManualOrganizerPage() {
     setCandidates([]);
     setSelected(null);
     setSelectedMetadata(null);
-    setPreview(null);
+    setSelectionAccepted(false);
     setExecuteResult(null);
+    pushProgressLog(`搜索 XChina：${query}`, "active");
     try {
       const response = await apiFetch<ManualSearchResponse>("/api/manual/search", {
         method: "POST",
@@ -186,10 +181,12 @@ export function ManualOrganizerPage() {
           ? `搜索完成：找到 ${response.candidates.length} 个候选结果。`
           : `搜索完成：没有找到候选结果。`,
       );
+      pushProgressLog(`搜索完成：${response.candidates.length} 个候选结果`, "success");
     } catch (exc) {
       const message = exc instanceof Error ? exc.message : "搜索失败";
       setSearchState("error");
       setSearchFeedback(message);
+      pushProgressLog(`搜索失败：${message}`, "danger");
       setError(message);
     }
   }
@@ -201,42 +198,66 @@ export function ManualOrganizerPage() {
       return;
     }
     setError("");
+    setSelectionAccepted(false);
     setStatus("正在刮削详情并校验");
+    pushProgressLog("获取详情并校验", "active");
     try {
-      const response = await apiFetch<ManualSelectCandidateResponse>(`/api/manual/jobs/${activeJobId}/select-candidate`, {
-        method: "POST",
-        body: {
-          candidate_id: candidate?.candidate_id ?? null,
-          source_url: detailUrl || candidate?.url || null,
-          strict_assets: strictAssets,
-          safety: safetyPayload(),
+      const response = await apiFetch<ManualSelectCandidateResponse>(
+        `/api/manual/jobs/${activeJobId}/select-candidate`,
+        {
+          method: "POST",
+          body: {
+            candidate_id: candidate?.candidate_id ?? null,
+            source_url: detailUrl || candidate?.url || null,
+            strict_assets: strictAssets,
+            safety: safetyPayload(),
+          },
         },
-      });
+      );
       setSelected(response.selected_candidate ?? candidate);
       setSelectedMetadata(response.metadata ?? null);
       setRefusalReasons(response.reasons);
-      setStatus(response.accepted ? "已选择候选结果，可以预览整理计划" : "需要人工复核");
+      setSelectionAccepted(response.accepted);
+      setStatus(response.accepted ? "已选择候选结果，可以开始整理" : "需要人工复核");
+      pushProgressLog(
+        response.accepted ? "详情已获取：可以开始整理" : "需要人工复核",
+        response.accepted ? "success" : "warning",
+      );
     } catch (exc) {
-      setError(exc instanceof Error ? exc.message : "候选项选择失败");
+      const message = exc instanceof Error ? exc.message : "候选项选择失败";
+      setSelectionAccepted(false);
+      pushProgressLog(`获取详情失败：${message}`, "danger");
+      setError(message);
     }
   }
 
-  async function previewPlan() {
+  async function startOrganization() {
     const activeJobId = activeJob?.job_id;
     if (!activeJobId) {
-      setError("预览前需要选择一个视频文件。");
+      setError("整理前需要选择一个视频文件。");
+      return;
+    }
+    if (!selected) {
+      setError("整理前需要选择一个候选结果。");
+      return;
+    }
+    if (!selectionAccepted) {
+      setError("整理前需要先通过候选校验。");
       return;
     }
     setError("");
-    setStatus("正在生成整理预览");
+    setExecuteResult(null);
+    setOrganizing(true);
+    setStatus("正在整理");
+    pushProgressLog("规划整理", "active");
     try {
-      const response = await apiFetch<ManualPreviewResponse>(
-        `/api/manual/jobs/${activeJobId}/preview`,
+      const response = await apiFetch<ManualExecutePlanResponse>(
+        `/api/manual/jobs/${activeJobId}/organize`,
         {
           method: "POST",
           body: {
             destination_root: destinationRoot,
-            mode,
+            mode: organizationModeOrCopy(mode),
             folder_templates: linesToList(folderTemplates),
             filename_template: filenameTemplate,
             asset_policy: assetPolicy,
@@ -244,44 +265,46 @@ export function ManualOrganizerPage() {
           },
         },
       );
-      setPreview(response);
-      setStatus("整理预览已生成");
-    } catch (exc) {
-      setError(exc instanceof Error ? exc.message : "预览失败");
-    }
-  }
-
-  async function executePlan() {
-    if (!preview) {
-      return;
-    }
-    setError("");
-    setStatus("正在执行整理计划");
-    try {
-      const response = await apiFetch<ManualExecutePlanResponse>(
-        `/api/manual/plans/${preview.plan_id}/execute`,
-        {
-          method: "POST",
-          body: {
-            approved: true,
-            plan_version: preview.plan.version,
-          },
-        },
-      );
+      pushProgressLog("安全计划完成", "success");
+      pushProgressLog("执行整理", "active");
       setExecuteResult(response);
-      setStatus(`执行状态 ${response.state}`);
+      const label = organizationResultLabel(response.state);
+      pushProgressLog(label, response.state === "failed" ? "danger" : "success");
+      setStatus(label);
     } catch (exc) {
-      setError(exc instanceof Error ? exc.message : "执行失败");
+      const message = exc instanceof Error ? exc.message : "整理失败";
+      pushProgressLog(`整理失败：${message}`, "danger");
+      setError(message);
+    } finally {
+      setOrganizing(false);
     }
   }
 
   function pickJob(job: ManualJobSummary) {
-    setJobId(String(job.job_id));
-    setQuerySource("filename");
+    resetForJob(job);
   }
 
-  function markPreviewConfigTouched() {
-    previewConfigTouched.current = true;
+  function resetForJob(job: ManualJobSummary) {
+    setJobId(String(job.job_id));
+    setQuerySource("filename");
+    setSearchQuery(defaultQuery(job, "filename"));
+    setCandidates([]);
+    clearSelectedCandidate();
+    setSearchState("idle");
+    setSearchFeedback("");
+    setResultsFocused(false);
+  }
+
+  function clearSelectedCandidate() {
+    setSelected(null);
+    setSelectedMetadata(null);
+    setRefusalReasons([]);
+    setSelectionAccepted(false);
+    setExecuteResult(null);
+  }
+
+  function markOrganizationConfigTouched() {
+    organizationConfigTouched.current = true;
   }
 
   function applyOrganizationDefaults(settings: AppSettings) {
@@ -293,38 +316,54 @@ export function ManualOrganizerPage() {
       defaults.filename_template || settings.naming.filename_template;
 
     setDestinationRoot((current) =>
-      shouldPrefillText(current, previewConfigTouched.current)
+      shouldPrefillText(current, organizationConfigTouched.current)
         ? defaults.destination_directory ?? ""
         : current,
     );
     setFolderTemplates((current) =>
-      shouldPrefillText(current, previewConfigTouched.current)
+      shouldPrefillText(current, organizationConfigTouched.current)
         ? listToLines(nextFolderTemplates)
         : current,
     );
     setFilenameTemplate((current) =>
-      shouldPrefillText(current, previewConfigTouched.current)
+      shouldPrefillText(current, organizationConfigTouched.current)
         ? nextFilenameTemplate
         : current,
     );
     setMode((current) =>
-      previewConfigTouched.current ? current : defaults.organization_mode,
+      organizationConfigTouched.current
+        ? organizationModeOrCopy(current)
+        : organizationModeOrCopy(defaults.organization_mode),
     );
     setAssetPolicy((current) =>
-      previewConfigTouched.current ? current : defaults.asset_policy,
+      organizationConfigTouched.current ? current : defaults.asset_policy,
     );
     setIncludeSourceSnapshot((current) =>
-      previewConfigTouched.current ? current : defaults.include_source_snapshot,
+      organizationConfigTouched.current ? current : defaults.include_source_snapshot,
     );
   }
 
   function safetyPayload(): Record<string, boolean> {
     return {
       file_conflict: safety.file_conflict,
-      unresolved_multipart: safety.unresolved_multipart,
       unsafe_path: safety.unsafe_path,
       strict_assets_missing: safety.strict_assets_missing,
     };
+  }
+
+  function resetProgressLog(label: string, tone: ProgressLogTone = "neutral") {
+    progressCounter.current += 1;
+    const id = `progress-${progressCounter.current}`;
+    setProgressLines([{ id, label, tone }]);
+  }
+
+  function pushProgressLog(label: string, tone: ProgressLogTone = "neutral") {
+    progressCounter.current += 1;
+    const id = `progress-${progressCounter.current}`;
+    setProgressLines((current) => [
+      ...current.slice(-10),
+      { id, label, tone },
+    ]);
   }
 
   return (
@@ -493,7 +532,7 @@ export function ManualOrganizerPage() {
                   <strong>需要复核</strong>
                   <ul>
                     {refusalReasons.map((reason) => (
-                      <li key={reason}>{reason}</li>
+                      <li key={reason}>{codeLabel(reason)}</li>
                     ))}
                   </ul>
                 </div>
@@ -508,7 +547,7 @@ export function ManualOrganizerPage() {
         </Section>
       </div>
 
-      <Section title="预览/执行整理">
+      <Section title="整理设置">
         <div className="grid four">
           <div className="path-field">
             <FormField label="目标目录">
@@ -516,7 +555,7 @@ export function ManualOrganizerPage() {
                 placeholder="/media/organized"
                 value={destinationRoot}
                 onChange={(event) => {
-                  markPreviewConfigTouched();
+                  markOrganizationConfigTouched();
                   setDestinationRoot(event.target.value);
                 }}
               />
@@ -524,7 +563,7 @@ export function ManualOrganizerPage() {
             <DirectoryPicker
               initialPath={destinationRoot}
               onSelect={(path) => {
-                markPreviewConfigTouched();
+                markOrganizationConfigTouched();
                 setDestinationRoot(path);
               }}
               title="选择目标目录"
@@ -532,13 +571,12 @@ export function ManualOrganizerPage() {
           </div>
           <FormField label="整理模式">
             <select
-              value={mode}
+              value={organizationModeOrCopy(mode)}
               onChange={(event) => {
-                markPreviewConfigTouched();
+                markOrganizationConfigTouched();
                 setMode(event.target.value as OrganizationMode);
               }}
             >
-              <option value="preview">只预览</option>
               <option value="copy">复制</option>
               <option value="move">移动</option>
               <option value="hardlink">硬链接</option>
@@ -546,23 +584,23 @@ export function ManualOrganizerPage() {
               <option value="in_place">原地处理</option>
             </select>
           </FormField>
-          <FormField label="资源策略">
+          <FormField label="资源缺失处理">
             <select
               value={assetPolicy}
               onChange={(event) => {
-                markPreviewConfigTouched();
+                markOrganizationConfigTouched();
                 setAssetPolicy(event.target.value);
               }}
             >
-              <option value="lenient">宽松</option>
-              <option value="strict">严格</option>
+              <option value="lenient">缺失继续整理</option>
+              <option value="strict">缺失停止整理</option>
             </select>
           </FormField>
           <CheckboxField
             checked={includeSourceSnapshot}
             label="包含源快照"
             onChange={(checked) => {
-              markPreviewConfigTouched();
+              markOrganizationConfigTouched();
               setIncludeSourceSnapshot(checked);
             }}
           />
@@ -573,7 +611,7 @@ export function ManualOrganizerPage() {
               placeholder={'{studio}\n{xchina_id} - {title}'}
               value={folderTemplates}
               onChange={(event) => {
-                markPreviewConfigTouched();
+                markOrganizationConfigTouched();
                 setFolderTemplates(event.target.value);
               }}
             />
@@ -583,7 +621,7 @@ export function ManualOrganizerPage() {
               placeholder="{xchina_id} - {title}"
               value={filenameTemplate}
               onChange={(event) => {
-                markPreviewConfigTouched();
+                markOrganizationConfigTouched();
                 setFilenameTemplate(event.target.value);
               }}
             />
@@ -591,21 +629,22 @@ export function ManualOrganizerPage() {
         </div>
         <TemplateGuide />
         <div className="button-row">
-          <button disabled={!selected || !destinationRoot} type="button" onClick={previewPlan}>
-            预览整理计划
-          </button>
-          <button disabled={!preview} type="button" onClick={executePlan}>
-            执行已批准预览
+          <button
+            disabled={!selected || !selectionAccepted || !destinationRoot || organizing}
+            type="button"
+            onClick={startOrganization}
+          >
+            {organizing ? "整理中…" : "开始整理"}
           </button>
         </div>
-        {preview ? (
-          <OperationPlanView preview={preview} refusalReasons={refusalReasons} />
-        ) : (
-          <p className="muted">暂无预览。</p>
-        )}
+        <ProgressLog
+          ariaLabel="整理进度日志"
+          emptyLabel="选择候选结果并开始整理后显示进度。"
+          lines={progressLines}
+        />
         {executeResult ? (
           <p className="status">
-            计划 {executeResult.plan_id} 状态为 {executeResult.state}
+            计划 {executeResult.plan_id}：{organizationResultLabel(executeResult.state)}
           </p>
         ) : null}
       </Section>
@@ -614,6 +653,23 @@ export function ManualOrganizerPage() {
       {error ? <p className="status error floating-status">{error}</p> : null}
     </div>
   );
+}
+
+function organizationModeOrCopy(mode: OrganizationMode): OrganizationMode {
+  return mode === "preview" ? "copy" : mode;
+}
+
+function organizationResultLabel(state: string): string {
+  if (state === "completed") {
+    return "整理完成";
+  }
+  if (state === "previewed") {
+    return "安全检查完成";
+  }
+  if (state === "failed") {
+    return "整理失败";
+  }
+  return `整理状态：${state}`;
 }
 
 function SelectedCandidateDetail({
@@ -793,7 +849,7 @@ function MediaFileList({
                 <strong>{item ? fileName(item.path) : job.media_identity}</strong>
                 <small>父目录：{item ? parentName(item.path) : "未知"}</small>
               </span>
-              <span className="status-pill">{job.state}</span>
+              <span className="status-pill">{stateLabel(job.state)}</span>
             </button>
           );
         })}

@@ -778,6 +778,78 @@ nav {
   grid-template-columns: repeat(4, minmax(0, 1fr));
 }
 
+.progress-log {
+  display: grid;
+  gap: 0.35rem;
+  max-height: 172px;
+  overflow: auto;
+  border: 1px solid #17212b;
+  border-radius: 12px;
+  padding: 0.58rem;
+  color: #d9f4f1;
+  background: #0d1720;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+}
+
+.progress-log ol {
+  display: grid;
+  gap: 0.32rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.progress-log .muted {
+  margin: 0;
+  color: rgb(217 244 241 / 0.66);
+}
+
+.progress-log-line {
+  display: grid;
+  grid-template-columns: 8px minmax(0, 1fr);
+  align-items: start;
+  gap: 0.48rem;
+  min-width: 0;
+  font-size: 0.78rem;
+}
+
+.progress-log-line span {
+  width: 7px;
+  height: 7px;
+  border-radius: 999px;
+  margin-top: 0.38rem;
+  background: rgb(217 244 241 / 0.55);
+}
+
+.progress-log-line p {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.progress-log-line-active span {
+  background: #4db4c2;
+}
+
+.progress-log-line-success span {
+  background: #56c78a;
+}
+
+.progress-log-line-warning span {
+  background: #f2bd57;
+}
+
+.progress-log-line-danger span {
+  background: #ec6f82;
+}
+
+.queue-progress-cell {
+  min-width: 260px;
+}
+
+.queue-progress-cell .progress-log {
+  max-height: 118px;
+}
+
 .history-summary {
   border: 1px solid var(--border);
   border-radius: 14px;
@@ -1145,6 +1217,21 @@ nav {
 }
 
 .settings-change-summary h3 {
+  margin: 0;
+}
+
+.settings-subsection {
+  display: grid;
+  gap: 0.72rem;
+  min-width: 0;
+}
+
+.settings-subsection + .settings-subsection {
+  border-top: 1px solid var(--border);
+  padding-top: 0.95rem;
+}
+
+.settings-subsection h3 {
   margin: 0;
 }
 

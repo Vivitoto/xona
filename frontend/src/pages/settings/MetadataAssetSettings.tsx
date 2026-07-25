@@ -23,26 +23,16 @@ export function MetadataAssetSettings({
             onChange({ include_source_snapshot })
           }
         />
-        <FormField label="资源策略">
+        <FormField label="资源缺失处理">
           <select
             value={settings.asset_policy}
             onChange={(event) => onChange({ asset_policy: event.target.value })}
           >
-            <option value="lenient">宽松</option>
-            <option value="strict">严格</option>
+            <option value="lenient">缺失继续整理</option>
+            <option value="strict">缺失停止整理</option>
           </select>
         </FormField>
-        <FormField label="最大资源字节数">
-          <input
-            min={1}
-            placeholder="10485760"
-            type="number"
-            value={settings.max_asset_bytes}
-            onChange={(event) =>
-              onChange({ max_asset_bytes: Number(event.target.value) })
-            }
-          />
-        </FormField>
+
       </div>
     </Section>
   );

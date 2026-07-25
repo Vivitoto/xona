@@ -10,7 +10,7 @@ afterEach(() => {
 });
 
 describe("ManualOrganizerPage", () => {
-  it("supports browse, scan, search, select, preview, and execute after preview", async () => {
+  it("supports browse, scan, search, select, and starts organization through one action", async () => {
     const { calls } = installFetchMock([
       {
         path: "/api/storage-roots",
@@ -79,14 +79,8 @@ describe("ManualOrganizerPage", () => {
         path: "/api/manual/jobs/7/select-candidate",
         response: {
           job_id: 7,
-          accepted: false,
-          reasons: [
-            "destination_collision",
-            "unresolved_multipart",
-            "incomplete_metadata",
-            "unsafe_path",
-            "strict_assets_missing",
-          ],
+          accepted: true,
+          reasons: [],
           selected_candidate: {
             candidate_id: 3,
             source: "xchina",
@@ -123,20 +117,12 @@ describe("ManualOrganizerPage", () => {
       },
       {
         method: "POST",
-        path: "/api/manual/jobs/7/preview",
+        path: "/api/manual/jobs/7/organize",
         response: {
-          job_id: 7,
           plan_id: "plan-1",
-          metadata: { title: "Sample Work" },
-          materialized_assets: [{ path: "/config/assets/poster.jpg" }],
-          missing_assets: [{ kind: "fanart" }],
-          plan: operationPlanFixture(),
+          job_id: 7,
+          state: "completed",
         },
-      },
-      {
-        method: "POST",
-        path: "/api/manual/plans/plan-1/execute",
-        response: { plan_id: "plan-1", job_id: 7, state: "completed" },
       },
     ]);
 
@@ -185,42 +171,148 @@ describe("ManualOrganizerPage", () => {
     expect(
       within(selectedDetail).getByText("A short plot for checking the selected detail card."),
     ).toBeTruthy();
-    expect(await screen.findByText("destination_collision")).toBeTruthy();
-    expect(screen.getByText("unresolved_multipart")).toBeTruthy();
-    expect(screen.getByText("incomplete_metadata")).toBeTruthy();
-    expect(screen.getByText("unsafe_path")).toBeTruthy();
-    expect(screen.getByText("strict_assets_missing")).toBeTruthy();
-
-    expect(screen.getByRole("button", { name: "执行已批准预览" })).toBeDisabled();
+    expect(screen.queryByLabelText("复核原因")).toBeNull();
+    expect(screen.queryByRole("button", { name: "预览整理计划" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "执行已批准预览" })).toBeNull();
+    expect(screen.getByRole("button", { name: "开始整理" })).toBeDisabled();
 
     fireEvent.change(screen.getByLabelText(/目标目录/i), {
       target: { value: "/media/organized" },
     });
-    fireEvent.click(screen.getByRole("button", { name: "预览整理计划" }));
-    expect(await screen.findByText(/copy \/media\/incoming\/Sample.Work.mkv/)).toBeTruthy();
-    expect(screen.getByText("/config/assets/poster.jpg")).toBeTruthy();
-    expect(screen.getByText("fanart")).toBeTruthy();
-    expect(
-      screen.getAllByText("/media/organized/.actors/Actor One/folder.jpg").length,
-    ).toBeGreaterThan(0);
-    expect(
-      screen.getAllByText("/media/organized/Studio One/Sample Work/movie.nfo").length,
-    ).toBeGreaterThan(0);
-
-    fireEvent.click(screen.getByRole("button", { name: "执行已批准预览" }));
-    expect(await screen.findByText(/计划 plan-1 状态为 completed/)).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "开始整理" }));
+    expect((await screen.findAllByText(/计划 plan-1：整理完成/)).length).toBeGreaterThan(0);
+    expect(screen.queryByLabelText("操作计划")).toBeNull();
+    const progressLog = screen.getByLabelText("整理进度日志");
+    expect(within(progressLog).getByText("规划整理")).toBeTruthy();
+    expect(within(progressLog).getByText("安全计划完成")).toBeTruthy();
+    expect(within(progressLog).getByText("执行整理")).toBeTruthy();
+    expect(within(progressLog).getByText("整理完成")).toBeTruthy();
 
     expect(
       calls.some(
         (call) =>
           call.method === "POST" &&
-          call.url === "/api/manual/plans/plan-1/execute",
+          call.url === "/api/manual/jobs/7/organize",
       ),
     ).toBe(true);
-    const executeCall = calls.find((call) =>
-      call.url.endsWith("/api/manual/plans/plan-1/execute"),
+    expect(
+      calls.some(
+        (call) =>
+          call.method === "POST" &&
+          call.url === "/api/manual/jobs/7/preview",
+      ),
+    ).toBe(false);
+    const organizeCall = calls.find((call) =>
+      call.url.endsWith("/api/manual/jobs/7/organize"),
     );
-    expect((executeCall?.body as { approved: boolean }).approved).toBe(true);
+    expect((organizeCall?.body as { mode: string }).mode).toBe("copy");
+  });
+
+  it("shows review reasons and blocks organization until candidate checks pass", async () => {
+    const { calls } = installFetchMock([
+      {
+        method: "POST",
+        path: "/api/manual/scan",
+        response: {
+          scanned_count: 1,
+          jobs: [
+            manualJobFixture({
+              job_id: 8,
+              media_identity: "needs-review",
+              path: "/media/incoming/Needs.Review.mkv",
+            }),
+          ],
+        },
+      },
+      {
+        method: "POST",
+        path: "/api/manual/search",
+        response: {
+          job_id: 8,
+          search_query_id: 12,
+          query: "Needs Review",
+          normalized_query: "Needs Review",
+          candidates: [
+            {
+              candidate_id: 4,
+              source: "xchina",
+              source_candidate_id: "XC-REVIEW",
+              title: "Needs Review",
+              image_url: null,
+              actors: [],
+              studio: null,
+              series: null,
+              release_date: null,
+              url: "https://xchina.example.test/videos/needs-review.html",
+              confidence_score: 80,
+              score_breakdown: { title: 80 },
+            },
+          ],
+        },
+      },
+      {
+        method: "POST",
+        path: "/api/manual/jobs/8/select-candidate",
+        response: {
+          job_id: 8,
+          accepted: false,
+          reasons: ["unresolved_multipart", "unsafe_path"],
+          selected_candidate: {
+            candidate_id: 4,
+            source: "xchina",
+            source_candidate_id: "XC-REVIEW",
+            title: "Needs Review",
+            image_url: null,
+            actors: [],
+            studio: null,
+            series: null,
+            release_date: null,
+            url: "https://xchina.example.test/videos/needs-review.html",
+            confidence_score: 80,
+            score_breakdown: { title: 80 },
+          },
+          metadata_record_id: null,
+          metadata: {
+            title: "Needs Review",
+            original_title: null,
+            actors: [],
+            assets: {},
+          },
+        },
+      },
+    ]);
+
+    render(<ManualOrganizerPage />);
+
+    fireEvent.change(screen.getByPlaceholderText("/media/incoming"), {
+      target: { value: "/media/incoming" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "扫描源目录" }));
+    expect(await screen.findByText("已扫描 1 个视频文件")).toBeTruthy();
+
+    fireEvent.change(screen.getByLabelText(/搜索关键词/i), {
+      target: { value: "Needs Review" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "搜索" }));
+    expect(await screen.findByRole("heading", { name: "Needs Review" })).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "选择候选项" }));
+    const reviewReasons = await screen.findByLabelText("复核原因");
+    expect(within(reviewReasons).getByText("多段视频需确认")).toBeTruthy();
+    expect(within(reviewReasons).getByText("路径不安全")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "开始整理" })).toBeDisabled();
+
+    fireEvent.change(screen.getByLabelText(/目标目录/i), {
+      target: { value: "/media/organized" },
+    });
+    expect(screen.getByRole("button", { name: "开始整理" })).toBeDisabled();
+    expect(
+      calls.some(
+        (call) =>
+          call.method === "POST" &&
+          call.url === "/api/manual/jobs/8/organize",
+      ),
+    ).toBe(false);
   });
 
   it("keeps custom search text while editing instead of replacing it with media identity", async () => {
@@ -303,7 +395,7 @@ describe("ManualOrganizerPage", () => {
     expect(within(fileList).getByText("共 12 个视频，显示第 1-5 个")).toBeTruthy();
   });
 
-  it("prefills preview configuration from organization defaults", async () => {
+  it("prefills organization configuration from organization defaults", async () => {
     installFetchMock([
       {
         path: "/api/settings",
@@ -315,7 +407,7 @@ describe("ManualOrganizerPage", () => {
 
     expect(await screen.findByLabelText(/目标目录/i)).toHaveValue("/media/default");
     expect(screen.getByLabelText(/整理模式/i)).toHaveValue("hardlink");
-    expect(screen.getByLabelText(/资源策略/i)).toHaveValue("strict");
+    expect(screen.getByLabelText(/资源缺失处理/i)).toHaveValue("strict");
     expect(screen.getByLabelText(/包含源快照/i)).toBeChecked();
     expect(screen.getByLabelText(/文件夹模板/i)).toHaveValue(
       "{studio}\n{xchina_id} - {title}",
@@ -325,7 +417,7 @@ describe("ManualOrganizerPage", () => {
     );
   });
 
-  it("does not overwrite edited preview fields when defaults load late", async () => {
+  it("does not overwrite edited organization fields when defaults load late", async () => {
     let resolveSettings: (settings: AppSettings) => void = () => undefined;
     const settingsPromise = new Promise<AppSettings>((resolve) => {
       resolveSettings = resolve;
@@ -370,91 +462,6 @@ function manualJobFixture({
         identity: media_identity,
         size_bytes: 4,
         multipart_index: null,
-      },
-    ],
-  };
-}
-
-function operationPlanFixture() {
-  return {
-    plan_id: "plan-1",
-    version: 1,
-    job_id: 7,
-    mode: "copy",
-    destination_root: "/media/organized",
-    target_directory: "/media/organized/Studio One/Sample Work",
-    source_snapshot: [],
-    materialized_asset_cache_paths: ["/config/assets/poster.jpg"],
-    conflicts: [
-      {
-        target_path: "/media/organized/Studio One/Sample Work/Sample Work.mkv",
-        reason: "destination_collision",
-        source_path: null,
-        allowed: false,
-      },
-    ],
-    safety_warnings: [
-      {
-        code: "strict_assets_missing",
-        message: "Fanart is missing",
-        path: "/config/assets/fanart.jpg",
-      },
-    ],
-    created_at: "2026-07-23T00:00:00Z",
-    steps: [
-      {
-        step_id: "media-1",
-        operation: "copy",
-        category: "media",
-        source_path: "/media/incoming/Sample.Work.mkv",
-        target_path: "/media/organized/Studio One/Sample Work/Sample Work.mkv",
-        temp_parent_path: "/media/organized/.xona-tmp",
-        expected_size_bytes: 4,
-        mtime_ns: null,
-        sha256: null,
-        sidecar: false,
-        materialized_asset: false,
-        generated_artifact: false,
-        actor_output: false,
-        destructive: false,
-        allow_existing_generated_replacement: false,
-        metadata: {},
-      },
-      {
-        step_id: "nfo-1",
-        operation: "write_generated",
-        category: "generated_artifact",
-        source_path: null,
-        target_path: "/media/organized/Studio One/Sample Work/movie.nfo",
-        temp_parent_path: "/media/organized/.xona-tmp",
-        expected_size_bytes: 20,
-        mtime_ns: null,
-        sha256: null,
-        sidecar: true,
-        materialized_asset: false,
-        generated_artifact: true,
-        actor_output: false,
-        destructive: false,
-        allow_existing_generated_replacement: false,
-        metadata: {},
-      },
-      {
-        step_id: "actor-1",
-        operation: "copy",
-        category: "actor_output",
-        source_path: "/config/actor-cache/actor-one.jpg",
-        target_path: "/media/organized/.actors/Actor One/folder.jpg",
-        temp_parent_path: "/media/organized/.xona-tmp",
-        expected_size_bytes: 20,
-        mtime_ns: null,
-        sha256: null,
-        sidecar: false,
-        materialized_asset: true,
-        generated_artifact: false,
-        actor_output: true,
-        destructive: false,
-        allow_existing_generated_replacement: false,
-        metadata: {},
       },
     ],
   };

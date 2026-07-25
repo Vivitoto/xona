@@ -7,7 +7,12 @@ import type {
   JobSummaryRead,
 } from "../api/types";
 import { FormField, Section } from "../components/FormField";
-import { JobTimeline } from "../components/JobTimeline";
+import {
+  ProgressLog,
+  codeLabel,
+  jobEventsToProgressLines,
+  stateLabel,
+} from "../components/ProgressLog";
 
 export function TaskCenterPage() {
   const [jobId, setJobId] = useState("1");
@@ -49,9 +54,9 @@ export function TaskCenterPage() {
       );
       if ("job" in response) {
         setJob(response.job);
-        setStatus(`任务状态 ${response.job.state}`);
+        setStatus(`任务状态：${stateLabel(response.job.state)}`);
       } else {
-        setStatus(`任务状态 ${response.state}`);
+        setStatus(`任务状态：${stateLabel(response.state)}`);
       }
       await loadJob();
     } catch (exc) {
@@ -69,13 +74,13 @@ export function TaskCenterPage() {
         </div>
         <div className="metric metric-warning">
           <span>任务状态</span>
-          <strong>{loading ? "加载中" : job?.state ?? "未加载"}</strong>
+          <strong>{loading ? "加载中" : job ? stateLabel(job.state) : "未加载"}</strong>
           <small>{job?.retryable ? "可重试" : "按任务状态控制操作"}</small>
         </div>
         <div className="metric metric-success">
-          <span>时间线事件</span>
+          <span>进度记录</span>
           <strong>{events.length}</strong>
-          <small>payload 自动脱敏</small>
+          <small>来自任务事件</small>
         </div>
       </div>
 
@@ -114,7 +119,7 @@ export function TaskCenterPage() {
               <dt>状态</dt>
               <dd>
                 <span className={`status-pill ${stateTone(job.state)}`}>
-                  {job.state}
+                  {stateLabel(job.state)}
                 </span>
               </dd>
             </div>
@@ -138,7 +143,7 @@ export function TaskCenterPage() {
             </div>
             <div>
               <dt>最近错误</dt>
-              <dd>{job.last_error_code ?? "无"}</dd>
+              <dd>{job.last_error_code ? codeLabel(job.last_error_code) : "无"}</dd>
             </div>
             <div>
               <dt>候选项</dt>
@@ -154,20 +159,17 @@ export function TaskCenterPage() {
         ) : (
           <div className="empty-state">
             <strong>还没有加载任务</strong>
-            <span>输入任务 ID 后加载详情、事件时间线和可用操作。</span>
+            <span>输入任务 ID 后加载详情、进度记录和可用操作。</span>
           </div>
         )}
       </Section>
 
-      <Section title="任务时间线">
-        {events.length ? (
-          <JobTimeline events={events} />
-        ) : (
-          <div className="empty-state">
-            <strong>暂无时间线事件</strong>
-            <span>加载任务后，状态流转和诊断 payload 会显示在这里。</span>
-          </div>
-        )}
+      <Section title="任务进度">
+        <ProgressLog
+          ariaLabel="任务进度日志"
+          emptyLabel="加载任务后显示搜索、整理和通知进度。"
+          lines={jobEventsToProgressLines(events, job?.state)}
+        />
       </Section>
 
       {status ? <p className="status floating-status">{status}</p> : null}
@@ -189,7 +191,7 @@ function ReasonList({ reasons }: { reasons: string[] }) {
     <div className="reason-list">
       {reasons.map((reason) => (
         <span className="status-pill status-pill-warning" key={reason}>
-          {reason}
+          {codeLabel(reason)}
         </span>
       ))}
     </div>

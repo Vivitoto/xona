@@ -1,8 +1,13 @@
 from __future__ import annotations
 
+from pathlib import Path
 from xml.etree import ElementTree
 
 from backend.app.schemas.metadata import MetadataRecordData
+
+
+def movie_nfo_relative_path(template_filename: str) -> str:
+    return f"{Path(template_filename).stem}.nfo"
 
 
 def render_movie_nfo(record: MetadataRecordData) -> bytes:

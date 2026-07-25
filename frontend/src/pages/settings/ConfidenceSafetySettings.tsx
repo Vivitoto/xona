@@ -31,13 +31,7 @@ export function ConfidenceSafetySettings({
             onChange({ refuse_destination_collisions })
           }
         />
-        <CheckboxField
-          checked={settings.refuse_unresolved_multipart}
-          label="拒绝未解决分段文件"
-          onChange={(refuse_unresolved_multipart) =>
-            onChange({ refuse_unresolved_multipart })
-          }
-        />
+
         <div className="path-field">
           <FormField label="安全缓存目录">
             <input

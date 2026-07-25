@@ -23,7 +23,7 @@ test("设置 saves exact connector, mapping, template, threshold, and asset poli
   await page.getByRole("navigation", { name: "主导航" }).getByRole("button", { name: "设置" }).click();
   await expect(activePage(page).getByRole("heading", { name: "设置" })).toBeVisible();
 
-  await page.getByRole("tab", { name: "媒体目录" }).click();
+  await page.getByRole("tab", { name: "整理配置" }).click();
   await page.getByRole("textbox", { name: /媒体目录/ }).fill(fixture.media_root);
   await page.getByRole("tab", { name: "XChina" }).click();
   await page.getByLabel("精确 FlareSolverr 端点").fill(flareSolverrEndpoint);
@@ -36,11 +36,15 @@ test("设置 saves exact connector, mapping, template, threshold, and asset poli
   await page.getByRole("button", { name: "添加映射" }).click();
   await page.getByLabel("容器根目录").fill(fixture.media_root);
   await page.getByLabel("Emby 可见根目录").fill("/emby/fixture-media");
-  await page.getByRole("tab", { name: "命名模板" }).click();
-  await page.getByLabel("文件夹模板").fill("{studio}\n{series}\n{title}");
-  await page.getByLabel("文件名模板").fill("{xchina_id} - {title} [{release_date}]");
+  await page.getByRole("tab", { name: "整理配置" }).click();
+  await page
+    .getByRole("textbox", { name: "文件夹模板" })
+    .fill("{studio}\n{series}\n{title}");
+  await page
+    .getByRole("textbox", { name: "文件名模板" })
+    .fill("{xchina_id} - {title} [{release_date}]");
   await page.getByRole("tab", { name: "元数据/资源" }).click();
-  await page.getByLabel("资源策略").selectOption("strict");
+  await page.getByLabel("资源缺失处理").selectOption("strict");
   await page.getByRole("tab", { name: "置信度/安全" }).click();
   await page.getByLabel("置信度阈值").fill("87");
   await page.getByLabel("安全缓存目录").fill(fixture.safety_cache_dir);
@@ -58,15 +62,15 @@ test("设置 saves exact connector, mapping, template, threshold, and asset poli
   await page.getByRole("tab", { name: "Emby" }).click();
   await expect(page.getByLabel("容器根目录")).toHaveValue(fixture.media_root);
   await expect(page.getByLabel("Emby 可见根目录")).toHaveValue("/emby/fixture-media");
-  await page.getByRole("tab", { name: "命名模板" }).click();
-  await expect(page.getByLabel("文件夹模板")).toHaveValue(
+  await page.getByRole("tab", { name: "整理配置" }).click();
+  await expect(page.getByRole("textbox", { name: "文件夹模板" })).toHaveValue(
     "{studio}\n{series}\n{title}",
   );
-  await expect(page.getByLabel("文件名模板")).toHaveValue(
+  await expect(page.getByRole("textbox", { name: "文件名模板" })).toHaveValue(
     "{xchina_id} - {title} [{release_date}]",
   );
   await page.getByRole("tab", { name: "元数据/资源" }).click();
-  await expect(page.getByLabel("资源策略")).toHaveValue("strict");
+  await expect(page.getByLabel("资源缺失处理")).toHaveValue("strict");
   await page.getByRole("tab", { name: "置信度/安全" }).click();
   await expect(page.getByLabel("置信度阈值")).toHaveValue("87");
   await expectNoClippedCriticalText(page);
@@ -92,7 +96,7 @@ test("自动监控 creates a rule, excludes nested destinations, scans now, and 
   );
 
   await page.getByLabel("置信度阈值").fill("88");
-  await page.getByLabel("资源策略").selectOption("strict");
+  await page.getByLabel("资源缺失处理").selectOption("strict");
   await page.getByRole("button", { name: "创建监控规则" }).click();
   await expect(page.getByText("监控规则 rule-1 已保存")).toBeVisible();
   await expect(page.getByRole("table", { name: "自动监控规则" })).toContainText(
@@ -102,11 +106,11 @@ test("自动监控 creates a rule, excludes nested destinations, scans now, and 
   await page.getByRole("button", { name: "立即扫描" }).click();
   await expect(page.getByText(/已为 rule-1 加入扫描队列：/)).toBeVisible();
   await expect(
-    page.getByRole("table", { name: "监控器需复核任务" }),
+    page.getByRole("table", { name: "自动整理任务进度" }),
   ).toContainText("Monitor review item");
   await expect(
-    page.getByRole("table", { name: "监控器需复核任务" }),
-  ).toContainText("strict_assets_missing");
+    page.getByRole("table", { name: "自动整理任务进度" }),
+  ).toContainText("必需资源缺失");
   await expectNoOverlappingControls(page);
 });
 

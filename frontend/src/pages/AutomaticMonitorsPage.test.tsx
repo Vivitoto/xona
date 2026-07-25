@@ -21,7 +21,7 @@ describe("AutomaticMonitorsPage", () => {
         response: { rules: [watchRuleFixture()] },
       },
       {
-        path: "/api/jobs?state=review_required",
+        path: "/api/jobs?manual=false",
         response: { jobs: [] },
       },
       {
@@ -54,7 +54,7 @@ describe("AutomaticMonitorsPage", () => {
       "aria-pressed",
       "true",
     );
-    expect(screen.getAllByLabelText(/资源策略/i)[0]).toHaveValue("lenient");
+    expect(screen.getAllByLabelText(/资源缺失处理/i)[0]).toHaveValue("lenient");
     expect(screen.getAllByLabelText(/文件夹模板/i)[0]).toHaveValue(
       "{studio}\n{xchina_id}",
     );
@@ -70,7 +70,7 @@ describe("AutomaticMonitorsPage", () => {
       "稳定等待时间",
       "稳定检查次数",
       "置信度阈值",
-      "资源策略",
+      "资源缺失处理",
       "文件夹模板",
       "文件名模板",
       "包含模式",
@@ -138,6 +138,63 @@ describe("AutomaticMonitorsPage", () => {
       );
       expect(calls.some((call) => call.url === "/api/watch-rules/rule-1/scan-now")).toBe(true);
     });
+  });
+
+  it("loads compact progress logs for automatic queue jobs", async () => {
+    const { calls } = installFetchMock([
+      {
+        path: "/api/settings",
+        response: settingsFixture(),
+      },
+      {
+        path: "/api/watch-rules",
+        response: { rules: [watchRuleFixture()] },
+      },
+      {
+        path: "/api/jobs?manual=false",
+        response: { jobs: [autoJobFixture()] },
+      },
+      {
+        path: "/api/jobs/10/events",
+        response: {
+          events: [
+            {
+              id: 1,
+              job_id: 10,
+              from_state: null,
+              to_state: "searching",
+              payload: { api_key: "raw-secret" },
+            },
+            {
+              id: 2,
+              job_id: 10,
+              from_state: "searching",
+              to_state: "review_required",
+              payload: {
+                reason: "confidence_below_threshold",
+                proxy: "http://user:pass@proxy.test:8080",
+              },
+            },
+          ],
+        },
+      },
+    ]);
+
+    render(<AutomaticMonitorsPage />);
+
+    fireEvent.click(await screen.findByRole("tab", { name: "任务队列" }));
+    expect(await screen.findByText("Auto.Work.2026")).toBeTruthy();
+    const progressLog = screen.getByLabelText("任务 10 进度日志");
+    expect(progressLog).toHaveTextContent("搜索候选");
+    expect(progressLog).toHaveTextContent("等待人工复核");
+    expect(progressLog).toHaveTextContent("置信度低于阈值");
+    expect(progressLog).not.toHaveTextContent("confidence_below_threshold");
+    expect(progressLog).not.toHaveTextContent("raw-secret");
+    expect(progressLog).not.toHaveTextContent("user:pass");
+
+    await waitFor(() =>
+      expect(calls.some((call) => call.url === "/api/jobs/10/events")).toBe(true),
+    );
   });
 });
 
@@ -213,5 +270,25 @@ function baseWatchRule() {
     excluded_destination_prefixes: [],
     confidence_threshold: 92,
     enabled: true,
+  };
+}
+
+function autoJobFixture() {
+  return {
+    id: 10,
+    state: "review_required",
+    media_identity: "Auto.Work.2026",
+    rule_id: "rule-1",
+    manual: false,
+    attempts: 1,
+    max_attempts: 3,
+    next_run_at: null,
+    last_error_code: null,
+    payload: {},
+    plan_id: null,
+    selected_candidate: { title: "Candidate Title" },
+    gate_reasons: ["confidence_below_threshold"],
+    retryable: true,
+    retry_emby_available: false,
   };
 }

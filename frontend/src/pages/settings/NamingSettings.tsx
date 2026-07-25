@@ -3,7 +3,6 @@ import { useRef, useState } from "react";
 import { apiFetch } from "../../api/client";
 import type { AppSettings, TemplatePreviewResponse } from "../../api/types";
 import { FormField, Section } from "../../components/FormField";
-import { TemplateGuide } from "../../components/TemplateGuide";
 import { linesToList, listToLines } from "./settingsForm";
 
 const templateVariables = [
@@ -115,7 +114,6 @@ export function NamingSettings({
           />
         </FormField>
       </div>
-      <TemplateGuide />
       <div className="variable-help">
         <button
           aria-expanded={variablesOpen}

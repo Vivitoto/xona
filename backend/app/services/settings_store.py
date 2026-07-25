@@ -89,6 +89,12 @@ def _normalize_app_settings(value: Any) -> dict[str, Any]:
     legacy_defaults = normalized.pop("manual_defaults", None)
     if "organization_defaults" not in normalized and isinstance(legacy_defaults, Mapping):
         normalized["organization_defaults"] = _plain_mapping(legacy_defaults)
+    organization_defaults = normalized.get("organization_defaults")
+    if isinstance(organization_defaults, Mapping):
+        organization_defaults = _plain_mapping(organization_defaults)
+        if organization_defaults.get("organization_mode") == "preview":
+            organization_defaults["organization_mode"] = "copy"
+        normalized["organization_defaults"] = organization_defaults
     return normalized
 
 

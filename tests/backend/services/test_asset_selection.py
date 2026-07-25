@@ -48,7 +48,7 @@ def test_selects_logical_assets_with_deterministic_relative_names() -> None:
     assert ("clearlogo", "clearlogo.png") in by_kind
     assert ("trailer", "trailer.mp4") in by_kind
     assert ("actor_portrait", ".actors/Actor One.jpg") in by_kind
-    assert ("normalized_json", "xchina-normalized.json") in by_kind
+    assert ("normalized_json", "xchina-normalized.json") not in by_kind
     assert ("source_snapshot", "source-snapshot.html") in by_kind
     assert selection.missing_required == []
 

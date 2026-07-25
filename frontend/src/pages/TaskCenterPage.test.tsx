@@ -9,7 +9,7 @@ afterEach(() => {
 });
 
 describe("TaskCenterPage", () => {
-  it("loads details/events, triggers job actions, and redacts timeline secrets", async () => {
+  it("loads details/events, triggers job actions, and renders compact progress", async () => {
     const { calls } = installFetchMock([
       { path: "/api/jobs/42", response: jobFixture() },
       {
@@ -40,11 +40,15 @@ describe("TaskCenterPage", () => {
     fireEvent.click(screen.getByRole("button", { name: "加载任务" }));
 
     expect((await screen.findAllByText("media-42")).length).toBeGreaterThan(0);
-    expect(screen.getAllByText("review_required").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("等待人工复核").length).toBeGreaterThan(0);
+    expect(screen.queryByText("review_required")).toBeNull();
+    const progressLog = screen.getByLabelText("任务进度日志");
+    expect(progressLog).toHaveTextContent("等待人工复核");
     expect(screen.queryByText(/raw-secret/)).toBeNull();
     expect(screen.queryByText(/raw-token/)).toBeNull();
     expect(screen.queryByText(/user:pass/)).toBeNull();
-    expect(screen.getByText(/\*{8}/)).toBeTruthy();
+    expect(progressLog).not.toHaveTextContent("api_key");
+    expect(progressLog).not.toHaveTextContent("Bearer");
 
     fireEvent.click(screen.getByRole("button", { name: "重试" }));
     fireEvent.click(screen.getByRole("button", { name: "取消" }));

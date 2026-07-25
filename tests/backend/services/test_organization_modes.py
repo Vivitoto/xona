@@ -110,7 +110,7 @@ def test_modes_preserve_grouped_files_assets_and_actor_outputs(
                 ),
                 generated_artifacts=[
                     GeneratedArtifact(
-                        relative_path="movie.nfo",
+                        relative_path="XC-001 - Renamed.nfo",
                         content_text="<movie />",
                         artifact_type="nfo",
                     )
@@ -131,11 +131,13 @@ def test_modes_preserve_grouped_files_assets_and_actor_outputs(
             sidecar_steps = [step for step in plan.steps if step.sidecar]
             asset_steps = [step for step in plan.steps if step.materialized_asset]
             actor_steps = [step for step in plan.steps if step.actor_output]
+            generated_step = next(step for step in plan.steps if step.generated_artifact)
 
             assert [step.operation for step in media_steps] == [media_operation, media_operation]
             assert len(sidecar_steps) == 2
             assert len(asset_steps) == 1
             assert len(actor_steps) == 1
+            assert generated_step.target_path == movie_root / "XC-001 - Renamed.nfo"
             assert plan.source_snapshot[0].sha256 == _sha256(b"part-one")
             assert all(step.target_path is not None for step in plan.steps)
             assert any("part01" in str(step.target_path) for step in media_steps)
@@ -148,6 +150,6 @@ def test_modes_preserve_grouped_files_assets_and_actor_outputs(
                 } == set()
             if mode == "in_place":
                 assert {step.target_path.parent for step in media_steps} == {incoming}
-                assert any(step.generated_artifact for step in plan.steps)
+                assert generated_step.target_path.parent == incoming
     finally:
         engine.dispose()

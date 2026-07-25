@@ -188,7 +188,10 @@ def test_manual_api_scan_search_select_preview_execute(tmp_path: Path) -> None:
     assert responses["preview"].json()["materialized_assets"]
     assert responses["execute"].json()["state"] == "completed"
     assert responses["job"].json()["state"] == "completed"
-    assert (destination / "Studio One" / "Sample Work Alpha" / "XC-001 - Sample Work Alpha.mkv").is_file()
+    target_dir = destination / "Studio One" / "Sample Work Alpha"
+    assert (target_dir / "XC-001 - Sample Work Alpha.mkv").is_file()
+    assert (target_dir / "XC-001 - Sample Work Alpha.nfo").is_file()
+    assert not (target_dir / "xchina-normalized.json").exists()
 
 
 def test_manual_search_uses_saved_xchina_settings(
@@ -445,5 +448,6 @@ def test_manual_selection_refuses_unsafe_paths(tmp_path: Path) -> None:
                 )
 
     response = asyncio.run(run())
-    assert response.status_code == 400
-    assert "unsafe_path" in response.text
+    assert response.status_code == 200, response.text
+    assert response.json()["accepted"] is False
+    assert "unsafe_path" in response.json()["reasons"]

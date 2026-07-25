@@ -3,6 +3,8 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { apiFetch } from "../api/client";
 import type {
   AppSettings,
+  JobEventRead,
+  JobEventsResponse,
   JobListResponse,
   JobSummaryRead,
   ScanNowResponse,
@@ -10,6 +12,11 @@ import type {
   WatchRuleList,
 } from "../api/types";
 import { Section } from "../components/FormField";
+import {
+  ProgressLog,
+  codeLabel,
+  jobEventsToProgressLines,
+} from "../components/ProgressLog";
 import { Tabs, type TabItem } from "../components/Tabs";
 import {
   WatchRuleDraft,
@@ -28,7 +35,9 @@ const monitorTabs: readonly TabItem<MonitorTab>[] = [
 export function AutomaticMonitorsPage() {
   const [activeTab, setActiveTab] = useState<MonitorTab>("rules");
   const [rules, setRules] = useState<WatchRule[]>([]);
-  const [reviewJobs, setReviewJobs] = useState<JobSummaryRead[]>([]);
+  const [automaticJobs, setAutomaticJobs] = useState<JobSummaryRead[]>([]);
+  const [queueEvents, setQueueEvents] = useState<Record<number, JobEventRead[]>>({});
+  const [queueEventErrors, setQueueEventErrors] = useState<Record<number, string>>({});
   const [draft, setDraft] = useState<WatchRuleDraft>(emptyWatchRuleDraft);
   const [status, setStatus] = useState("");
   const [error, setError] = useState("");
@@ -64,18 +73,40 @@ export function AutomaticMonitorsPage() {
     }
   }
 
-  async function loadReviewItems() {
+  async function loadAutomaticJobs() {
     setError("");
     try {
-      const response = await apiFetch<JobListResponse>(
-        "/api/jobs?state=review_required",
-      );
-      setReviewJobs(Array.isArray(response.jobs) ? response.jobs : []);
+      const response = await apiFetch<JobListResponse>("/api/jobs?manual=false");
+      const jobs = Array.isArray(response.jobs) ? response.jobs : [];
+      setAutomaticJobs(jobs);
+      await loadQueueEvents(jobs);
     } catch (exc) {
       setError(
-        exc instanceof Error ? exc.message : "无法加载需复核任务",
+        exc instanceof Error ? exc.message : "无法加载自动整理任务",
       );
     }
+  }
+
+  async function loadQueueEvents(jobs: JobSummaryRead[]) {
+    const nextEvents: Record<number, JobEventRead[]> = {};
+    const nextErrors: Record<number, string> = {};
+
+    await Promise.all(
+      jobs.map(async (job) => {
+        try {
+          const response = await apiFetch<JobEventsResponse>(
+            `/api/jobs/${job.id}/events`,
+          );
+          nextEvents[job.id] = Array.isArray(response.events) ? response.events : [];
+        } catch (exc) {
+          nextEvents[job.id] = [];
+          nextErrors[job.id] = exc instanceof Error ? exc.message : "无法加载任务事件";
+        }
+      }),
+    );
+
+    setQueueEvents(nextEvents);
+    setQueueEventErrors(nextErrors);
   }
 
   useEffect(() => {
@@ -85,8 +116,18 @@ export function AutomaticMonitorsPage() {
 
   useEffect(() => {
     if (activeTab === "queue") {
-      void loadReviewItems();
+      void loadAutomaticJobs();
     }
+  }, [activeTab]);
+
+  useEffect(() => {
+    if (activeTab !== "queue") {
+      return;
+    }
+    const refreshTimer = window.setInterval(() => {
+      void loadAutomaticJobs();
+    }, 5000);
+    return () => window.clearInterval(refreshTimer);
   }, [activeTab]);
 
   async function saveRule() {
@@ -103,7 +144,7 @@ export function AutomaticMonitorsPage() {
           polling_interval_seconds: draft.polling_interval_seconds,
           stability_seconds: draft.stability_seconds,
           stable_check_count: draft.stable_check_count,
-          organization_mode: draft.organization_mode,
+          organization_mode: organizationModeOrCopy(draft.organization_mode),
           folder_templates: draft.folder_templates,
           filename_template: draft.filename_template,
           asset_policy: draft.asset_policy,
@@ -134,7 +175,7 @@ export function AutomaticMonitorsPage() {
       setStatus(
         `已为 ${response.rule_id} 加入扫描队列：${response.enqueued_jobs.join(", ") || "无任务"}`,
       );
-      await loadReviewItems();
+      await loadAutomaticJobs();
       setActiveTab("queue");
     } catch (exc) {
       setError(exc instanceof Error ? exc.message : "无法扫描监控规则");
@@ -179,7 +220,7 @@ export function AutomaticMonitorsPage() {
                         <td>{rule.rule_id}</td>
                         <td>{rule.source_directory}</td>
                         <td>{rule.destination_directory}</td>
-                        <td>{rule.organization_mode}</td>
+                        <td>{organizationModeLabel(rule.organization_mode)}</td>
                         <td>{rule.enabled ? "是" : "否"}</td>
                         <td>
                           <div className="button-row">
@@ -187,7 +228,12 @@ export function AutomaticMonitorsPage() {
                               type="button"
                               onClick={() => {
                                 draftTouched.current = true;
-                                setDraft({ ...rule });
+                                setDraft({
+                                  ...rule,
+                                  organization_mode: organizationModeOrCopy(
+                                    rule.organization_mode,
+                                  ),
+                                });
                               }}
                             >
                               编辑
@@ -212,9 +258,9 @@ export function AutomaticMonitorsPage() {
             </Section>
           </>
         ) : (
-          <Section title="任务队列">
+          <Section title="自动整理任务">
             <table>
-              <caption>监控器需复核任务</caption>
+              <caption>自动整理任务进度</caption>
               <thead>
                 <tr>
                   <th>任务</th>
@@ -222,22 +268,33 @@ export function AutomaticMonitorsPage() {
                   <th>标识</th>
                   <th>原因</th>
                   <th>候选项</th>
+                  <th>进度</th>
                 </tr>
               </thead>
               <tbody>
-                {reviewJobs.length ? (
-                  reviewJobs.map((job) => (
+                {automaticJobs.length ? (
+                  automaticJobs.map((job) => (
                     <tr key={job.id}>
                       <td>{job.id}</td>
                       <td>{job.rule_id ?? "手动"}</td>
                       <td>{job.media_identity}</td>
-                      <td>{job.gate_reasons.join(", ") || "需要复核"}</td>
+                      <td>{gateReasonLabel(job)}</td>
                       <td>{candidateTitle(job.selected_candidate)}</td>
+                      <td className="queue-progress-cell">
+                        <ProgressLog
+                          ariaLabel={`任务 ${job.id} 进度日志`}
+                          emptyLabel={queueEventErrors[job.id] || "暂无进度事件。"}
+                          lines={jobEventsToProgressLines(
+                            queueEvents[job.id] ?? [],
+                            job.state,
+                          )}
+                        />
+                      </td>
                     </tr>
                   ))
                 ) : (
                   <tr>
-                    <td colSpan={5}>没有需复核的监控项目。</td>
+                    <td colSpan={6}>没有自动整理任务。</td>
                   </tr>
                 )}
               </tbody>
@@ -258,6 +315,13 @@ function candidateTitle(candidate: Record<string, unknown> | null): string {
   return typeof candidate.title === "string" ? candidate.title : "已选择候选项";
 }
 
+function gateReasonLabel(job: JobSummaryRead): string {
+  if (job.gate_reasons.length) {
+    return job.gate_reasons.map(codeLabel).join("，");
+  }
+  return job.state === "review_required" ? "需要复核" : "—";
+}
+
 function applyOrganizationDefaults(
   draft: WatchRuleDraft,
   settings: AppSettings,
@@ -269,7 +333,7 @@ function applyOrganizationDefaults(
   return {
     ...draft,
     destination_directory: defaults.destination_directory ?? draft.destination_directory,
-    organization_mode: defaults.organization_mode,
+    organization_mode: organizationModeOrCopy(defaults.organization_mode),
     folder_templates: folderTemplates.length ? folderTemplates : draft.folder_templates,
     filename_template:
       defaults.filename_template ||
@@ -284,4 +348,27 @@ function applyOrganizationDefaults(
       include_source_snapshot: defaults.include_source_snapshot,
     },
   };
+}
+
+function organizationModeOrCopy(mode: WatchRuleDraft["organization_mode"]): WatchRuleDraft["organization_mode"] {
+  return mode === "preview" ? "copy" : mode;
+}
+
+function organizationModeLabel(mode: WatchRuleDraft["organization_mode"]): string {
+  switch (organizationModeOrCopy(mode)) {
+    case "copy":
+      return "复制";
+    case "move":
+      return "移动";
+    case "hardlink":
+      return "硬链接";
+    case "symlink":
+      return "符号链接";
+    case "in_place":
+      return "原地处理";
+    case "preview":
+      return "复制";
+    default:
+      return String(mode);
+  }
 }

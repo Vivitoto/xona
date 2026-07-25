@@ -1,6 +1,4 @@
 from __future__ import annotations
-
-import json
 from pathlib import Path
 
 from backend.app.schemas.assets import AssetSelection, LogicalAsset, MissingAsset
@@ -85,19 +83,6 @@ def select_assets(
                 actor_source_id=actor.source_id,
             )
         )
-    assets.append(
-        LogicalAsset(
-            kind="normalized_json",
-            relative_path="xchina-normalized.json",
-            content_type="application/json",
-            inline_bytes=json.dumps(
-                record.model_dump(mode="json"),
-                ensure_ascii=False,
-                sort_keys=True,
-                indent=2,
-            ).encode("utf-8"),
-        )
-    )
     if include_source_snapshot:
         assets.append(
             LogicalAsset(

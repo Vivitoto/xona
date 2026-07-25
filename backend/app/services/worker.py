@@ -38,7 +38,7 @@ from backend.app.services.assets import select_assets
 from backend.app.services.jobs import JobService
 from backend.app.services.matching import can_auto_execute, score_candidate
 from backend.app.services.metadata import normalize_source_video, persist_metadata_record
-from backend.app.services.nfo import render_movie_nfo
+from backend.app.services.nfo import movie_nfo_relative_path, render_movie_nfo
 from backend.app.services.normalization import normalize_filename_for_search
 from backend.app.services.operation_executor import OperationExecutor, OperationJournal
 from backend.app.services.organizer_plans import OrganizerPlanService
@@ -462,14 +462,16 @@ class Worker:
             filename_template=rule.filename_template,
             context=_template_context(record, media_items[0]),
         )
-        generated = [
-            GeneratedArtifact(
-                relative_path="movie.nfo",
-                artifact_type="nfo",
-                content_text=render_movie_nfo(record).decode("utf-8"),
-                allow_replace_existing=True,
-            )
-        ]
+        generated: list[GeneratedArtifact] = []
+        if template.filename:
+            generated = [
+                GeneratedArtifact(
+                    relative_path=movie_nfo_relative_path(template.filename),
+                    artifact_type="nfo",
+                    content_text=render_movie_nfo(record).decode("utf-8"),
+                    allow_replace_existing=True,
+                )
+            ]
         plan = OrganizerPlanService(
             session,
             StorageRootService(settings, session),
@@ -582,6 +584,8 @@ def _rule_for_job(session: Session, job: Job) -> WatchRule:
 
 
 def _organization_mode(value: str) -> OrganizationMode:
+    if value == "preview":
+        return "copy"
     if value not in {"preview", "in_place", "move", "copy", "hardlink", "symlink"}:
         raise RuntimeError("invalid_organization_mode")
     return cast(OrganizationMode, value)

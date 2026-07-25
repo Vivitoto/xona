@@ -106,7 +106,7 @@ def test_persists_immutable_snapshot_with_sources_targets_hashes_and_artifacts(
             ]
             generated = [
                 GeneratedArtifact(
-                    relative_path="movie.nfo",
+                    relative_path="XC-001 - Sample.nfo",
                     content_text="<movie><title>Sample</title></movie>",
                     artifact_type="nfo",
                     allow_replace_existing=True,
@@ -137,6 +137,9 @@ def test_persists_immutable_snapshot_with_sources_targets_hashes_and_artifacts(
             assert any(step.actor_output for step in plan.steps)
             generated_step = next(step for step in plan.steps if step.generated_artifact)
             assert generated_step.operation == "write_generated"
+            assert generated_step.target_path == (
+                destination / "Studio" / "Sample" / "XC-001 - Sample.nfo"
+            )
             assert generated_step.expected_size_bytes == len(
                 b"<movie><title>Sample</title></movie>"
             )
@@ -164,7 +167,7 @@ def test_destination_collisions_fail_but_explicit_generated_replacements_are_all
     sidecar = _write(incoming / "sample.srt", b"subtitle-bytes")
     target_dir = destination / "Studio" / "Sample"
     _write(target_dir / "XC-001 - Sample.mkv", b"existing-video")
-    _write(target_dir / "movie.nfo", b"existing-metadata")
+    _write(target_dir / "Other.nfo", b"existing-metadata")
     settings, engine, sessionmaker = _database(tmp_path, root)
     try:
         with sessionmaker() as session:
@@ -188,7 +191,7 @@ def test_destination_collisions_fail_but_explicit_generated_replacements_are_all
                 template_preview=_template(filename="Other.mkv"),
                 generated_artifacts=[
                     GeneratedArtifact(
-                        relative_path="movie.nfo",
+                        relative_path="Other.nfo",
                         content_text="<movie />",
                         artifact_type="nfo",
                         allow_replace_existing=True,
@@ -197,6 +200,7 @@ def test_destination_collisions_fail_but_explicit_generated_replacements_are_all
             )
             assert plan.conflicts == ()
             replacement_step = next(step for step in plan.steps if step.generated_artifact)
+            assert replacement_step.target_path == target_dir / "Other.nfo"
             assert replacement_step.allow_existing_generated_replacement is True
     finally:
         engine.dispose()

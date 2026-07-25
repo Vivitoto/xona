@@ -208,6 +208,21 @@ def create_app() -> FastAPI:
             "plan": plan["plan"],
         }
 
+    @app.post("/api/manual/jobs/{job_id}/organize")
+    async def organize_manual_job(job_id: int, payload: dict[str, Any]) -> dict[str, Any]:
+        job = state.job_or_404(job_id)
+        destination_root = Path(str(payload.get("destination_root") or state.paths["destination_dir"]))
+        if not is_inside(destination_root, Path(state.paths["media_root"])):
+            raise HTTPException(status_code=400, detail="Destination must stay inside fixture root")
+        safe_payload = {**payload, "mode": "copy" if payload.get("mode") == "preview" else payload.get("mode", "copy")}
+        plan_entry = state.create_plan(job, destination_root, safe_payload)
+        state.execute_plan(plan_entry)
+        return {
+            "plan_id": plan_entry["plan_id"],
+            "job_id": plan_entry["job_id"],
+            "state": plan_entry["status"],
+        }
+
     @app.post("/api/manual/plans/{plan_id}/execute")
     async def execute_manual_plan(plan_id: str, payload: dict[str, Any]) -> dict[str, Any]:
         plan_entry = state.plans.get(plan_id)

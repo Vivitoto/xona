@@ -26,20 +26,19 @@ test("复核队列, 任务中心, and 历史/回滚 use jobs/history APIs and re
     "Review.Required.Work.2026",
   );
   await expect(page.getByRole("table", { name: "需复核任务" })).toContainText(
-    "confidence_below_threshold",
+    "置信度低于阈值",
   );
 
   await page.getByRole("button", { name: "任务中心" }).click();
   await page.getByLabel("任务 ID").fill(String(fixture.review_job_id));
   await page.getByRole("button", { name: "加载任务" }).click();
-  await expect(page.getByLabel("任务时间线")).toContainText("review_required");
-  await expect(page.getByLabel("任务时间线")).toContainText("********");
+  await expect(page.getByLabel("任务进度日志")).toContainText("等待人工复核");
   await expect(page.getByText("super-secret-token")).toHaveCount(0);
   await expect(page.getByText("emby-secret-key")).toHaveCount(0);
 
   await page.getByRole("button", { name: "重试", exact: true }).click();
   await expect(page.getByText("任务已加载")).toBeVisible();
-  await expect(page.getByLabel("任务时间线").getByText("searching")).toBeVisible();
+  await expect(page.getByLabel("任务进度日志").getByText("搜索候选")).toBeVisible();
 
   await page.getByRole("button", { name: "历史/回滚" }).click();
   await expect(page.getByRole("table", { name: "操作历史" })).toContainText(

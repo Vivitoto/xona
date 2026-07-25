@@ -92,6 +92,10 @@ class ManualPreviewRequest(BaseModel):
     include_source_snapshot: bool = False
 
 
+class ManualOrganizeRequest(ManualPreviewRequest):
+    pass
+
+
 class ManualPreviewResponse(BaseModel):
     job_id: int
     plan_id: str

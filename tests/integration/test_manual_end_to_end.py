@@ -155,10 +155,12 @@ def test_manual_copy_mode_writes_media_metadata_assets_and_journal(
     job_id = run(scenario())
     target_dir = media_layout.output / "Studio One" / "Sample Work Alpha"
     target_media = target_dir / "XC-001 - Sample Work Alpha.mkv"
+    target_nfo = target_dir / "XC-001 - Sample Work Alpha.nfo"
 
     assert media_layout.media_file.read_bytes() == MEDIA_BYTES
     assert target_media.read_bytes() == MEDIA_BYTES
-    assert (target_dir / "movie.nfo").read_text(encoding="utf-8").find("Sample Work Alpha") >= 0
+    assert target_nfo.read_text(encoding="utf-8").find("Sample Work Alpha") >= 0
+    assert not (target_dir / "xchina-normalized.json").exists()
     assert (target_dir / "poster.jpg").read_bytes() == POSTER_BYTES
     assert (target_dir / "fanart.jpg").read_bytes() == FANART_BYTES
     assert (target_dir / ".actors" / "Actor One.jpg").read_bytes() == ACTOR_BYTES

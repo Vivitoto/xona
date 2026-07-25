@@ -117,6 +117,7 @@ class WatchRuleService:
             or _non_empty_text(defaults.get("organization_mode"))
             or "copy"
         )
+        values["organization_mode"] = _organization_mode_or_copy(values["organization_mode"])
         values["folder_templates"] = _non_empty_list(
             values.get("folder_templates")
         ) or _non_empty_list(defaults.get("folder_templates")) or ["{studio}", "{title}"]
@@ -151,6 +152,8 @@ class WatchRuleService:
                 default_value = _non_empty_text(defaults.get(key))
                 if default_value is not None:
                     updates[key] = default_value
+        if "organization_mode" in updates and updates["organization_mode"] is not None:
+            updates["organization_mode"] = _organization_mode_or_copy(updates["organization_mode"])
         if "folder_templates" in updates and not _non_empty_list(updates.get("folder_templates")):
             default_templates = _non_empty_list(defaults.get("folder_templates"))
             if default_templates:
@@ -390,6 +393,10 @@ def _non_empty_text(value: Any) -> str | None:
         return None
     text = str(value).strip()
     return text or None
+
+
+def _organization_mode_or_copy(value: Any) -> str:
+    return "copy" if str(value) == "preview" else str(value)
 
 
 def _non_empty_list(value: Any) -> list[str] | None:

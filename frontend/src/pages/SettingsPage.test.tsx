@@ -32,16 +32,26 @@ describe("SettingsPage", () => {
 
     for (const [tab, heading] of [
       ["Emby", "Emby"],
-      ["媒体目录", "媒体目录"],
-      ["命名模板", "命名模板"],
+      ["整理配置", "目录配置"],
       ["元数据/资源", "元数据/资源"],
-      ["整理默认值", "全局整理"],
       ["置信度/安全", "置信度/安全"],
       ["认证", "认证"],
     ]) {
       fireEvent.click(screen.getByRole("tab", { name: tab }));
       expect(screen.getByRole("heading", { name: heading })).toBeTruthy();
     }
+    expect(screen.queryByRole("tab", { name: "媒体目录" })).toBeNull();
+    expect(screen.queryByRole("tab", { name: "命名模板" })).toBeNull();
+    expect(screen.queryByRole("tab", { name: "整理默认值" })).toBeNull();
+
+    fireEvent.click(screen.getByRole("tab", { name: "整理配置" }));
+    expect(screen.getByRole("heading", { name: "媒体目录" })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "整理目标目录" })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "命名模板" })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "整理行为" })).toBeTruthy();
+    expect(
+      screen.getAllByRole("button", { name: "查看可用变量" }),
+    ).toHaveLength(1);
   });
 
   it("omits unchanged secret placeholders and submits explicit new secrets", async () => {
@@ -92,7 +102,7 @@ describe("SettingsPage", () => {
 
     render(<SettingsPage />);
     await screen.findByRole("heading", { name: "XChina" });
-    fireEvent.click(screen.getByRole("tab", { name: "整理默认值" }));
+    fireEvent.click(screen.getByRole("tab", { name: "整理配置" }));
     fireEvent.change(await screen.findByLabelText(/默认目标目录/i), {
       target: { value: "/media/defaults" },
     });
@@ -113,6 +123,37 @@ describe("SettingsPage", () => {
     });
   });
 
+  it("keeps one naming template and saves it to preview and organization defaults", async () => {
+    const { calls } = installFetchMock([
+      { path: "/api/settings", response: settingsFixture() },
+      { method: "PUT", path: "/api/settings", response: settingsFixture() },
+    ]);
+
+    render(<SettingsPage />);
+    await screen.findByRole("heading", { name: "XChina" });
+    fireEvent.click(screen.getByRole("tab", { name: "整理配置" }));
+    fireEvent.change(await screen.findByLabelText("文件夹模板"), {
+      target: { value: "{studio}\n{series}\n{title}" },
+    });
+    fireEvent.change(screen.getByLabelText("文件名模板"), {
+      target: { value: "{xchina_id} - {title} [{release_date}]" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "保存设置" }));
+
+    await waitFor(() =>
+      expect(calls.some((call) => call.method === "PUT")).toBe(true),
+    );
+    const put = calls.find((call) => call.method === "PUT");
+    expect((put?.body as AppSettings).naming).toMatchObject({
+      folder_templates: ["{studio}", "{series}", "{title}"],
+      filename_template: "{xchina_id} - {title} [{release_date}]",
+    });
+    expect((put?.body as AppSettings).organization_defaults).toMatchObject({
+      folder_templates: ["{studio}", "{series}", "{title}"],
+      filename_template: "{xchina_id} - {title} [{release_date}]",
+    });
+  });
+
   it("previews naming templates through the backend endpoint", async () => {
     const { calls } = installFetchMock([
       { path: "/api/settings", response: settingsFixture() },
@@ -130,8 +171,8 @@ describe("SettingsPage", () => {
 
     render(<SettingsPage />);
     await screen.findByRole("heading", { name: "XChina" });
-    fireEvent.click(screen.getByRole("tab", { name: "命名模板" }));
-    await screen.findByLabelText(/文件名模板/i);
+    fireEvent.click(screen.getByRole("tab", { name: "整理配置" }));
+    await screen.findByLabelText("文件名模板");
     fireEvent.click(screen.getByRole("button", { name: "预览命名模板" }));
 
     expect(await screen.findByText("XC-001 - Sample Work")).toBeTruthy();
@@ -152,8 +193,8 @@ describe("SettingsPage", () => {
 
     render(<SettingsPage />);
     await screen.findByRole("heading", { name: "XChina" });
-    fireEvent.click(screen.getByRole("tab", { name: "命名模板" }));
-    fireEvent.change(await screen.findByLabelText(/文件名模板/i), {
+    fireEvent.click(screen.getByRole("tab", { name: "整理配置" }));
+    fireEvent.change(await screen.findByLabelText("文件名模板"), {
       target: { value: "{unknown_variable}" },
     });
 
