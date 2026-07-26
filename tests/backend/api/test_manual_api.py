@@ -51,7 +51,12 @@ class FakeXChina:
             is_complete=True,
         )
 
-    async def fetch_asset(self, url: str) -> FetchedAsset:
+    async def fetch_asset(
+        self,
+        url: str,
+        *,
+        referer_url: str | None = None,
+    ) -> FetchedAsset:
         return FetchedAsset(url=url, content=f"bytes:{url}".encode(), content_type="image/jpeg")
 
 
@@ -75,8 +80,27 @@ class SearchMetadataOnlyXChina(FakeXChina):
 
 
 class FailingAssetXChina(FakeXChina):
-    async def fetch_asset(self, url: str) -> FetchedAsset:
+    async def fetch_asset(
+        self,
+        url: str,
+        *,
+        referer_url: str | None = None,
+    ) -> FetchedAsset:
         raise RuntimeError(f"HTTP 403 Forbidden: {url}")
+
+
+class ContextRecordingXChina(FakeXChina):
+    def __init__(self) -> None:
+        self.asset_requests: list[tuple[str, str | None]] = []
+
+    async def fetch_asset(
+        self,
+        url: str,
+        *,
+        referer_url: str | None = None,
+    ) -> FetchedAsset:
+        self.asset_requests.append((url, referer_url))
+        return await super().fetch_asset(url)
 
 
 class FailingSearchXChina:
@@ -296,6 +320,144 @@ def test_manual_organize_lenient_continues_when_asset_download_fails(
     assert (target_dir / "XC-001 - Sample Work Alpha.mkv").is_file()
     assert (target_dir / "XC-001 - Sample Work Alpha.nfo").is_file()
     assert not (target_dir / "poster.jpg").exists()
+
+
+def test_manual_preview_passes_selected_detail_url_to_asset_fetches(tmp_path: Path) -> None:
+    root = tmp_path / "media"
+    incoming = root / "incoming"
+    destination = root / "organized"
+    incoming.mkdir(parents=True)
+    destination.mkdir()
+    source = incoming / "Sample.Work.Alpha.mkv"
+    source.write_bytes(b"movie-bytes")
+    adapter = ContextRecordingXChina()
+    settings = Settings(
+        config_dir=tmp_path / "config",
+        storage_roots=(root,),
+        auth_enabled=False,
+    )
+
+    async def run() -> httpx.Response:
+        app = create_app(settings)
+        app.state.manual_search_adapter = adapter
+        async with app.router.lifespan_context(app):
+            async with httpx.AsyncClient(
+                transport=httpx.ASGITransport(app=app),
+                base_url=ORIGIN,
+            ) as client:
+                scan = await client.post(
+                    "/api/manual/scan",
+                    json={"directory": str(incoming)},
+                    headers={"Origin": ORIGIN},
+                )
+                job_id = scan.json()["jobs"][0]["job_id"]
+                search = await client.post(
+                    "/api/manual/search",
+                    json={
+                        "job_id": job_id,
+                        "filename": source.name,
+                        "normalized_query": "Sample Work Alpha",
+                    },
+                    headers={"Origin": ORIGIN},
+                )
+                candidate_id = search.json()["candidates"][0]["candidate_id"]
+                await client.post(
+                    f"/api/manual/jobs/{job_id}/select-candidate",
+                    json={"candidate_id": candidate_id},
+                    headers={"Origin": ORIGIN},
+                )
+                return await client.post(
+                    f"/api/manual/jobs/{job_id}/preview",
+                    json={
+                        "destination_root": str(destination),
+                        "mode": "copy",
+                        "folder_templates": ["{studio}", "{title}"],
+                        "filename_template": "{xchina_id} - {title}",
+                        "asset_policy": "strict",
+                    },
+                    headers={"Origin": ORIGIN},
+                )
+
+    response = asyncio.run(run())
+
+    assert response.status_code == 200, response.text
+    assert adapter.asset_requests == [
+        (
+            "https://images.example.test/poster.jpg",
+            "https://xchina.example.test/videos/xc-001.html",
+        ),
+        (
+            "https://images.example.test/fanart.jpg",
+            "https://xchina.example.test/videos/xc-001.html",
+        ),
+    ]
+
+
+def test_manual_preview_strict_fails_required_hotlink_forbidden_assets(
+    tmp_path: Path,
+) -> None:
+    root = tmp_path / "media"
+    incoming = root / "incoming"
+    destination = root / "organized"
+    incoming.mkdir(parents=True)
+    destination.mkdir()
+    source = incoming / "Sample.Work.Alpha.mkv"
+    source.write_bytes(b"movie-bytes")
+    settings = Settings(
+        config_dir=tmp_path / "config",
+        storage_roots=(root,),
+        auth_enabled=False,
+    )
+
+    async def run() -> httpx.Response:
+        app = create_app(settings)
+        app.state.manual_search_adapter = FailingAssetXChina()
+        async with app.router.lifespan_context(app):
+            async with httpx.AsyncClient(
+                transport=httpx.ASGITransport(app=app),
+                base_url=ORIGIN,
+            ) as client:
+                scan = await client.post(
+                    "/api/manual/scan",
+                    json={"directory": str(incoming)},
+                    headers={"Origin": ORIGIN},
+                )
+                job_id = scan.json()["jobs"][0]["job_id"]
+                search = await client.post(
+                    "/api/manual/search",
+                    json={
+                        "job_id": job_id,
+                        "filename": source.name,
+                        "normalized_query": "Sample Work Alpha",
+                    },
+                    headers={"Origin": ORIGIN},
+                )
+                candidate_id = search.json()["candidates"][0]["candidate_id"]
+                await client.post(
+                    f"/api/manual/jobs/{job_id}/select-candidate",
+                    json={"candidate_id": candidate_id, "strict_assets": False},
+                    headers={"Origin": ORIGIN},
+                )
+                return await client.post(
+                    f"/api/manual/jobs/{job_id}/preview",
+                    json={
+                        "destination_root": str(destination),
+                        "mode": "copy",
+                        "folder_templates": ["{studio}", "{title}"],
+                        "filename_template": "{xchina_id} - {title}",
+                        "asset_policy": "strict",
+                    },
+                    headers={"Origin": ORIGIN},
+                )
+
+    response = asyncio.run(run())
+
+    assert response.status_code == 400, response.text
+    assert response.json()["detail"]["error"] == "strict_asset_materialization_failed"
+    assert response.json()["detail"]["reasons"] == [
+        "hotlink_forbidden",
+        "hotlink_forbidden",
+    ]
 
 
 def test_manual_preview_uses_search_result_metadata_when_detail_is_missing_it(

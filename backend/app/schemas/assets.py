@@ -22,6 +22,7 @@ class LogicalAsset(BaseModel):
     kind: str
     relative_path: str
     source_url: str | None = None
+    referer_url: str | None = None
     required: bool = False
     missing_reason: str | None = None
     content_type: str | None = None

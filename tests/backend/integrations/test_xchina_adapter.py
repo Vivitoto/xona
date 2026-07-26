@@ -20,10 +20,21 @@ class FakeFlareSolverr:
     def __init__(self, responses: dict[str, str]) -> None:
         self.responses = responses
         self.urls: list[str] = []
+        self.asset_requests: list[tuple[str, str | None, str | None]] = []
 
     async def request_get(self, url: str) -> FlareSolverrResponse:
         self.urls.append(url)
         return FlareSolverrResponse(url=url, status_code=200, text=self.responses[url])
+
+    async def request_asset(
+        self,
+        url: str,
+        *,
+        referer_url: str | None = None,
+        base_url: str | None = None,
+    ) -> bytes:
+        self.asset_requests.append((url, referer_url, base_url))
+        return b"\xff\xd8\xffasset-bytes"
 
 
 def _database(tmp_path: Path):
@@ -82,5 +93,45 @@ def test_fetch_video_detail_uses_cache_and_redacts_malformed_errors(tmp_path: Pa
             rendered = str(exc.value)
             assert "secret-token" not in rendered
             assert "********" in rendered
+    finally:
+        engine.dispose()
+
+
+def test_fetch_asset_passes_detail_referrer_and_base_url_context(tmp_path: Path) -> None:
+    detail_url = "https://example.test/videos/sample-work-alpha.html"
+    engine, sessionmaker = _database(tmp_path)
+    try:
+        with sessionmaker() as session:
+            flaresolverr = FakeFlareSolverr({detail_url: _fixture("video_detail_sample.html")})
+            adapter = XChinaAdapter(flaresolverr, session, base_url="https://example.test")
+
+            detail = asyncio.run(adapter.fetch_video_detail(detail_url))
+            assert detail.poster is not None
+            asset = asyncio.run(adapter.fetch_asset(detail.poster.url))
+
+            assert asset.content == b"\xff\xd8\xffasset-bytes"
+            assert flaresolverr.asset_requests == [
+                (detail.poster.url, detail_url, "https://example.test")
+            ]
+    finally:
+        engine.dispose()
+
+
+def test_fetch_asset_uses_base_url_context_without_known_detail(tmp_path: Path) -> None:
+    engine, sessionmaker = _database(tmp_path)
+    try:
+        with sessionmaker() as session:
+            flaresolverr = FakeFlareSolverr({})
+            adapter = XChinaAdapter(flaresolverr, session, base_url="https://example.test")
+
+            asyncio.run(adapter.fetch_asset("https://upload.xchina.io/video/orphan.webp"))
+
+            assert flaresolverr.asset_requests == [
+                (
+                    "https://upload.xchina.io/video/orphan.webp",
+                    None,
+                    "https://example.test",
+                )
+            ]
     finally:
         engine.dispose()

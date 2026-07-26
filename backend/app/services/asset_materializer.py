@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import inspect
 import logging
 from pathlib import Path
 from typing import Protocol
@@ -38,7 +39,12 @@ IMAGE_ASSET_KINDS = {
 
 
 class AssetAdapter(Protocol):
-    async def fetch_asset(self, url: str) -> FetchedAsset:
+    async def fetch_asset(
+        self,
+        url: str,
+        *,
+        referer_url: str | None = None,
+    ) -> FetchedAsset:
         ...
 
 
@@ -197,15 +203,22 @@ class AssetMaterializer:
         else:
             assert asset.source_url is not None
             try:
-                fetched = await self._adapter.fetch_asset(asset.source_url)
+                if asset.referer_url is not None and _adapter_accepts_referer_url(self._adapter):
+                    fetched = await self._adapter.fetch_asset(
+                        asset.source_url,
+                        referer_url=asset.referer_url,
+                    )
+                else:
+                    fetched = await self._adapter.fetch_asset(asset.source_url)
             except Exception as exc:
+                reason = _download_failure_reason(exc)
                 logger.warning(
                     "Asset download failed kind=%s relative_path=%s error=%s",
                     asset.kind,
                     asset.relative_path,
                     redact_payload(str(exc)),
                 )
-                return _missing(asset, "download_failed")
+                return _missing(asset, reason)
         fetched = normalize_fetched_asset(
             fetched,
             fallback_url=asset.source_url or asset.relative_path,
@@ -283,6 +296,30 @@ def _missing(asset: LogicalAsset | MissingAsset, reason: str) -> MissingAsset:
         relative_path=asset.relative_path,
         required=asset.required,
         reason=reason,
+    )
+
+
+def _download_failure_reason(exc: Exception) -> str:
+    explicit = getattr(exc, "reason", None)
+    if isinstance(explicit, str) and explicit:
+        return explicit
+    status_code = getattr(exc, "status_code", None)
+    if status_code == 403:
+        return "hotlink_forbidden"
+    rendered = str(exc).lower()
+    if "403" in rendered and "forbidden" in rendered:
+        return "hotlink_forbidden"
+    return "download_failed"
+
+
+def _adapter_accepts_referer_url(adapter: AssetAdapter) -> bool:
+    try:
+        parameters = inspect.signature(adapter.fetch_asset).parameters
+    except (TypeError, ValueError):
+        return False
+    return "referer_url" in parameters or any(
+        parameter.kind == inspect.Parameter.VAR_KEYWORD
+        for parameter in parameters.values()
     )
 
 

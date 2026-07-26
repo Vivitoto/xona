@@ -743,7 +743,12 @@ class ManualOrganizerService:
 
 
 class _InlineOnlyAssetAdapter:
-    async def fetch_asset(self, url: str) -> FetchedAsset:
+    async def fetch_asset(
+        self,
+        url: str,
+        *,
+        referer_url: str | None = None,
+    ) -> FetchedAsset:
         raise RuntimeError(f"remote_asset_disabled:{redact_payload(url)}")
 
 

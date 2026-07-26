@@ -54,6 +54,7 @@ class XChinaAdapter:
         self._session = session
         self._base_url = base_url.rstrip("/")
         self._limiter = limiter or asyncio.Semaphore(1)
+        self._asset_referers: dict[str, str] = {}
 
     async def test_connection(self) -> bool:
         await self.search("sample")
@@ -67,21 +68,35 @@ class XChinaAdapter:
     async def fetch_video_detail(self, url: str) -> SourceVideoDetail:
         html = await self._cached_get(url)
         try:
-            return parse_video_detail(html, source_url=url, base_url=self._base_url)
+            detail = parse_video_detail(html, source_url=url, base_url=self._base_url)
         except XChinaParseError as exc:
             raise XChinaParseError(
                 f"Failed to parse detail {redact_payload(url)}: {redact_payload(str(exc))}"
             ) from exc
+        self._remember_video_asset_referers(detail)
+        return detail
 
     async def fetch_actor_detail(self, url: str) -> SourceActorDetail:
         html = await self._cached_get(url)
-        return parse_actor_detail(html, source_url=url, base_url=self._base_url)
+        detail = parse_actor_detail(html, source_url=url, base_url=self._base_url)
+        if detail.portrait_url:
+            self._asset_referers[detail.portrait_url] = detail.profile_url
+        return detail
 
-    async def fetch_asset(self, url: str) -> FetchedAsset:
+    async def fetch_asset(
+        self,
+        url: str,
+        *,
+        referer_url: str | None = None,
+    ) -> FetchedAsset:
         async with self._limiter:
             request_asset = getattr(self._flaresolverr, "request_asset", None)
             if callable(request_asset):
-                result = await request_asset(url)
+                result = await request_asset(
+                    url,
+                    referer_url=referer_url or self._asset_referers.get(url),
+                    base_url=self._base_url,
+                )
                 return _coerce_fetched_asset(url, result)
             response = await self._flaresolverr.request_get(url)
             content = response.text.encode("utf-8")
@@ -94,6 +109,14 @@ class XChinaAdapter:
                     url=response.url or url,
                 ),
             )
+
+    def _remember_video_asset_referers(self, detail: SourceVideoDetail) -> None:
+        for asset in [detail.poster, detail.fanart, *detail.backdrops, detail.trailer]:
+            if asset is not None and asset.url:
+                self._asset_referers[asset.url] = detail.source_url
+        for actor in detail.actors:
+            if actor.portrait_url:
+                self._asset_referers[actor.portrait_url] = detail.source_url
 
     async def _cached_get(self, url: str) -> str:
         key = cache_key("GET", url)
@@ -437,7 +460,7 @@ def _coerce_fetched_asset(url: str, result: Any) -> FetchedAsset:
             content_type=detect_content_type(result, url=url),
         )
     if isinstance(result, FlareSolverrResponse):
-        content = result.text.encode("utf-8")
+        content = result.content if result.content is not None else result.text.encode("utf-8")
         return FetchedAsset(
             url=result.url or url,
             content=content,

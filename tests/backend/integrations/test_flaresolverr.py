@@ -1,12 +1,17 @@
 from __future__ import annotations
 
 import asyncio
+import base64
 from typing import Any
 
 import httpx
 import pytest
 
-from backend.app.integrations.flaresolverr import FlareSolverrClient, FlareSolverrError
+from backend.app.integrations.flaresolverr import (
+    FlareSolverrAssetError,
+    FlareSolverrClient,
+    FlareSolverrError,
+)
 
 
 def _ok_response(payload: dict[str, Any]) -> httpx.Response:
@@ -337,5 +342,209 @@ def test_request_asset_returns_fetched_asset_with_header_content_type() -> None:
             assert result.url == "https://target.example/asset"
             assert result.content == b"\x89PNG\r\n\x1a\npng-bytes"
             assert result.content_type == "image/png"
+
+    asyncio.run(run())
+
+
+def test_request_asset_sends_browser_headers_with_xchina_context() -> None:
+    seen: dict[str, str] = {}
+
+    async def asset_handler(request: httpx.Request) -> httpx.Response:
+        seen.update(
+            {
+                "accept": request.headers.get("accept", ""),
+                "accept_language": request.headers.get("accept-language", ""),
+                "origin": request.headers.get("origin", ""),
+                "referer": request.headers.get("referer", ""),
+                "sec_fetch_dest": request.headers.get("sec-fetch-dest", ""),
+                "sec_fetch_mode": request.headers.get("sec-fetch-mode", ""),
+                "user_agent": request.headers.get("user-agent", ""),
+            }
+        )
+        return httpx.Response(
+            200,
+            content=b"RIFF\x0c\x00\x00\x00WEBPwebp-bytes",
+            headers={"Content-Type": "image/webp"},
+        )
+
+    async def run() -> None:
+        async with httpx.AsyncClient(transport=httpx.MockTransport(asset_handler)) as asset_http:
+            client = FlareSolverrClient(
+                "http://solver.example/custom",
+                asset_http_client=asset_http,
+            )
+            await client.request_asset(
+                "https://upload.xchina.io/video/cover.webp?token=secret-token",
+                referer_url="https://www.xchina.co/videos/id-XC001.html",
+                base_url="https://www.xchina.co",
+            )
+
+    asyncio.run(run())
+
+    assert "Mozilla/5.0" in seen["user_agent"]
+    assert "image/webp" in seen["accept"]
+    assert seen["accept_language"] == "en-US,en;q=0.9"
+    assert seen["referer"] == "https://www.xchina.co/videos/id-XC001.html"
+    assert seen["origin"] == "https://www.xchina.co"
+    assert seen["sec_fetch_dest"] == "image"
+    assert seen["sec_fetch_mode"] == "no-cors"
+
+
+def test_request_asset_retries_direct_with_flaresolverr_cookies_after_403() -> None:
+    solver_seen: list[dict[str, Any]] = []
+    asset_seen: list[dict[str, str]] = []
+
+    async def solver_handler(request: httpx.Request) -> httpx.Response:
+        payload = __import__("json").loads(request.content)
+        solver_seen.append(payload)
+        assert payload["url"] == "https://www.xchina.co/videos/id-XC001.html"
+        return _ok_response(
+            {
+                "status": "ok",
+                "solution": {
+                    "status": 200,
+                    "url": "https://www.xchina.co/videos/id-XC001.html",
+                    "response": "<html>detail</html>",
+                    "userAgent": "Solved Browser UA",
+                    "cookies": [{"name": "cf_clearance", "value": "solved-cookie"}],
+                },
+            }
+        )
+
+    async def asset_handler(request: httpx.Request) -> httpx.Response:
+        asset_seen.append(
+            {
+                "cookie": request.headers.get("cookie", ""),
+                "referer": request.headers.get("referer", ""),
+                "user_agent": request.headers.get("user-agent", ""),
+            }
+        )
+        if len(asset_seen) == 1:
+            return httpx.Response(403, content=b"forbidden")
+        assert request.headers["user-agent"] == "Solved Browser UA"
+        assert "cf_clearance=solved-cookie" in request.headers.get("cookie", "")
+        return httpx.Response(
+            200,
+            content=b"\xff\xd8\xffjpeg-bytes",
+            headers={"Content-Type": "image/jpeg"},
+        )
+
+    async def run() -> None:
+        async with httpx.AsyncClient(transport=httpx.MockTransport(solver_handler)) as http:
+            async with httpx.AsyncClient(transport=httpx.MockTransport(asset_handler)) as asset_http:
+                client = FlareSolverrClient(
+                    "http://solver.example/custom",
+                    http_client=http,
+                    asset_http_client=asset_http,
+                )
+                result = await client.request_asset(
+                    "https://upload.xchina.io/video/cover.jpg",
+                    referer_url="https://www.xchina.co/videos/id-XC001.html",
+                    base_url="https://www.xchina.co",
+                )
+                assert result.content == b"\xff\xd8\xffjpeg-bytes"
+                assert result.content_type == "image/jpeg"
+
+    asyncio.run(run())
+
+    assert [payload["cmd"] for payload in solver_seen] == ["request.get"]
+    assert len(asset_seen) == 2
+    assert asset_seen[0]["referer"] == "https://www.xchina.co/videos/id-XC001.html"
+    assert asset_seen[1]["user_agent"] == "Solved Browser UA"
+
+
+def test_request_asset_can_return_flaresolverr_binary_response_when_direct_retry_fails() -> None:
+    solver_seen: list[str] = []
+
+    async def solver_handler(request: httpx.Request) -> httpx.Response:
+        payload = __import__("json").loads(request.content)
+        solver_seen.append(payload["url"])
+        if payload["url"] == "https://www.xchina.co/videos/id-XC001.html":
+            return _ok_response(
+                {
+                    "status": "ok",
+                    "solution": {
+                        "status": 200,
+                        "response": "<html>detail</html>",
+                        "cookies": [{"name": "cf_clearance", "value": "solved-cookie"}],
+                    },
+                }
+            )
+        return _ok_response(
+            {
+                "status": "ok",
+                "solution": {
+                    "status": 200,
+                    "url": "https://upload.xchina.io/video/cover.jpg",
+                    "headers": {"Content-Type": "image/jpeg"},
+                    "responseBase64": base64.b64encode(b"\xff\xd8\xffsolver-jpeg").decode(),
+                },
+            }
+        )
+
+    async def asset_handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(503, content=b"blocked")
+
+    async def run() -> None:
+        async with httpx.AsyncClient(transport=httpx.MockTransport(solver_handler)) as http:
+            async with httpx.AsyncClient(transport=httpx.MockTransport(asset_handler)) as asset_http:
+                client = FlareSolverrClient(
+                    "http://solver.example/custom",
+                    http_client=http,
+                    asset_http_client=asset_http,
+                )
+                result = await client.request_asset(
+                    "https://upload.xchina.io/video/cover.jpg",
+                    referer_url="https://www.xchina.co/videos/id-XC001.html",
+                    base_url="https://www.xchina.co",
+                )
+                assert result.content == b"\xff\xd8\xffsolver-jpeg"
+                assert result.content_type == "image/jpeg"
+
+    asyncio.run(run())
+
+    assert solver_seen == [
+        "https://www.xchina.co/videos/id-XC001.html",
+        "https://upload.xchina.io/video/cover.jpg",
+    ]
+
+
+def test_request_asset_classifies_persistent_403_as_hotlink_forbidden_and_redacts() -> None:
+    async def solver_handler(request: httpx.Request) -> httpx.Response:
+        return _ok_response(
+            {
+                "status": "ok",
+                "solution": {
+                    "status": 200,
+                    "response": "<html>detail</html>",
+                    "userAgent": "Solved Browser UA",
+                    "cookies": [{"name": "cf_clearance", "value": "secret-cookie"}],
+                },
+            }
+        )
+
+    async def asset_handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(403, content=b"forbidden")
+
+    async def run() -> None:
+        async with httpx.AsyncClient(transport=httpx.MockTransport(solver_handler)) as http:
+            async with httpx.AsyncClient(transport=httpx.MockTransport(asset_handler)) as asset_http:
+                client = FlareSolverrClient(
+                    "http://solver.example/custom",
+                    http_client=http,
+                    asset_http_client=asset_http,
+                )
+                with pytest.raises(FlareSolverrAssetError) as exc:
+                    await client.request_asset(
+                        "https://upload.xchina.io/video/cover.jpg?token=secret-token",
+                        referer_url="https://www.xchina.co/videos/id-XC001.html",
+                        base_url="https://www.xchina.co",
+                    )
+                assert exc.value.reason == "hotlink_forbidden"
+                assert exc.value.status_code == 403
+                rendered = str(exc.value)
+                assert "secret-token" not in rendered
+                assert "secret-cookie" not in rendered
+                assert "********" in rendered
 
     asyncio.run(run())

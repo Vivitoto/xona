@@ -20,6 +20,7 @@ def select_assets(
         kind="poster",
         relative_path="poster.jpg",
         source_url=record.assets.poster_url,
+        referer_url=record.source_url,
         required=True,
     )
     _add_url_asset(
@@ -28,6 +29,7 @@ def select_assets(
         kind="fanart",
         relative_path="fanart.jpg",
         source_url=record.assets.fanart_url,
+        referer_url=record.source_url,
         required=True,
     )
     for index, url in enumerate(record.assets.backdrop_urls, start=1):
@@ -36,6 +38,7 @@ def select_assets(
                 kind="backdrop",
                 relative_path=f"backdrop{index}.jpg",
                 source_url=url,
+                referer_url=record.source_url,
             )
         )
         assets.append(
@@ -43,6 +46,7 @@ def select_assets(
                 kind="extrafanart",
                 relative_path=f"extrafanart/fanart{index}.jpg",
                 source_url=url,
+                referer_url=record.source_url,
             )
         )
     _add_url_asset(
@@ -51,6 +55,7 @@ def select_assets(
         kind="thumb",
         relative_path="thumb.jpg",
         source_url=record.assets.thumb_url,
+        referer_url=record.source_url,
         required=False,
     )
     _add_url_asset(
@@ -59,6 +64,7 @@ def select_assets(
         kind="clearlogo",
         relative_path="clearlogo.png",
         source_url=record.assets.clearlogo_url,
+        referer_url=record.source_url,
         required=False,
     )
     _add_url_asset(
@@ -67,6 +73,7 @@ def select_assets(
         kind="trailer",
         relative_path=_trailer_name(record.assets.trailer_url),
         source_url=record.assets.trailer_url,
+        referer_url=record.source_url,
         required=False,
     )
     for actor in record.actors:
@@ -79,6 +86,7 @@ def select_assets(
                 kind="actor_portrait",
                 relative_path=relative_path,
                 source_url=actor.portrait_url,
+                referer_url=actor.profile_url or record.source_url,
                 actor_name=actor.name,
                 actor_source_id=actor.source_id,
             )
@@ -89,6 +97,7 @@ def select_assets(
                 kind="source_snapshot",
                 relative_path="source-snapshot.html",
                 source_url=record.source_url,
+                referer_url=record.source_url,
             )
         )
 
@@ -102,6 +111,7 @@ def _add_url_asset(
     kind: str,
     relative_path: str,
     source_url: str | None,
+    referer_url: str | None,
     required: bool,
 ) -> None:
     if source_url:
@@ -110,6 +120,7 @@ def _add_url_asset(
                 kind=kind,
                 relative_path=relative_path,
                 source_url=source_url,
+                referer_url=referer_url,
                 required=required,
             )
         )
