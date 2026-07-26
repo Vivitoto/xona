@@ -5,7 +5,7 @@ import hashlib
 import json
 import re
 from typing import Any, Protocol
-from urllib.parse import quote, urljoin
+from urllib.parse import quote, urldefrag, urljoin, urlsplit
 
 from bs4 import BeautifulSoup, Tag
 from sqlalchemy.orm import Session
@@ -30,6 +30,7 @@ from backend.app.schemas.source import (
 
 PARSER_VERSION = "xchina-v1"
 REQUEST_PAYLOAD_VERSION = "flaresolverr-request-v1"
+DEFAULT_SEARCH_PAGE_LIMIT = 50
 
 
 class XChinaParseError(ValueError):
@@ -37,8 +38,7 @@ class XChinaParseError(ValueError):
 
 
 class FlareSolverrLike(Protocol):
-    async def request_get(self, url: str) -> FlareSolverrResponse:
-        ...
+    async def request_get(self, url: str) -> FlareSolverrResponse: ...
 
 
 class XChinaAdapter:
@@ -49,11 +49,13 @@ class XChinaAdapter:
         *,
         base_url: str = "https://www.xchina.co",
         limiter: asyncio.Semaphore | None = None,
+        max_search_pages: int = DEFAULT_SEARCH_PAGE_LIMIT,
     ) -> None:
         self._flaresolverr = flaresolverr
         self._session = session
         self._base_url = base_url.rstrip("/")
         self._limiter = limiter or asyncio.Semaphore(1)
+        self._max_search_pages = max(1, max_search_pages)
         self._asset_referers: dict[str, str] = {}
 
     async def test_connection(self) -> bool:
@@ -61,9 +63,26 @@ class XChinaAdapter:
         return True
 
     async def search(self, query: str) -> list[SourceSearchResult]:
-        url = f"{self._base_url}/videos/keyword-{quote(query, safe='')}.html"
-        html = await self._cached_get(url)
-        return parse_search_results(html, base_url=self._base_url)
+        url: str | None = f"{self._base_url}/videos/keyword-{quote(query, safe='')}.html"
+        page_urls_seen: set[str] = set()
+        result_keys_seen: set[tuple[str, str]] = set()
+        results: list[SourceSearchResult] = []
+        for _page_index in range(self._max_search_pages):
+            if url is None:
+                break
+            page_key = _url_key(url)
+            if page_key in page_urls_seen:
+                break
+            page_urls_seen.add(page_key)
+
+            html = await self._cached_get(url)
+            _append_unique_results(
+                results,
+                parse_search_results(html, base_url=self._base_url),
+                result_keys_seen,
+            )
+            url = parse_search_next_page_url(html, current_url=url, base_url=self._base_url)
+        return results
 
     async def fetch_video_detail(self, url: str) -> SourceVideoDetail:
         html = await self._cached_get(url)
@@ -208,6 +227,44 @@ def parse_search_results(html: str, *, base_url: str) -> list[SourceSearchResult
     return results
 
 
+def parse_search_next_page_url(
+    html: str,
+    *,
+    current_url: str,
+    base_url: str,
+) -> str | None:
+    soup = BeautifulSoup(html, "html.parser")
+    for selector in (
+        'a[rel~="next"]',
+        'link[rel~="next"]',
+        'a[aria-label*="Next"]',
+        'a[aria-label*="下一"]',
+        ".pagination a.next",
+        ".pagination .next a",
+        ".pager a.next",
+        ".pager .next a",
+    ):
+        candidate = _next_page_from_link(_select_one(soup, selector), current_url, base_url)
+        if candidate:
+            return candidate
+
+    for link in soup.select("a[href]"):
+        label = _text(link).strip().lower()
+        classes = _attribute_values(link, "class")
+        rel = _attribute_values(link, "rel")
+        if not (
+            "next" in classes
+            or "next" in rel
+            or label in {"next", "next ›", "›", ">", "下一页", "下一頁"}
+            or "下一" in label
+        ):
+            continue
+        candidate = _next_page_from_link(link, current_url, base_url)
+        if candidate:
+            return candidate
+    return None
+
+
 def parse_video_detail(html: str, *, source_url: str, base_url: str) -> SourceVideoDetail:
     soup = BeautifulSoup(html, "html.parser")
     article = _select_one(soup, ".video-detail")
@@ -241,9 +298,7 @@ def parse_video_detail(html: str, *, source_url: str, base_url: str) -> SourceVi
         ]
     trailer_url = _attr(_select_one(article, ".trailer"), "href")
     trailer = (
-        SourceAsset(url=_absolute(trailer_url, base_url), kind="trailer")
-        if trailer_url
-        else None
+        SourceAsset(url=_absolute(trailer_url, base_url), kind="trailer") if trailer_url else None
     )
     categories = _detail_categories(article, base_url=base_url)
     flags = _completeness_flags(
@@ -337,9 +392,7 @@ def _actor_refs(root: Tag, *, base_url: str) -> list[SourceActorRef]:
         if not href and isinstance(link.parent, Tag):
             href = _attr(link.parent, "href")
         source_id = (
-            str(link.get("data-actor-id") or "").strip()
-            or _source_id_from_url(href)
-            or None
+            str(link.get("data-actor-id") or "").strip() or _source_id_from_url(href) or None
         )
         key = (name, source_id)
         if key in seen:
@@ -367,7 +420,9 @@ def _thumbnail_from_card(card: Tag, base_url: str) -> str | None:
     src = _attr(_select_one(card, "img"), "src")
     if src:
         return _absolute(src, base_url)
-    return _style_background_url(str((_select_one(card, ".img") or card).get("style") or ""), base_url)
+    return _style_background_url(
+        str((_select_one(card, ".img") or card).get("style") or ""), base_url
+    )
 
 
 def _style_background_url(style: str, base_url: str) -> str | None:
@@ -444,10 +499,59 @@ def _attr(tag: Tag | None, name: str) -> str | None:
     return str(value).strip() if value else None
 
 
+def _attribute_values(tag: Tag, name: str) -> set[str]:
+    value = tag.get(name)
+    if value is None:
+        return set()
+    if isinstance(value, str):
+        return {value.lower()}
+    return {str(item).lower() for item in value}
+
+
 def _absolute(url: str | None, base_url: str) -> str:
     if not url:
         return ""
     return urljoin(f"{base_url.rstrip('/')}/", url)
+
+
+def _append_unique_results(
+    output: list[SourceSearchResult],
+    page_results: list[SourceSearchResult],
+    seen: set[tuple[str, str]],
+) -> None:
+    for result in page_results:
+        key = (result.source, result.source_candidate_id)
+        if key in seen:
+            continue
+        seen.add(key)
+        output.append(result)
+
+
+def _next_page_from_link(link: Tag | None, current_url: str, base_url: str) -> str | None:
+    href = _attr(link, "href")
+    if not href:
+        return None
+    candidate = _absolute(href, base_url)
+    if not _is_allowed_next_search_url(candidate, current_url, base_url):
+        return None
+    return candidate
+
+
+def _is_allowed_next_search_url(candidate: str, current_url: str, base_url: str) -> bool:
+    candidate_key = _url_key(candidate)
+    if not candidate_key or candidate_key == _url_key(current_url):
+        return False
+    candidate_parts = urlsplit(candidate_key)
+    base_parts = urlsplit(base_url)
+    if candidate_parts.scheme not in {"http", "https"}:
+        return False
+    if candidate_parts.netloc != base_parts.netloc:
+        return False
+    return candidate_parts.path.startswith("/videos/")
+
+
+def _url_key(url: str) -> str:
+    return urldefrag(url)[0]
 
 
 def _coerce_fetched_asset(url: str, result: Any) -> FetchedAsset:

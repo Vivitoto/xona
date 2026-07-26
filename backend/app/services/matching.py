@@ -26,8 +26,7 @@ def score_candidate(match_input: MatchInput, candidate: CandidateMetadata) -> Sc
         "identifier": _identifier_score(match_input, candidate),
         "title": round(_title_ratio(match_input, candidate) * 45),
         "token_coverage": round(
-            _token_coverage(match_input.title or match_input.search_text, candidate.title)
-            * 10
+            _token_coverage(match_input.title or match_input.search_text, candidate.title) * 10
         ),
         "studio": 4 if _same(match_input.studio, candidate.studio) else 0,
         "series_parent": 3 if _same(match_input.parent_hint, candidate.series) else 0,
@@ -116,7 +115,6 @@ def manual_selection_gate(
     safety: ExecutionSafety,
 ) -> MatchDecision:
     reasons = [reason for reason in _safety_reasons(safety)]
-    reasons.extend(_candidate_safety_reasons(candidate))
     if reasons:
         return MatchDecision(
             action="review_required",

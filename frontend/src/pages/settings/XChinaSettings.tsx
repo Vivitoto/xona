@@ -97,6 +97,22 @@ export function XChinaSettings({
             onChange={(event) => setTestQuery(event.target.value)}
           />
         </FormField>
+        <FormField
+          description="正常会一直跟随下一页直到没有下一页；这里是防循环/异常分页的保险丝。"
+          label="搜索页数安全上限"
+        >
+          <input
+            min={1}
+            step={1}
+            type="number"
+            value={settings.max_search_pages}
+            onChange={(event) =>
+              onChange({
+                max_search_pages: Math.max(1, Math.floor(Number(event.target.value) || 1)),
+              })
+            }
+          />
+        </FormField>
         <CheckboxField
           checked={useProxyForTest}
           label="连接测试使用代理"

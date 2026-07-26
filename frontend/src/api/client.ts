@@ -119,5 +119,6 @@ function collectReasonCodes(value: unknown): string[] {
 }
 
 const apiReasonLabels: Record<string, string> = {
+  candidate_detail_unavailable: "详情页暂时无法解析，已无法获取完整候选详情；请稍后重试或换一个候选/详情 URL。",
   search_source_unavailable: "搜索服务暂时不可用，请稍后重试或检查 FlareSolverr / 代理。",
 };

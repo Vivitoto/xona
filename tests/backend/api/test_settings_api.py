@@ -64,6 +64,7 @@ def test_settings_api_saves_sections_redacts_secrets_and_tests_connectors(
                             "flaresolverr_url": "http://solver:8191/custom",
                             "proxy_url": "http://user:pass@proxy.test:8080",
                             "cache_dir": str(cache_dir),
+                            "max_search_pages": 123,
                         },
                         "emby": {
                             "enabled": True,
@@ -137,6 +138,7 @@ def test_settings_api_saves_sections_redacts_secrets_and_tests_connectors(
         "asset_policy": "strict",
         "include_source_snapshot": True,
     }
+    assert responses["get"].json()["xchina"]["max_search_pages"] == 123
     assert responses["get"].json()["confidence_safety"]["confidence_threshold"] == 92
     assert responses["flare"].json()["status_code"] == 200
     assert responses["xchina"].json()["candidate_count"] == 1
@@ -206,7 +208,10 @@ def test_settings_api_migrates_legacy_manual_defaults(tmp_path: Path) -> None:
     }
     assert responses["legacy_update"].status_code == 200, responses["legacy_update"].text
     assert "manual_defaults" not in responses["legacy_update"].json()
-    assert responses["legacy_update"].json()["organization_defaults"]["organization_mode"] == "hardlink"
+    assert (
+        responses["legacy_update"].json()["organization_defaults"]["organization_mode"]
+        == "hardlink"
+    )
 
 
 def test_settings_api_rejects_organization_default_destination_outside_storage_roots(

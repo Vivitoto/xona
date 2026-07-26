@@ -45,6 +45,7 @@ export interface AppSettings {
     flaresolverr_url: string | null;
     proxy_url: string | null;
     cache_dir: string | null;
+    max_search_pages: number;
   };
   emby: {
     enabled: boolean;

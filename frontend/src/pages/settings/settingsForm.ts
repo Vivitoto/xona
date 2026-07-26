@@ -12,6 +12,7 @@ export const emptySettings: AppSettings = {
     flaresolverr_url: null,
     proxy_url: null,
     cache_dir: null,
+    max_search_pages: 50,
   },
   emby: {
     enabled: false,
@@ -115,6 +116,7 @@ export function buildSettingsPayload(settings: AppSettings): AppSettingsUpdate {
       flaresolverr_url: cleanOptional(settings.xchina.flaresolverr_url),
       proxy_url: proxyUrl,
       cache_dir: cleanOptional(settings.xchina.cache_dir),
+      max_search_pages: Math.max(1, Math.floor(settings.xchina.max_search_pages)),
     },
     emby: {
       enabled: settings.emby.enabled,
@@ -186,6 +188,9 @@ export function validateSettings(
   }
   if (settings.xchina.proxy_url && !isRedactedPlaceholder(settings.xchina.proxy_url) && !looksLikeHttpUrl(settings.xchina.proxy_url)) {
     warnings.push("代理 URL 看起来不是 http/https 地址。");
+  }
+  if (!Number.isFinite(settings.xchina.max_search_pages) || settings.xchina.max_search_pages < 1) {
+    errors.push("XChina 搜索页数安全上限必须至少为 1。");
   }
 
   const userRoots = uniqueClean(settings.storage.roots);
@@ -319,6 +324,9 @@ function summarizeChanges(settings: AppSettings, baseline: AppSettings): string[
   }
   if (settings.xchina.proxy_url !== baseline.xchina.proxy_url) {
     changes.push(isRedactedPlaceholder(settings.xchina.proxy_url) ? "代理凭据保持不变" : "代理 URL 将更新");
+  }
+  if (settings.xchina.max_search_pages !== baseline.xchina.max_search_pages) {
+    changes.push("XChina 搜索页数安全上限将更新");
   }
   if (settings.emby.enabled !== baseline.emby.enabled) {
     changes.push(settings.emby.enabled ? "将启用 Emby 通知" : "将关闭 Emby 通知");

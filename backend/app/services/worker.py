@@ -16,7 +16,7 @@ from backend.app.core.redaction import redact_payload
 from backend.app.core.settings import Settings
 from backend.app.integrations.flaresolverr import FlareSolverrClient
 from backend.app.integrations.xchina import XChinaAdapter
-from backend.app.integrations.xchina_config import xchina_base_url
+from backend.app.integrations.xchina_config import xchina_base_url, xchina_max_search_pages
 from backend.app.db.models import (
     Job,
     MediaItem,
@@ -69,22 +69,17 @@ JobHandler = Callable[[Job], str | None]
 
 
 class SearchAdapter(Protocol):
-    async def search(self, query: str) -> list[SourceSearchResult]:
-        ...
+    async def search(self, query: str) -> list[SourceSearchResult]: ...
 
-    async def fetch_video_detail(self, url: str) -> SourceVideoDetail:
-        ...
+    async def fetch_video_detail(self, url: str) -> SourceVideoDetail: ...
 
 
 class EmbyNotifyClient(Protocol):
-    async def scan_library(self) -> None:
-        ...
+    async def scan_library(self) -> None: ...
 
-    async def find_item_by_path(self, emby_path: str) -> dict[str, Any] | None:
-        ...
+    async def find_item_by_path(self, emby_path: str) -> dict[str, Any] | None: ...
 
-    async def refresh_item(self, item_id: str) -> None:
-        ...
+    async def refresh_item(self, item_id: str) -> None: ...
 
 
 class Worker:
@@ -133,10 +128,19 @@ class Worker:
                 )
                 target_state = await self._target_state(session, job)
                 if target_state is None:
-                    logger.info("Worker released job without state change job_id=%s state=%s", job.id, job.state)
+                    logger.info(
+                        "Worker released job without state change job_id=%s state=%s",
+                        job.id,
+                        job.state,
+                    )
                     service.release_lease(job)
                 else:
-                    logger.info("Worker job step completed job_id=%s %s->%s", job.id, job.state, target_state)
+                    logger.info(
+                        "Worker job step completed job_id=%s %s->%s",
+                        job.id,
+                        job.state,
+                        target_state,
+                    )
                     service.transition_job(job.id, target_state)
                     service.release_lease(job)
                 session.commit()
@@ -167,7 +171,11 @@ class Worker:
                 return True
 
     async def run_forever(self) -> None:
-        logger.info("Worker loop started worker_id=%s poll_interval=%s", self._worker_id, self._poll_interval_seconds)
+        logger.info(
+            "Worker loop started worker_id=%s poll_interval=%s",
+            self._worker_id,
+            self._poll_interval_seconds,
+        )
         while not self._stop.is_set():
             processed = await self.run_once()
             if not processed:
@@ -200,7 +208,12 @@ class Worker:
                     str(endpoint),
                     settings.proxy_url or store_settings.get("proxy_url"),
                 )
-                adapter = XChinaAdapter(flaresolverr, session, base_url=xchina_base_url(store_settings))
+                adapter = XChinaAdapter(
+                    flaresolverr,
+                    session,
+                    base_url=xchina_base_url(store_settings),
+                    max_search_pages=xchina_max_search_pages(store_settings),
+                )
                 if search_adapter is None:
                     search_adapter = adapter
                 if asset_adapter is None:
@@ -297,7 +310,9 @@ class Worker:
             if search_adapter is None:
                 auto_payload["gate_reasons"] = ["search_adapter_unconfigured"]
                 job.payload = redact_payload(payload)
-                logger.warning("Auto search blocked job_id=%s reason=search_adapter_unconfigured", job.id)
+                logger.warning(
+                    "Auto search blocked job_id=%s reason=search_adapter_unconfigured", job.id
+                )
                 return "review_required"
 
             search_row = SearchQuery(
@@ -323,7 +338,9 @@ class Worker:
                     redact_payload(str(exc)),
                 )
                 return "review_required"
-            logger.info("Auto search results job_id=%s query=%r candidates=%s", job.id, query, len(results))
+            logger.info(
+                "Auto search results job_id=%s query=%r candidates=%s", job.id, query, len(results)
+            )
             candidates: list[CandidateMetadata] = []
             rows_by_source_id: dict[str, SearchCandidate] = {}
             for result in results:
@@ -352,9 +369,7 @@ class Worker:
                 reverse=True,
             )
             lead = (
-                ranked_scores[0].total - ranked_scores[1].total
-                if len(ranked_scores) > 1
-                else None
+                ranked_scores[0].total - ranked_scores[1].total if len(ranked_scores) > 1 else None
             )
             decision = can_auto_execute(
                 match_input,
@@ -427,10 +442,17 @@ class Worker:
             if asset_adapter is None:
                 auto_payload["gate_reasons"] = ["asset_adapter_unconfigured"]
                 job.payload = redact_payload(payload)
-                logger.warning("Auto asset materialization blocked job_id=%s reason=asset_adapter_unconfigured", job.id)
+                logger.warning(
+                    "Auto asset materialization blocked job_id=%s reason=asset_adapter_unconfigured",
+                    job.id,
+                )
                 return "review_required"
 
-            logger.info("Auto asset materialization started job_id=%s strict=%s", job.id, rule.asset_policy == "strict")
+            logger.info(
+                "Auto asset materialization started job_id=%s strict=%s",
+                job.id,
+                rule.asset_policy == "strict",
+            )
             materialized = await AssetMaterializer(
                 asset_adapter,
                 Path(rule.destination_directory) / ".xona-cache",
@@ -527,7 +549,9 @@ class Worker:
         auto["plan_id"] = plan.plan_id
         auto["previewed_plan"] = plan.snapshot_json()
         job.payload = redact_payload(payload)
-        logger.info("Auto plan created job_id=%s plan_id=%s steps=%s", job.id, plan.plan_id, len(plan.steps))
+        logger.info(
+            "Auto plan created job_id=%s plan_id=%s steps=%s", job.id, plan.plan_id, len(plan.steps)
+        )
 
     def _execute_operation_plan(self, session: Session, job: Job) -> None:
         settings = self._require_settings()
@@ -562,7 +586,9 @@ class Worker:
         ]
         payload["local_operations_complete"] = True
         job.payload = redact_payload(payload)
-        logger.info("Auto plan executed job_id=%s plan_id=%s steps=%s", job.id, row.plan_id, len(plan.steps))
+        logger.info(
+            "Auto plan executed job_id=%s plan_id=%s steps=%s", job.id, row.plan_id, len(plan.steps)
+        )
 
     def _require_settings(self) -> Settings:
         if self._settings is None:
@@ -596,7 +622,11 @@ class Worker:
                     logger.info("Emby item refreshed job_id=%s item_id=%s", job.id, item_id)
         emby_payload["notified"] = True
         job.payload = redact_payload(payload)
-        logger.info("Emby notification completed job_id=%s mapped_path=%s", job.id, emby_payload.get("mapped_path"))
+        logger.info(
+            "Emby notification completed job_id=%s mapped_path=%s",
+            job.id,
+            emby_payload.get("mapped_path"),
+        )
 
 
 def _payload(job: Job) -> dict[str, Any]:

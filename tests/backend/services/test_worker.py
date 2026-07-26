@@ -13,7 +13,12 @@ from backend.app.db.models import Job, WatchRule
 from backend.app.db.session import create_engine_for_settings, get_sessionmaker
 from backend.app.integrations.assets import FetchedAsset
 from backend.app.schemas.assets import AssetSelection
-from backend.app.schemas.source import SourceActorRef, SourceAsset, SourceSearchResult, SourceVideoDetail
+from backend.app.schemas.source import (
+    SourceActorRef,
+    SourceAsset,
+    SourceSearchResult,
+    SourceVideoDetail,
+)
 from backend.app.services.jobs import JobService
 from backend.app.services.settings_store import SettingsStore
 from backend.app.services.worker import Worker
@@ -48,10 +53,12 @@ class FakeSavedSettingsXChina:
         session,
         *,
         base_url: str = "https://www.xchina.co",
+        max_search_pages: int = 50,
     ) -> None:
         self.flaresolverr = flaresolverr
         self.session = session
         self.base_url = base_url
+        self.max_search_pages = max_search_pages
         self.instances.append(self)
 
     async def search(self, query: str) -> list[SourceSearchResult]:
@@ -212,6 +219,7 @@ def test_auto_worker_uses_saved_xchina_settings(
                         "base_url": "https://auto.xchina.test",
                         "flaresolverr_url": "http://solver:8191/v1",
                         "proxy_url": "http://proxy:8080",
+                        "max_search_pages": 88,
                     }
                 }
             )
@@ -263,6 +271,7 @@ def test_auto_worker_uses_saved_xchina_settings(
         asyncio.run(worker.close())
         assert FakeSavedSettingsFlareSolverr.instances[0].closed is True
         assert FakeSavedSettingsXChina.instances[0].base_url == "https://auto.xchina.test"
+        assert FakeSavedSettingsXChina.instances[0].max_search_pages == 88
     finally:
         engine.dispose()
 
@@ -463,9 +472,7 @@ def test_auto_worker_plan_uses_search_result_metadata_when_detail_is_missing_it(
                     stable_check_count=1,
                     organization_mode="copy",
                     folder_templates=[],
-                    filename_template=(
-                        "{studio} - {series} - {release_date} - {title}"
-                    ),
+                    filename_template=("{studio} - {series} - {release_date} - {title}"),
                     asset_policy="strict",
                     emby_options={},
                     metadata_options={},

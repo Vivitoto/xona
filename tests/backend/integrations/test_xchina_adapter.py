@@ -68,6 +68,67 @@ def test_search_constructs_keyword_route_and_uses_cache(tmp_path: Path) -> None:
         engine.dispose()
 
 
+def test_search_follows_pagination_links_and_deduplicates_results(tmp_path: Path) -> None:
+    first_url = "https://example.test/videos/keyword-alpha%20sample.html"
+    second_url = "https://example.test/videos/keyword-alpha%20sample-2.html"
+    engine, sessionmaker = _database(tmp_path)
+    try:
+        with sessionmaker() as session:
+            flaresolverr = FakeFlareSolverr(
+                {
+                    first_url: _fixture("search_keyword_page_1.html"),
+                    second_url: _fixture("search_keyword_page_2.html"),
+                }
+            )
+            adapter = XChinaAdapter(flaresolverr, session, base_url="https://example.test")
+
+            first = asyncio.run(adapter.search("alpha sample"))
+            second = asyncio.run(adapter.search("alpha sample"))
+
+            assert [item.source_candidate_id for item in first] == [
+                "XC-001",
+                "XC-002",
+                "XC-003",
+            ]
+            assert [item.source_candidate_id for item in second] == [
+                "XC-001",
+                "XC-002",
+                "XC-003",
+            ]
+            assert flaresolverr.urls == [first_url, second_url]
+            assert session.query(HttpCache).count() == 2
+    finally:
+        engine.dispose()
+
+
+def test_search_stops_at_configured_page_limit(tmp_path: Path) -> None:
+    first_url = "https://example.test/videos/keyword-alpha%20sample.html"
+    second_url = "https://example.test/videos/keyword-alpha%20sample-2.html"
+    engine, sessionmaker = _database(tmp_path)
+    try:
+        with sessionmaker() as session:
+            flaresolverr = FakeFlareSolverr(
+                {
+                    first_url: _fixture("search_keyword_page_1.html"),
+                    second_url: _fixture("search_keyword_page_2.html"),
+                }
+            )
+            adapter = XChinaAdapter(
+                flaresolverr,
+                session,
+                base_url="https://example.test",
+                max_search_pages=1,
+            )
+
+            results = asyncio.run(adapter.search("alpha sample"))
+
+            assert [item.source_candidate_id for item in results] == ["XC-001", "XC-002"]
+            assert flaresolverr.urls == [first_url]
+            assert session.query(HttpCache).count() == 1
+    finally:
+        engine.dispose()
+
+
 def test_fetch_video_detail_uses_cache_and_redacts_malformed_errors(tmp_path: Path) -> None:
     good_url = "https://example.test/videos/sample-work-alpha.html"
     bad_url = "https://example.test/videos/bad.html?api_key=secret-token"

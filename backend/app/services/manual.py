@@ -43,7 +43,7 @@ from backend.app.schemas.matching import CandidateMetadata, ExecutionSafety, Mat
 from backend.app.schemas.media import MediaScanItem, MediaSidecarScanItem
 from backend.app.schemas.metadata import MetadataRecordData
 from backend.app.schemas.operations import GeneratedArtifact, OperationPlan
-from backend.app.schemas.source import SourceSearchResult, SourceVideoDetail
+from backend.app.schemas.source import SourceAsset, SourceSearchResult, SourceVideoDetail
 from backend.app.schemas.templates import TemplateContext
 from backend.app.services import scanner
 from backend.app.services.asset_materializer import AssetAdapter, AssetMaterializer
@@ -76,11 +76,9 @@ logger = logging.getLogger(__name__)
 
 
 class SearchAdapter(Protocol):
-    async def search(self, query: str) -> list[SourceSearchResult]:
-        ...
+    async def search(self, query: str) -> list[SourceSearchResult]: ...
 
-    async def fetch_video_detail(self, url: str) -> SourceVideoDetail:
-        ...
+    async def fetch_video_detail(self, url: str) -> SourceVideoDetail: ...
 
 
 class ManualOrganizerError(ValueError):
@@ -209,7 +207,9 @@ class ManualOrganizerService:
                     rollback=False,
                 ) from exc
         else:
-            logger.warning("Manual search skipped job_id=%s reason=search_adapter_unconfigured", job.id)
+            logger.warning(
+                "Manual search skipped job_id=%s reason=search_adapter_unconfigured", job.id
+            )
 
         candidates: list[ManualCandidateCard] = []
         for result in results:
@@ -274,14 +274,53 @@ class ManualOrganizerService:
         )
         job = self._jobs.get_job(job_id)
         row = self._candidate_row(candidate_id, source_url)
+        detail_fallback_used = False
+        detail_fetch_error: str | None = None
         if detail is None:
-            if self._search_adapter is None:
+            detail = _detail_from_search_result(
+                row,
+                requested_source_url=source_url,
+            )
+            if detail is not None:
+                detail_fallback_used = True
+            elif self._search_adapter is None:
                 raise ManualOrganizerError("candidate_detail_unavailable")
             detail_url = source_url or (row.source_url if row is not None else None)
             if detail_url is None:
                 logger.warning("Manual candidate selection missing detail URL job_id=%s", job_id)
                 raise ManualOrganizerError("candidate_detail_url_required")
-            detail = await self._search_adapter.fetch_video_detail(detail_url)
+            if detail is None:
+                search_adapter = self._search_adapter
+                if (
+                    search_adapter is None
+                ):  # Defensive; handled above unless state changes unexpectedly.
+                    raise ManualOrganizerError("candidate_detail_unavailable")
+                try:
+                    detail = await search_adapter.fetch_video_detail(detail_url)
+                except Exception as exc:
+                    detail_fetch_error = str(redact_payload(str(exc)))
+                    logger.warning(
+                        "Manual candidate detail unavailable job_id=%s candidate_id=%s url=%s error=%s",
+                        job.id,
+                        row.id if row is not None else None,
+                        redact_payload(detail_url),
+                        detail_fetch_error,
+                    )
+                    self._record_job_payload(
+                        job,
+                        {
+                            "selection_error": "candidate_detail_unavailable",
+                            "selected_candidate_id": row.id if row is not None else None,
+                            "selected_source_url": detail_url,
+                        },
+                    )
+                    self._session.flush()
+                    raise ManualOrganizerError(
+                        "candidate_detail_unavailable",
+                        status_code=503,
+                        reasons=["candidate_detail_unavailable"],
+                        rollback=False,
+                    ) from exc
 
         detail = source_detail_with_search_result_fallbacks(
             detail,
@@ -313,6 +352,8 @@ class ManualOrganizerService:
                     "selected_source_url": detail.source_url,
                     "selected_detail": detail.model_dump(mode="json"),
                     "metadata": record.model_dump(mode="json"),
+                    "detail_fallback_used": detail_fallback_used,
+                    "detail_fetch_error": detail_fetch_error,
                 },
             )
             if job.state == "searching":
@@ -343,6 +384,8 @@ class ManualOrganizerService:
                 "selected_detail": detail.model_dump(mode="json"),
                 "metadata_record_id": metadata_row.id,
                 "metadata": record.model_dump(mode="json"),
+                "detail_fallback_used": detail_fallback_used,
+                "detail_fetch_error": detail_fetch_error,
             },
         )
         if job.state in {"review_required", "searching"}:
@@ -454,7 +497,9 @@ class ManualOrganizerService:
 
         row = self._plan_row(plan.plan_id)
         row.status = "approved"
-        self._record_job_payload(job, {"plan_id": plan.plan_id, "previewed_plan": plan.snapshot_json()})
+        self._record_job_payload(
+            job, {"plan_id": plan.plan_id, "previewed_plan": plan.snapshot_json()}
+        )
         self._advance_preview_job(job)
         self._session.flush()
         logger.info(
@@ -469,9 +514,7 @@ class ManualOrganizerService:
             job_id=job.id,
             plan_id=plan.plan_id,
             metadata=record.model_dump(mode="json"),
-            materialized_assets=[
-                asset.model_dump(mode="json") for asset in materialized.assets
-            ],
+            materialized_assets=[asset.model_dump(mode="json") for asset in materialized.assets],
             missing_assets=[item.model_dump(mode="json") for item in materialized.missing],
             plan=plan.snapshot_json(),
         )
@@ -481,9 +524,7 @@ class ManualOrganizerService:
         job_id: int,
         payload: ManualOrganizeRequest,
     ) -> ManualExecutePlanResponse:
-        safe_payload = payload.model_copy(
-            update={"mode": _organization_mode_or_copy(payload.mode)}
-        )
+        safe_payload = payload.model_copy(update={"mode": _organization_mode_or_copy(payload.mode)})
         plan_preview = await self.preview(job_id, safe_payload)
         return self.execute_plan(
             plan_preview.plan_id,
@@ -554,14 +595,18 @@ class ManualOrganizerService:
         job = self._jobs.get_job(job_id)
         payload = redact_payload(_payload(job))
         candidate_ids = _manual_payload(payload).get("candidate_ids") or []
-        candidates = [
-            _candidate_card(row)
-            for row in self._session.scalars(
-                select(SearchCandidate)
-                .where(SearchCandidate.id.in_(candidate_ids))
-                .order_by(SearchCandidate.id)
-            )
-        ] if candidate_ids else []
+        candidates = (
+            [
+                _candidate_card(row)
+                for row in self._session.scalars(
+                    select(SearchCandidate)
+                    .where(SearchCandidate.id.in_(candidate_ids))
+                    .order_by(SearchCandidate.id)
+                )
+            ]
+            if candidate_ids
+            else []
+        )
         manual = _manual_payload(payload)
         return ManualJobRead(
             job_id=job.id,
@@ -657,9 +702,7 @@ class ManualOrganizerService:
         if job_id is not None:
             return self._jobs.get_job(job_id)
         identity_material = filename or query or "manual-query"
-        identity = "manual-query:" + hashlib.sha256(
-            identity_material.encode("utf-8")
-        ).hexdigest()
+        identity = "manual-query:" + hashlib.sha256(identity_material.encode("utf-8")).hexdigest()
         existing = self._session.scalar(
             select(Job).where(
                 Job.manual.is_(True),
@@ -895,6 +938,61 @@ def _search_result_from_candidate(row: SearchCandidate | None) -> dict[str, Any]
     return result if isinstance(result, dict) else None
 
 
+def _detail_from_search_result(
+    row: SearchCandidate | None,
+    *,
+    requested_source_url: str | None,
+) -> SourceVideoDetail | None:
+    if row is None:
+        return None
+    if requested_source_url is not None and requested_source_url != row.source_url:
+        return None
+    result = _search_result_from_candidate(row)
+    if result is None:
+        return None
+    try:
+        search_result = SourceSearchResult.model_validate(result)
+    except Exception:
+        return None
+
+    poster = (
+        SourceAsset(url=search_result.thumbnail_url, kind="poster")
+        if search_result.thumbnail_url
+        else None
+    )
+    completeness_flags = _detail_fallback_completeness_flags(search_result, poster)
+    return SourceVideoDetail(
+        source=search_result.source,
+        source_id=search_result.source_candidate_id,
+        source_url=search_result.url,
+        title=search_result.title,
+        release_date=search_result.release_date,
+        studio=search_result.studio,
+        series=search_result.series,
+        actors=list(search_result.actors),
+        poster=poster,
+        source_snapshot_eligible=False,
+        is_complete=not completeness_flags,
+        completeness_flags=completeness_flags,
+    )
+
+
+def _detail_fallback_completeness_flags(
+    result: SourceSearchResult,
+    poster: SourceAsset | None,
+) -> list[str]:
+    return [
+        flag
+        for flag, value in (
+            ("missing_source_id", result.source_candidate_id),
+            ("missing_title", result.title),
+            ("missing_poster", poster),
+            ("missing_actors", result.actors),
+        )
+        if not value
+    ]
+
+
 def _candidate_card_from_detail(detail: SourceVideoDetail) -> ManualCandidateCard:
     return ManualCandidateCard(
         candidate_id=0,
@@ -931,8 +1029,6 @@ def _manual_safety(
     return safety.model_copy(
         update={
             "unresolved_multipart": unresolved,
-            "strict_assets_missing": safety.strict_assets_missing
-            or (strict_assets and bool(selection.missing_required)),
         }
     )
 

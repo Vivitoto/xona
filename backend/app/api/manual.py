@@ -13,6 +13,7 @@ from backend.app.integrations.xchina import XChinaAdapter
 from backend.app.integrations.xchina_config import (
     is_allowed_xchina_resource_url,
     xchina_base_url,
+    xchina_max_search_pages,
 )
 from backend.app.schemas.manual import (
     ManualExecutePlanRequest,
@@ -216,9 +217,14 @@ async def proxy_manual_image(
     fetched = normalize_fetched_asset(fetched, fallback_url=url)
     content_type = normalize_content_type(fetched.content_type)
     if not content_type.startswith("image/"):
-        raise HTTPException(status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE, detail="Unsupported image content type")
+        raise HTTPException(
+            status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
+            detail="Unsupported image content type",
+        )
     if len(fetched.content) > IMAGE_PROXY_MAX_BYTES:
-        raise HTTPException(status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, detail="Image too large")
+        raise HTTPException(
+            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, detail="Image too large"
+        )
     return Response(
         content=fetched.content,
         media_type=content_type,
@@ -253,7 +259,12 @@ async def _service_for(
         str(endpoint),
         settings.proxy_url or store_settings.get("proxy_url"),
     )
-    xchina = XChinaAdapter(flaresolverr, session, base_url=xchina_base_url(store_settings))
+    xchina = XChinaAdapter(
+        flaresolverr,
+        session,
+        base_url=xchina_base_url(store_settings),
+        max_search_pages=xchina_max_search_pages(store_settings),
+    )
     return (
         ManualOrganizerService(
             settings,
@@ -284,7 +295,15 @@ async def _asset_adapter_for(
         str(endpoint),
         settings.proxy_url or store_settings.get("proxy_url"),
     )
-    return XChinaAdapter(flaresolverr, session, base_url=xchina_base_url(store_settings)), None
+    return (
+        XChinaAdapter(
+            flaresolverr,
+            session,
+            base_url=xchina_base_url(store_settings),
+            max_search_pages=xchina_max_search_pages(store_settings),
+        ),
+        None,
+    )
 
 
 async def _shared_flaresolverr_client(
@@ -314,7 +333,9 @@ async def close_shared_flaresolverr_client(app_state: object) -> None:
 
 def _validate_image_proxy_url(url: str, store_settings: dict[str, object]) -> None:
     if not is_allowed_xchina_resource_url(url, store_settings):
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Unsupported image host")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail="Unsupported image host"
+        )
 
 
 def _manual_error(session: Session, exc: ManualOrganizerError) -> HTTPException:

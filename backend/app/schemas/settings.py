@@ -5,6 +5,7 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from backend.app.integrations.xchina_config import DEFAULT_XCHINA_MAX_SEARCH_PAGES
 from backend.app.schemas.emby import EmbyPathMapping
 from backend.app.schemas.operations import AssetPolicy, OrganizationMode
 
@@ -19,6 +20,7 @@ class XChinaSettings(BaseModel):
     flaresolverr_url: str | None = None
     proxy_url: str | None = None
     cache_dir: Path | None = None
+    max_search_pages: int = Field(default=DEFAULT_XCHINA_MAX_SEARCH_PAGES, ge=1)
 
 
 class EmbySettings(BaseModel):
@@ -71,9 +73,7 @@ class AppSettingsRead(BaseModel):
     organization_defaults: OrganizationDefaultsSettings = Field(
         default_factory=OrganizationDefaultsSettings
     )
-    confidence_safety: ConfidenceSafetySettings = Field(
-        default_factory=ConfidenceSafetySettings
-    )
+    confidence_safety: ConfidenceSafetySettings = Field(default_factory=ConfidenceSafetySettings)
     auth: AuthSettings = Field(default_factory=AuthSettings)
 
 

@@ -13,7 +13,7 @@ from backend.app.core.settings import Settings
 from backend.app.integrations.emby import EmbyPathMapper
 from backend.app.integrations.flaresolverr import FlareSolverrClient
 from backend.app.integrations.xchina import XChinaAdapter
-from backend.app.integrations.xchina_config import xchina_base_url
+from backend.app.integrations.xchina_config import xchina_base_url, xchina_max_search_pages
 from backend.app.schemas.settings import (
     AppSettingsRead,
     AppSettingsUpdate,
@@ -159,12 +159,21 @@ async def test_xchina(
             str(endpoint),
             proxy_url=settings.proxy_url or store_settings.get("proxy_url"),
         )
-        adapter = XChinaAdapter(flaresolverr, session, base_url=xchina_base_url(store_settings))
+        adapter = XChinaAdapter(
+            flaresolverr,
+            session,
+            base_url=xchina_base_url(store_settings),
+            max_search_pages=xchina_max_search_pages(store_settings),
+        )
         closer = flaresolverr.close
     try:
-        logger.info("XChina test started query=%r adapter_injected=%s", payload.query, closer is None)
+        logger.info(
+            "XChina test started query=%r adapter_injected=%s", payload.query, closer is None
+        )
         results = await adapter.search(payload.query)
-        logger.info("XChina test completed ok=True query=%r candidates=%s", payload.query, len(results))
+        logger.info(
+            "XChina test completed ok=True query=%r candidates=%s", payload.query, len(results)
+        )
         return XChinaTestResponse(ok=True, candidate_count=len(results))
     except Exception as exc:
         logger.warning(
@@ -193,9 +202,7 @@ async def preview_templates(payload: TemplatePreviewRequest) -> TemplatePreviewR
 
 def _overlay_runtime_settings(settings: Settings, values: dict[str, Any]) -> None:
     storage = values.setdefault("storage", {})
-    bootstrap_roots = [
-        str(path) for path, _source in settings.bootstrap_storage_roots()
-    ]
+    bootstrap_roots = [str(path) for path, _source in settings.bootstrap_storage_roots()]
     if bootstrap_roots:
         storage["env_roots"] = bootstrap_roots
         bootstrap_root_set = set(bootstrap_roots)
@@ -289,9 +296,7 @@ def _validate_organization_defaults(
         return
     destination_path = Path(destination)
     if "\0" in str(destination_path) or not destination_path.is_absolute():
-        raise ValueError(
-            "Organization default destination directory must be an absolute safe path"
-        )
+        raise ValueError("Organization default destination directory must be an absolute safe path")
     if destination_path.exists() and not destination_path.is_dir():
         raise ValueError("Organization default destination directory must be a directory")
 
@@ -301,8 +306,7 @@ def _validate_organization_defaults(
     root_paths.extend(Path(root) for root in (user_roots or []))
     if include_persisted_roots:
         root_paths.extend(
-            Path(root.path)
-            for root in StorageRootService(settings, session).list_roots()
+            Path(root.path) for root in StorageRootService(settings, session).list_roots()
         )
     if not root_paths:
         raise ValueError(

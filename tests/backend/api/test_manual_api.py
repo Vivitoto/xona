@@ -8,9 +8,14 @@ import pytest
 
 import backend.app.api.manual as manual_api
 from backend.app.core.settings import Settings
-from backend.app.integrations.xchina import FetchedAsset
+from backend.app.integrations.xchina import FetchedAsset, XChinaParseError
 from backend.app.main import create_app
-from backend.app.schemas.source import SourceActorRef, SourceAsset, SourceSearchResult, SourceVideoDetail
+from backend.app.schemas.source import (
+    SourceActorRef,
+    SourceAsset,
+    SourceSearchResult,
+    SourceVideoDetail,
+)
 from backend.app.services.settings_store import SettingsStore
 
 
@@ -79,6 +84,15 @@ class SearchMetadataOnlyXChina(FakeXChina):
         )
 
 
+class FailingDetailXChina(FakeXChina):
+    def __init__(self) -> None:
+        self.detail_fetches: list[str] = []
+
+    async def fetch_video_detail(self, url: str) -> SourceVideoDetail:
+        self.detail_fetches.append(url)
+        raise XChinaParseError(f"Failed to parse detail {url}: video detail container not found")
+
+
 class FailingAssetXChina(FakeXChina):
     async def fetch_asset(
         self,
@@ -142,10 +156,12 @@ class FakeStoredSettingsXChina:
         session,
         *,
         base_url: str = "https://www.xchina.co",
+        max_search_pages: int = 50,
     ) -> None:
         self.flaresolverr = flaresolverr
         self.session = session
         self.base_url = base_url
+        self.max_search_pages = max_search_pages
         self.instances.append(self)
 
     async def search(self, query: str) -> list[SourceSearchResult]:
@@ -215,7 +231,7 @@ def test_manual_api_scan_search_select_preview_execute(tmp_path: Path) -> None:
                         "mode": "copy",
                         "folder_templates": ["{studio}", "{title}"],
                         "filename_template": "{xchina_id} - {title}",
-                        "asset_policy": "strict",
+                        "asset_policy": "lenient",
                     },
                     headers={"Origin": ORIGIN},
                 )
@@ -322,7 +338,9 @@ def test_manual_organize_lenient_continues_when_asset_download_fails(
     assert not (target_dir / "poster.jpg").exists()
 
 
-def test_manual_preview_passes_selected_detail_url_to_asset_fetches(tmp_path: Path) -> None:
+def test_manual_preview_passes_selected_candidate_url_to_search_asset_fetches(
+    tmp_path: Path,
+) -> None:
     root = tmp_path / "media"
     incoming = root / "incoming"
     destination = root / "organized"
@@ -373,7 +391,7 @@ def test_manual_preview_passes_selected_detail_url_to_asset_fetches(tmp_path: Pa
                         "mode": "copy",
                         "folder_templates": ["{studio}", "{title}"],
                         "filename_template": "{xchina_id} - {title}",
-                        "asset_policy": "strict",
+                        "asset_policy": "lenient",
                     },
                     headers={"Origin": ORIGIN},
                 )
@@ -383,11 +401,7 @@ def test_manual_preview_passes_selected_detail_url_to_asset_fetches(tmp_path: Pa
     assert response.status_code == 200, response.text
     assert adapter.asset_requests == [
         (
-            "https://images.example.test/poster.jpg",
-            "https://xchina.example.test/videos/xc-001.html",
-        ),
-        (
-            "https://images.example.test/fanart.jpg",
+            "https://images.example.test/thumb.jpg",
             "https://xchina.example.test/videos/xc-001.html",
         ),
     ]
@@ -455,7 +469,7 @@ def test_manual_preview_strict_fails_required_hotlink_forbidden_assets(
     assert response.status_code == 400, response.text
     assert response.json()["detail"]["error"] == "strict_asset_materialization_failed"
     assert response.json()["detail"]["reasons"] == [
-        "hotlink_forbidden",
+        "missing_source_url",
         "hotlink_forbidden",
     ]
 
@@ -535,13 +549,128 @@ def test_manual_preview_uses_search_result_metadata_when_detail_is_missing_it(
     assert responses["preview"].status_code == 200, responses["preview"].text
     assert responses["preview"].json()["metadata"] == metadata
     media_steps = [
-        step
-        for step in responses["preview"].json()["plan"]["steps"]
-        if step["category"] == "media"
+        step for step in responses["preview"].json()["plan"]["steps"] if step["category"] == "media"
     ]
     assert Path(media_steps[0]["target_path"]).name == (
         "Studio One - Series One - 2026-01-02 - Actor One - Sample Work Alpha.mkv"
     )
+
+
+def test_manual_selection_uses_search_result_without_fetching_detail(
+    tmp_path: Path,
+) -> None:
+    root = tmp_path / "media"
+    incoming = root / "incoming"
+    incoming.mkdir(parents=True)
+    source = incoming / "Sample.Work.Alpha.mkv"
+    source.write_bytes(b"movie-bytes")
+    settings = Settings(
+        config_dir=tmp_path / "config",
+        storage_roots=(root,),
+        auth_enabled=False,
+    )
+
+    async def run() -> dict[str, object]:
+        app = create_app(settings)
+        adapter = FailingDetailXChina()
+        app.state.manual_search_adapter = adapter
+        async with app.router.lifespan_context(app):
+            async with httpx.AsyncClient(
+                transport=httpx.ASGITransport(app=app),
+                base_url=ORIGIN,
+            ) as client:
+                scan = await client.post(
+                    "/api/manual/scan",
+                    json={"directory": str(incoming)},
+                    headers={"Origin": ORIGIN},
+                )
+                job_id = scan.json()["jobs"][0]["job_id"]
+                search = await client.post(
+                    "/api/manual/search",
+                    json={
+                        "job_id": job_id,
+                        "filename": source.name,
+                        "normalized_query": "Sample Work Alpha",
+                    },
+                    headers={"Origin": ORIGIN},
+                )
+                candidate_id = search.json()["candidates"][0]["candidate_id"]
+                select = await client.post(
+                    f"/api/manual/jobs/{job_id}/select-candidate",
+                    json={"candidate_id": candidate_id, "strict_assets": False},
+                    headers={"Origin": ORIGIN},
+                )
+                job = await client.get(f"/api/manual/jobs/{job_id}")
+                return {"select": select, "job": job, "adapter": adapter}
+
+    responses = asyncio.run(run())
+
+    select_response = responses["select"]
+    assert isinstance(select_response, httpx.Response)
+    assert select_response.status_code == 200, select_response.text
+    body = select_response.json()
+    assert body["accepted"] is True
+    metadata = body["metadata"]
+    assert metadata["xchina_id"] == "XC-001"
+    assert metadata["source_url"] == "https://xchina.example.test/videos/xc-001.html"
+    assert metadata["title"] == "Sample Work Alpha"
+    assert metadata["assets"]["poster_url"] == "https://images.example.test/thumb.jpg"
+    assert metadata["assets"]["fanart_url"] is None
+    adapter = responses["adapter"]
+    assert isinstance(adapter, FailingDetailXChina)
+    assert adapter.detail_fetches == []
+    job_response = responses["job"]
+    assert isinstance(job_response, httpx.Response)
+    manual = job_response.json()["payload"]["manual"]
+    assert manual["detail_fallback_used"] is True
+    assert manual["detail_fetch_error"] is None
+
+
+def test_manual_selection_direct_url_detail_failure_returns_service_unavailable(
+    tmp_path: Path,
+) -> None:
+    root = tmp_path / "media"
+    incoming = root / "incoming"
+    incoming.mkdir(parents=True)
+    (incoming / "Sample.Work.Alpha.mkv").write_bytes(b"movie-bytes")
+    settings = Settings(
+        config_dir=tmp_path / "config",
+        storage_roots=(root,),
+        auth_enabled=False,
+    )
+
+    async def run() -> dict[str, httpx.Response]:
+        app = create_app(settings)
+        app.state.manual_search_adapter = FailingDetailXChina()
+        async with app.router.lifespan_context(app):
+            async with httpx.AsyncClient(
+                transport=httpx.ASGITransport(app=app),
+                base_url=ORIGIN,
+            ) as client:
+                scan = await client.post(
+                    "/api/manual/scan",
+                    json={"directory": str(incoming)},
+                    headers={"Origin": ORIGIN},
+                )
+                job_id = scan.json()["jobs"][0]["job_id"]
+                select = await client.post(
+                    f"/api/manual/jobs/{job_id}/select-candidate",
+                    json={
+                        "source_url": "https://xchina.example.test/videos/direct.html",
+                    },
+                    headers={"Origin": ORIGIN},
+                )
+                job = await client.get(f"/api/manual/jobs/{job_id}")
+                return {"select": select, "job": job}
+
+    responses = asyncio.run(run())
+
+    assert responses["select"].status_code == 503, responses["select"].text
+    assert responses["select"].json()["detail"]["error"] == "candidate_detail_unavailable"
+    assert responses["select"].json()["detail"]["reasons"] == ["candidate_detail_unavailable"]
+    manual = responses["job"].json()["payload"]["manual"]
+    assert manual["selection_error"] == "candidate_detail_unavailable"
+    assert manual["selected_source_url"] == "https://xchina.example.test/videos/direct.html"
 
 
 def test_manual_search_source_failure_returns_service_unavailable_without_500(
@@ -585,7 +714,9 @@ def test_manual_search_source_failure_returns_service_unavailable_without_500(
     assert responses["search"].status_code == 503, responses["search"].text
     assert responses["search"].json()["detail"]["error"] == "search_source_unavailable"
     assert responses["search"].json()["detail"]["reasons"] == ["search_source_unavailable"]
-    assert responses["job"].json()["payload"]["manual"]["search_error"] == "search_source_unavailable"
+    assert (
+        responses["job"].json()["payload"]["manual"]["search_error"] == "search_source_unavailable"
+    )
 
 
 def test_manual_search_uses_saved_xchina_settings(
@@ -617,6 +748,7 @@ def test_manual_search_uses_saved_xchina_settings(
                             "base_url": "https://mirror.xchina.test",
                             "flaresolverr_url": "http://solver:8191/v1",
                             "proxy_url": "http://proxy:8080",
+                            "max_search_pages": 77,
                         }
                     }
                 )
@@ -660,6 +792,7 @@ def test_manual_search_uses_saved_xchina_settings(
         for adapter in FakeStoredSettingsXChina.instances
     )
     assert FakeStoredSettingsXChina.instances[0].base_url == "https://mirror.xchina.test"
+    assert all(adapter.max_search_pages == 77 for adapter in FakeStoredSettingsXChina.instances)
 
 
 def test_manual_search_closes_shared_flaresolverr_client_when_saved_settings_change(
@@ -732,8 +865,12 @@ def test_manual_search_closes_shared_flaresolverr_client_when_saved_settings_cha
                 return {
                     "first_search": first_search,
                     "second_search": second_search,
-                    "first_closed_after_rotation": FakeStoredSettingsFlareSolverr.instances[0].closed,
-                    "second_closed_before_shutdown": FakeStoredSettingsFlareSolverr.instances[1].closed,
+                    "first_closed_after_rotation": FakeStoredSettingsFlareSolverr.instances[
+                        0
+                    ].closed,
+                    "second_closed_before_shutdown": FakeStoredSettingsFlareSolverr.instances[
+                        1
+                    ].closed,
                 }
 
     responses = asyncio.run(run())

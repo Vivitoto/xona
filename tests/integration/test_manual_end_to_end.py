@@ -4,7 +4,6 @@ from backend.app.db.models import OperationPlan, OperationStep
 
 from conftest import (
     ACTOR_BYTES,
-    FANART_BYTES,
     MEDIA_BYTES,
     POSTER_BYTES,
     ORIGIN,
@@ -64,7 +63,7 @@ def test_manual_preview_mode_does_not_change_media(
                     "mode": "preview",
                     "folder_templates": ["{studio}", "{title}"],
                     "filename_template": "{xchina_id} - {title}",
-                    "asset_policy": "strict",
+                    "asset_policy": "lenient",
                 },
                 headers={"Origin": ORIGIN},
             )
@@ -89,10 +88,7 @@ def test_manual_preview_mode_does_not_change_media(
     assert media_layout.media_file.stat().st_mtime_ns == before_stat.st_mtime_ns
     assert sha256_file(media_layout.media_file) == before_hash
     assert not (
-        media_layout.output
-        / "Studio One"
-        / "Sample Work Alpha"
-        / "XC-001 - Sample Work Alpha.mkv"
+        media_layout.output / "Studio One" / "Sample Work Alpha" / "XC-001 - Sample Work Alpha.mkv"
     ).exists()
     assert all(step["operation"] == "preview" for step in result["preview"]["plan"]["steps"])
     assert_disposable_database_paths(app, media_layout.root)
@@ -138,7 +134,7 @@ def test_manual_copy_mode_writes_media_metadata_assets_and_journal(
                     "mode": "copy",
                     "folder_templates": ["{studio}", "{title}"],
                     "filename_template": "{xchina_id} - {title}",
-                    "asset_policy": "strict",
+                    "asset_policy": "lenient",
                 },
                 headers={"Origin": ORIGIN},
             )
@@ -162,15 +158,20 @@ def test_manual_copy_mode_writes_media_metadata_assets_and_journal(
     assert target_nfo.read_text(encoding="utf-8").find("Sample Work Alpha") >= 0
     assert not (target_dir / "xchina-normalized.json").exists()
     assert (target_dir / "poster.jpg").read_bytes() == POSTER_BYTES
-    assert (target_dir / "fanart.jpg").read_bytes() == FANART_BYTES
+    assert not (target_dir / "fanart.jpg").exists()
     assert (target_dir / ".actors" / "Actor One.jpg").read_bytes() == ACTOR_BYTES
+    assert xchina.detail_fetches == []
 
     with app.state.sessionmaker() as session:
         plan = session.query(OperationPlan).filter_by(job_id=job_id).one()
         assert plan.status == "completed"
         media_step = (
             session.query(OperationStep)
-            .filter_by(operation_plan_id=plan.id, operation="copy", source_path=str(media_layout.media_file))
+            .filter_by(
+                operation_plan_id=plan.id,
+                operation="copy",
+                source_path=str(media_layout.media_file),
+            )
             .one()
         )
         assert media_step.status == "completed"

@@ -187,6 +187,7 @@ def happy_xchina() -> MockXChina:
         ],
         details={detail.source_url: detail},
         assets={
+            "https://images.example.test/thumb.jpg": (POSTER_BYTES, "image/jpeg"),
             "https://images.example.test/poster.jpg": (POSTER_BYTES, "image/jpeg"),
             "https://images.example.test/fanart.jpg": (FANART_BYTES, "image/jpeg"),
             "https://images.example.test/actor-one.jpg": (ACTOR_BYTES, "image/jpeg"),
