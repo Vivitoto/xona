@@ -74,6 +74,11 @@ class SearchMetadataOnlyXChina(FakeXChina):
         )
 
 
+class FailingAssetXChina(FakeXChina):
+    async def fetch_asset(self, url: str) -> FetchedAsset:
+        raise RuntimeError(f"HTTP 403 Forbidden: {url}")
+
+
 class FailingSearchXChina:
     async def search(self, query: str) -> list[SourceSearchResult]:
         raise RuntimeError("FlareSolverr request failed")
@@ -219,6 +224,78 @@ def test_manual_api_scan_search_select_preview_execute(tmp_path: Path) -> None:
     assert (target_dir / "XC-001 - Sample Work Alpha.mkv").is_file()
     assert (target_dir / "XC-001 - Sample Work Alpha.nfo").is_file()
     assert not (target_dir / "xchina-normalized.json").exists()
+
+
+def test_manual_organize_lenient_continues_when_asset_download_fails(
+    tmp_path: Path,
+) -> None:
+    root = tmp_path / "media"
+    incoming = root / "incoming"
+    destination = root / "organized"
+    incoming.mkdir(parents=True)
+    destination.mkdir()
+    source = incoming / "Sample.Work.Alpha.mkv"
+    source.write_bytes(b"movie-bytes")
+    settings = Settings(
+        config_dir=tmp_path / "config",
+        storage_roots=(root,),
+        auth_enabled=False,
+    )
+
+    async def run() -> dict[str, httpx.Response]:
+        app = create_app(settings)
+        app.state.manual_search_adapter = FailingAssetXChina()
+        async with app.router.lifespan_context(app):
+            async with httpx.AsyncClient(
+                transport=httpx.ASGITransport(app=app),
+                base_url=ORIGIN,
+            ) as client:
+                scan = await client.post(
+                    "/api/manual/scan",
+                    json={"directory": str(incoming)},
+                    headers={"Origin": ORIGIN},
+                )
+                job_id = scan.json()["jobs"][0]["job_id"]
+                search = await client.post(
+                    "/api/manual/search",
+                    json={
+                        "job_id": job_id,
+                        "filename": source.name,
+                        "normalized_query": "Sample Work Alpha",
+                    },
+                    headers={"Origin": ORIGIN},
+                )
+                candidate_id = search.json()["candidates"][0]["candidate_id"]
+                select = await client.post(
+                    f"/api/manual/jobs/{job_id}/select-candidate",
+                    json={"candidate_id": candidate_id, "strict_assets": False},
+                    headers={"Origin": ORIGIN},
+                )
+                organize = await client.post(
+                    f"/api/manual/jobs/{job_id}/organize",
+                    json={
+                        "destination_root": str(destination),
+                        "mode": "copy",
+                        "folder_templates": ["{studio}", "{title}"],
+                        "filename_template": "{xchina_id} - {title}",
+                        "asset_policy": "lenient",
+                    },
+                    headers={"Origin": ORIGIN},
+                )
+                job = await client.get(f"/api/manual/jobs/{job_id}")
+                return {"select": select, "organize": organize, "job": job}
+
+    responses = asyncio.run(run())
+
+    assert responses["select"].status_code == 200, responses["select"].text
+    assert responses["select"].json()["accepted"] is True
+    assert responses["organize"].status_code == 200, responses["organize"].text
+    assert responses["organize"].json()["state"] == "completed"
+    assert responses["job"].json()["state"] == "completed"
+    target_dir = destination / "Studio One" / "Sample Work Alpha"
+    assert (target_dir / "XC-001 - Sample Work Alpha.mkv").is_file()
+    assert (target_dir / "XC-001 - Sample Work Alpha.nfo").is_file()
+    assert not (target_dir / "poster.jpg").exists()
 
 
 def test_manual_preview_uses_search_result_metadata_when_detail_is_missing_it(

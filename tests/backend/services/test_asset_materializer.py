@@ -23,6 +23,15 @@ class FakeAssetAdapter:
         return self.responses[url]
 
 
+class FailingAssetAdapter:
+    def __init__(self) -> None:
+        self.urls: list[str] = []
+
+    async def fetch_asset(self, url: str) -> FetchedAsset:
+        self.urls.append(url)
+        raise RuntimeError("HTTP 403 Forbidden")
+
+
 def _database(tmp_path: Path):
     settings = Settings(config_dir=tmp_path / "config")
     run_migrations(settings=settings)
@@ -121,6 +130,70 @@ def test_lenient_records_missing_required_assets_without_failing(tmp_path: Path)
                 ("poster.jpg", "missing_source_url")
             ]
             assert result.assets == []
+    finally:
+        engine.dispose()
+
+
+def test_lenient_records_download_failures_without_failing(tmp_path: Path) -> None:
+    settings, engine, sessionmaker = _database(tmp_path)
+    try:
+        selection = AssetSelection(
+            assets=[
+                LogicalAsset(
+                    kind="poster",
+                    relative_path="poster.jpg",
+                    source_url="https://upload.xchina.io/video/blocked.webp",
+                    required=True,
+                )
+            ]
+        )
+        adapter = FailingAssetAdapter()
+        with sessionmaker() as session:
+            result = asyncio.run(
+                AssetMaterializer(adapter, settings.config_dir, session=session).materialize(
+                    selection,
+                    AssetMaterializationPolicy(strict=False),
+                )
+            )
+
+            assert result.failed is False
+            assert adapter.urls == ["https://upload.xchina.io/video/blocked.webp"]
+            assert result.assets == []
+            assert [(item.relative_path, item.reason) for item in result.missing] == [
+                ("poster.jpg", "download_failed")
+            ]
+            missing_record = session.query(AssetMaterialization).one()
+            assert missing_record.status == "missing"
+            assert missing_record.missing_reason == "download_failed"
+    finally:
+        engine.dispose()
+
+
+def test_strict_records_download_failures_and_fails_materialization(tmp_path: Path) -> None:
+    settings, engine, sessionmaker = _database(tmp_path)
+    try:
+        selection = AssetSelection(
+            assets=[
+                LogicalAsset(
+                    kind="poster",
+                    relative_path="poster.jpg",
+                    source_url="https://upload.xchina.io/video/blocked.webp",
+                    required=True,
+                )
+            ]
+        )
+        with sessionmaker() as session:
+            result = asyncio.run(
+                AssetMaterializer(
+                    FailingAssetAdapter(), settings.config_dir, session=session
+                ).materialize(selection, AssetMaterializationPolicy(strict=True))
+            )
+
+            assert result.failed is True
+            assert result.assets == []
+            assert [(item.relative_path, item.reason) for item in result.missing] == [
+                ("poster.jpg", "download_failed")
+            ]
     finally:
         engine.dispose()
 

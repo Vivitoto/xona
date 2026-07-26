@@ -7,6 +7,7 @@ from typing import Protocol
 
 from sqlalchemy.orm import Session
 
+from backend.app.core.redaction import redact_payload
 from backend.app.db.models import AssetMaterialization
 from backend.app.integrations.assets import (
     FetchedAsset,
@@ -195,7 +196,16 @@ class AssetMaterializer:
             )
         else:
             assert asset.source_url is not None
-            fetched = await self._adapter.fetch_asset(asset.source_url)
+            try:
+                fetched = await self._adapter.fetch_asset(asset.source_url)
+            except Exception as exc:
+                logger.warning(
+                    "Asset download failed kind=%s relative_path=%s error=%s",
+                    asset.kind,
+                    asset.relative_path,
+                    redact_payload(str(exc)),
+                )
+                return _missing(asset, "download_failed")
         fetched = normalize_fetched_asset(
             fetched,
             fallback_url=asset.source_url or asset.relative_path,
