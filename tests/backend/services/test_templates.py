@@ -62,3 +62,35 @@ def test_templates_do_not_create_nested_paths_inside_single_component() -> None:
     assert preview.validation_errors == []
     assert preview.folder_path == "CON_Series_ Example"
     assert preview.filename == "Bad_Title.mkv"
+
+
+def test_templates_drop_dangling_separators_for_empty_fields() -> None:
+    context = TemplateContext(title="Sample Title", xchina_id="XC-001")
+
+    compact = preview_template(
+        folder_templates=[],
+        filename_template="{series}-{title}",
+        context=context,
+    )
+    spaced = preview_template(
+        folder_templates=["{studio} - {series} - {title}"],
+        filename_template="{series} - {title} - {release_date}",
+        context=context,
+    )
+
+    assert compact.filename == "Sample Title"
+    assert spaced.folder_path == "Sample Title"
+    assert spaced.filename == "Sample Title"
+
+
+def test_templates_treat_slash_only_rendering_as_empty() -> None:
+    preview = preview_template(
+        folder_templates=["{studio}/{series}"],
+        filename_template="/",
+        context=TemplateContext(),
+    )
+
+    assert preview.folder_path == "untitled"
+    assert preview.filename is None
+    assert preview.validation_errors == ["empty_filename"]
+    assert preview.warnings == ["empty_folder_component"]

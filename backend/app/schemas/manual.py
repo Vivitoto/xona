@@ -6,7 +6,7 @@ from typing import Any
 from pydantic import BaseModel, Field
 
 from backend.app.schemas.matching import ExecutionSafety
-from backend.app.schemas.operations import OrganizationMode
+from backend.app.schemas.operations import AssetPolicy, OrganizationMode
 from backend.app.schemas.source import SourceVideoDetail
 
 
@@ -88,7 +88,7 @@ class ManualPreviewRequest(BaseModel):
     mode: OrganizationMode = "copy"
     folder_templates: list[str] = Field(default_factory=lambda: ["{studio}", "{title}"])
     filename_template: str = "{title}"
-    asset_policy: str = "lenient"
+    asset_policy: AssetPolicy = "lenient"
     include_source_snapshot: bool = False
 
 

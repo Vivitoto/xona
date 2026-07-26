@@ -50,7 +50,11 @@ from backend.app.services.asset_materializer import AssetAdapter, AssetMateriali
 from backend.app.services.assets import select_assets
 from backend.app.services.jobs import ACTIVE_STATES, JobService
 from backend.app.services.matching import manual_selection_gate, score_candidate
-from backend.app.services.metadata import normalize_source_video, persist_metadata_record
+from backend.app.services.metadata import (
+    normalize_source_video,
+    persist_metadata_record,
+    source_detail_with_search_result_fallbacks,
+)
 from backend.app.services.nfo import movie_nfo_relative_path, render_movie_nfo
 from backend.app.services.operation_executor import (
     OperationExecutionError,
@@ -279,6 +283,10 @@ class ManualOrganizerService:
                 raise ManualOrganizerError("candidate_detail_url_required")
             detail = await self._search_adapter.fetch_video_detail(detail_url)
 
+        detail = source_detail_with_search_result_fallbacks(
+            detail,
+            _search_result_from_candidate(row),
+        )
         record = normalize_source_video(detail)
         selection = select_assets(record)
         effective_safety = _manual_safety(job, safety, selection, strict_assets)
@@ -872,6 +880,14 @@ def _candidate_card(row: SearchCandidate) -> ManualCandidateCard:
             if isinstance(value, int)
         },
     )
+
+
+def _search_result_from_candidate(row: SearchCandidate | None) -> dict[str, Any] | None:
+    if row is None:
+        return None
+    payload = row.candidate_json or {}
+    result = payload.get("search_result") if isinstance(payload, dict) else None
+    return result if isinstance(result, dict) else None
 
 
 def _candidate_card_from_detail(detail: SourceVideoDetail) -> ManualCandidateCard:

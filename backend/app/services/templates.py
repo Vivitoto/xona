@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 import string
 from pathlib import Path
 
@@ -44,7 +45,7 @@ def preview_template(
 
     folders: list[str] = []
     for template in folder_templates:
-        rendered = _render(template, values)
+        rendered = _cleanup_dangling_separators(_render(template, values))
         component = sanitize_path_component(rendered)
         if component == "untitled":
             warnings.append("empty_folder_component")
@@ -52,7 +53,9 @@ def preview_template(
             warnings.append("truncated_folder_component")
         folders.append(component)
 
-    filename = sanitize_path_component(_render(filename_template, values))
+    filename = sanitize_path_component(
+        _cleanup_dangling_separators(_render(filename_template, values))
+    )
     if filename == "untitled":
         validation_errors.append("empty_filename")
         filename_value = None
@@ -98,3 +101,14 @@ def _unknown_variables(templates: list[str]) -> set[str]:
 
 def _render(template: str, values: dict[str, str]) -> str:
     return template.format_map(values)
+
+
+def _cleanup_dangling_separators(value: str) -> str:
+    cleaned = value
+    previous = None
+    while cleaned != previous:
+        previous = cleaned
+        cleaned = re.sub(r"^\s*[-_]+\s*", "", cleaned)
+        cleaned = re.sub(r"\s*[-_]+\s*$", "", cleaned)
+        cleaned = re.sub(r"\s*[-_]+\s*(?:[-_]+\s*)+", " - ", cleaned)
+    return re.sub(r"\s+", " ", cleaned).strip()

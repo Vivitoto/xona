@@ -55,6 +55,25 @@ class FakeXChina:
         return FetchedAsset(url=url, content=f"bytes:{url}".encode(), content_type="image/jpeg")
 
 
+class SearchMetadataOnlyXChina(FakeXChina):
+    async def fetch_video_detail(self, url: str) -> SourceVideoDetail:
+        detail = await super().fetch_video_detail(url)
+        return detail.model_copy(
+            update={
+                "source_id": "",
+                "source_url": "",
+                "title": "",
+                "release_date": None,
+                "studio": None,
+                "series": None,
+                "actors": [],
+                "poster": None,
+                "is_complete": False,
+                "completeness_flags": ["source_id", "title", "poster", "actors"],
+            }
+        )
+
+
 class FailingSearchXChina:
     async def search(self, query: str) -> list[SourceSearchResult]:
         raise RuntimeError("FlareSolverr request failed")
@@ -200,6 +219,90 @@ def test_manual_api_scan_search_select_preview_execute(tmp_path: Path) -> None:
     assert (target_dir / "XC-001 - Sample Work Alpha.mkv").is_file()
     assert (target_dir / "XC-001 - Sample Work Alpha.nfo").is_file()
     assert not (target_dir / "xchina-normalized.json").exists()
+
+
+def test_manual_preview_uses_search_result_metadata_when_detail_is_missing_it(
+    tmp_path: Path,
+) -> None:
+    root = tmp_path / "media"
+    incoming = root / "incoming"
+    destination = root / "organized"
+    incoming.mkdir(parents=True)
+    destination.mkdir()
+    source = incoming / "Sample.Work.Alpha.mkv"
+    source.write_bytes(b"movie-bytes")
+    settings = Settings(
+        config_dir=tmp_path / "config",
+        storage_roots=(root,),
+        auth_enabled=False,
+    )
+
+    async def run() -> dict[str, httpx.Response]:
+        app = create_app(settings)
+        app.state.manual_search_adapter = SearchMetadataOnlyXChina()
+        async with app.router.lifespan_context(app):
+            async with httpx.AsyncClient(
+                transport=httpx.ASGITransport(app=app),
+                base_url=ORIGIN,
+            ) as client:
+                scan = await client.post(
+                    "/api/manual/scan",
+                    json={"directory": str(incoming)},
+                    headers={"Origin": ORIGIN},
+                )
+                job_id = scan.json()["jobs"][0]["job_id"]
+                search = await client.post(
+                    "/api/manual/search",
+                    json={
+                        "job_id": job_id,
+                        "filename": source.name,
+                        "normalized_query": "Sample Work Alpha",
+                    },
+                    headers={"Origin": ORIGIN},
+                )
+                candidate_id = search.json()["candidates"][0]["candidate_id"]
+                select = await client.post(
+                    f"/api/manual/jobs/{job_id}/select-candidate",
+                    json={"candidate_id": candidate_id},
+                    headers={"Origin": ORIGIN},
+                )
+                preview = await client.post(
+                    f"/api/manual/jobs/{job_id}/preview",
+                    json={
+                        "destination_root": str(destination),
+                        "mode": "copy",
+                        "folder_templates": [],
+                        "filename_template": (
+                            "{studio} - {series} - {release_date} - {first_actor} - {title}"
+                        ),
+                        "asset_policy": "lenient",
+                    },
+                    headers={"Origin": ORIGIN},
+                )
+                return {"select": select, "preview": preview}
+
+    responses = asyncio.run(run())
+
+    assert responses["select"].status_code == 200, responses["select"].text
+    assert responses["select"].json()["accepted"] is True
+    metadata = responses["select"].json()["metadata"]
+    assert metadata["xchina_id"] == "XC-001"
+    assert metadata["source_url"] == "https://xchina.example.test/videos/xc-001.html"
+    assert metadata["title"] == "Sample Work Alpha"
+    assert metadata["studio"] == "Studio One"
+    assert metadata["series"] == "Series One"
+    assert metadata["release_date"] == "2026-01-02"
+    assert [actor["name"] for actor in metadata["actors"]] == ["Actor One"]
+    assert responses["preview"].status_code == 200, responses["preview"].text
+    assert responses["preview"].json()["metadata"] == metadata
+    media_steps = [
+        step
+        for step in responses["preview"].json()["plan"]["steps"]
+        if step["category"] == "media"
+    ]
+    assert Path(media_steps[0]["target_path"]).name == (
+        "Studio One - Series One - 2026-01-02 - Actor One - Sample Work Alpha.mkv"
+    )
 
 
 def test_manual_search_source_failure_returns_service_unavailable_without_500(

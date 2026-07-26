@@ -6,7 +6,7 @@ from typing import Any
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from backend.app.schemas.emby import EmbyPathMapping
-from backend.app.schemas.operations import OrganizationMode
+from backend.app.schemas.operations import AssetPolicy, OrganizationMode
 
 
 class StorageSettings(BaseModel):
@@ -37,7 +37,7 @@ class NamingSettings(BaseModel):
 class MetadataAssetSettings(BaseModel):
     write_nfo: bool = True
     include_source_snapshot: bool = False
-    asset_policy: str = "lenient"
+    asset_policy: AssetPolicy = "lenient"
     max_asset_bytes: int = Field(default=10 * 1024 * 1024, ge=1)
 
 
@@ -46,7 +46,7 @@ class OrganizationDefaultsSettings(BaseModel):
     organization_mode: OrganizationMode = "copy"
     folder_templates: list[str] = Field(default_factory=lambda: ["{studio}", "{title}"])
     filename_template: str = "{title}"
-    asset_policy: str = "lenient"
+    asset_policy: AssetPolicy = "lenient"
     include_source_snapshot: bool = False
 
 

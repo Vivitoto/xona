@@ -13,7 +13,7 @@ from backend.app.db.models import Job, WatchRule
 from backend.app.db.session import create_engine_for_settings, get_sessionmaker
 from backend.app.integrations.assets import FetchedAsset
 from backend.app.schemas.assets import AssetSelection
-from backend.app.schemas.source import SourceAsset, SourceSearchResult, SourceVideoDetail
+from backend.app.schemas.source import SourceActorRef, SourceAsset, SourceSearchResult, SourceVideoDetail
 from backend.app.services.jobs import JobService
 from backend.app.services.settings_store import SettingsStore
 from backend.app.services.worker import Worker
@@ -84,6 +84,40 @@ class FakeAutoAdapter:
 
     async def fetch_asset(self, url: str) -> FetchedAsset:
         return FetchedAsset(url=url, content=b"asset-bytes", content_type="image/jpeg")
+
+
+class SearchMetadataOnlyAutoAdapter(FakeAutoAdapter):
+    async def search(self, query: str) -> list[SourceSearchResult]:
+        assert query == "Sample Work Alpha"
+        return [
+            SourceSearchResult(
+                source_candidate_id="XC-001",
+                title="Sample Work Alpha",
+                url="https://xchina.example.test/videos/xc-001.html",
+                release_date="2026-01-02",
+                thumbnail_url="https://images.example.test/thumb.jpg",
+                actors=[SourceActorRef(name="Actor One", source_id="ACT-001")],
+                studio="Studio One",
+                series="Series One",
+            )
+        ]
+
+    async def fetch_video_detail(self, url: str) -> SourceVideoDetail:
+        detail = await super().fetch_video_detail(url)
+        return detail.model_copy(
+            update={
+                "source_id": "",
+                "source_url": "",
+                "title": "",
+                "release_date": None,
+                "studio": None,
+                "series": None,
+                "actors": [],
+                "poster": None,
+                "is_complete": False,
+                "completeness_flags": ["source_id", "title", "poster", "actors"],
+            }
+        )
 
 
 class FailingAutoSearchAdapter:
@@ -397,5 +431,91 @@ def test_auto_worker_passes_snapshot_default_to_asset_selection(
             assert loaded is not None
             assert loaded.state == "matched"
         assert seen == [expected_include_source_snapshot]
+    finally:
+        engine.dispose()
+
+
+def test_auto_worker_plan_uses_search_result_metadata_when_detail_is_missing_it(
+    tmp_path: Path,
+) -> None:
+    root = tmp_path / "media"
+    source = root / "incoming"
+    destination = root / "organized"
+    source.mkdir(parents=True)
+    destination.mkdir()
+    media_file = source / "Sample.Work.Alpha.mkv"
+    media_file.write_bytes(b"movie-bytes")
+    settings = Settings(config_dir=tmp_path / "config", storage_roots=(root,))
+    run_migrations(settings=settings)
+    engine = create_engine_for_settings(settings)
+    sessionmaker = get_sessionmaker(engine)
+    try:
+        with sessionmaker() as session:
+            session.add(
+                WatchRule(
+                    rule_id="rule-auto-search-series",
+                    source_directory=str(source),
+                    destination_directory=str(destination),
+                    recursive=True,
+                    realtime=True,
+                    polling_interval_seconds=60,
+                    stability_seconds=0,
+                    stable_check_count=1,
+                    organization_mode="copy",
+                    folder_templates=[],
+                    filename_template=(
+                        "{studio} - {series} - {release_date} - {title}"
+                    ),
+                    asset_policy="strict",
+                    emby_options={},
+                    metadata_options={},
+                    include_patterns=["*.mkv"],
+                    exclude_patterns=[],
+                    excluded_destination_prefixes=[],
+                    confidence_threshold=60,
+                    enabled=True,
+                )
+            )
+            job = JobService(session).create_job(
+                media_identity="media-auto-search-series",
+                rule_id="rule-auto-search-series",
+                manual=False,
+                state="searching",
+                payload={"last_seen_path": str(media_file)},
+            )
+            session.commit()
+            job_id = job.id
+
+        adapter = SearchMetadataOnlyAutoAdapter()
+        worker = Worker(
+            sessionmaker,
+            settings=settings,
+            search_adapter=adapter,
+            asset_adapter=adapter,
+            poll_interval_seconds=0,
+        )
+        for _ in range(5):
+            assert asyncio.run(worker.run_once()) is True
+
+        with sessionmaker() as session:
+            loaded = session.get(Job, job_id)
+            assert loaded is not None
+            assert loaded.state == "ready"
+            auto_payload = loaded.payload["auto"]
+            metadata = auto_payload["metadata"]
+            assert metadata["xchina_id"] == "XC-001"
+            assert metadata["source_url"] == "https://xchina.example.test/videos/xc-001.html"
+            assert metadata["title"] == "Sample Work Alpha"
+            assert metadata["studio"] == "Studio One"
+            assert metadata["series"] == "Series One"
+            assert metadata["release_date"] == "2026-01-02"
+            media_steps = [
+                step
+                for step in auto_payload["previewed_plan"]["steps"]
+                if step["category"] == "media"
+            ]
+            assert Path(media_steps[0]["target_path"]).name == (
+                "Studio One - Series One - 2026-01-02 - Sample Work Alpha.mkv"
+            )
     finally:
         engine.dispose()

@@ -7,7 +7,12 @@ from backend.app.db.migrations import run_migrations
 from backend.app.db.models import MetadataRecord
 from backend.app.db.session import create_engine_for_settings, get_sessionmaker
 from backend.app.integrations.xchina import parse_video_detail
-from backend.app.services.metadata import normalize_source_video, persist_metadata_record
+from backend.app.schemas.source import SourceActorRef, SourceAsset, SourceVideoDetail
+from backend.app.services.metadata import (
+    normalize_source_video,
+    persist_metadata_record,
+    source_detail_with_search_result_fallbacks,
+)
 
 
 FIXTURE_ROOT = Path(__file__).resolve().parents[1] / "fixtures" / "xchina"
@@ -61,3 +66,57 @@ def test_persists_normalized_metadata_json(tmp_path: Path) -> None:
             assert loaded.normalized_json["actors"][0]["source_id"] == "ACT-001"
     finally:
         engine.dispose()
+
+
+def test_search_result_fallback_preserves_unrelated_completeness_flags() -> None:
+    detail = SourceVideoDetail(
+        source_id="XC-001",
+        source_url="https://xchina.example.test/videos/xc-001.html",
+        title="Sample Work Alpha",
+        actors=[SourceActorRef(name="Actor One")],
+        poster=SourceAsset(url="https://images.example.test/poster.jpg", kind="poster"),
+        is_complete=False,
+        completeness_flags=["missing_release_date"],
+    )
+
+    updated = source_detail_with_search_result_fallbacks(
+        detail,
+        {"studio": "Studio One"},
+    )
+
+    assert updated.studio == "Studio One"
+    assert updated.is_complete is False
+    assert updated.completeness_flags == ["missing_release_date"]
+
+
+def test_search_result_fallback_clears_resolved_completeness_flags() -> None:
+    detail = SourceVideoDetail(
+        source_id="",
+        source_url="",
+        title="",
+        actors=[],
+        poster=None,
+        is_complete=False,
+        completeness_flags=[
+            "missing_source_id",
+            "missing_title",
+            "missing_poster",
+            "missing_actors",
+            "missing_release_date",
+        ],
+    )
+
+    updated = source_detail_with_search_result_fallbacks(
+        detail,
+        {
+            "source_candidate_id": "XC-001",
+            "url": "https://xchina.example.test/videos/xc-001.html",
+            "title": "Sample Work Alpha",
+            "thumbnail_url": "https://images.example.test/thumb.jpg",
+            "actors": [{"name": "Actor One"}],
+            "release_date": "2026-01-02",
+        },
+    )
+
+    assert updated.is_complete is True
+    assert updated.completeness_flags == []

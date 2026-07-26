@@ -8,6 +8,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 
 OrganizationMode = Literal["preview", "in_place", "move", "copy", "hardlink", "symlink"]
+AssetPolicy = Literal["lenient", "strict"]
 OperationName = Literal[
     "preview",
     "rename",

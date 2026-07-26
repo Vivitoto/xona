@@ -5,7 +5,7 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-from backend.app.schemas.operations import OrganizationMode
+from backend.app.schemas.operations import AssetPolicy, OrganizationMode
 
 
 class WatchRuleCreate(BaseModel):
@@ -19,7 +19,7 @@ class WatchRuleCreate(BaseModel):
     organization_mode: OrganizationMode | None = None
     folder_templates: list[str] = Field(default_factory=list)
     filename_template: str | None = None
-    asset_policy: str | None = None
+    asset_policy: AssetPolicy | None = None
     emby_options: dict[str, Any] = Field(default_factory=dict)
     metadata_options: dict[str, Any] = Field(default_factory=dict)
     include_patterns: list[str] = Field(default_factory=lambda: ["*"])
@@ -47,7 +47,7 @@ class WatchRuleUpdate(BaseModel):
     organization_mode: OrganizationMode | None = None
     folder_templates: list[str] | None = None
     filename_template: str | None = None
-    asset_policy: str | None = None
+    asset_policy: AssetPolicy | None = None
     emby_options: dict[str, Any] | None = None
     metadata_options: dict[str, Any] | None = None
     include_patterns: list[str] | None = None

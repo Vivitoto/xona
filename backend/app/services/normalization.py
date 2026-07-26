@@ -95,7 +95,7 @@ def sanitize_path_component(value: str, max_length: int = 180) -> str:
         for part in re.split(r"[\\/]+", normalized)
         if part.strip(" .") and part.strip(" .") not in {".", ".."}
     ]
-    cleaned = "_".join(parts) if parts else normalized.strip(" .")
+    cleaned = "_".join(parts) if parts else normalized.strip(" ./\\")
     cleaned = re.sub(r'[:*?"<>|]+', "_", cleaned)
     cleaned = re.sub(r"\s+", " ", cleaned)
     cleaned = re.sub(r"_+", "_", cleaned).strip(" ._")

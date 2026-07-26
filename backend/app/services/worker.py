@@ -37,7 +37,11 @@ from backend.app.services.asset_materializer import AssetAdapter, AssetMateriali
 from backend.app.services.assets import select_assets
 from backend.app.services.jobs import JobService
 from backend.app.services.matching import can_auto_execute, score_candidate
-from backend.app.services.metadata import normalize_source_video, persist_metadata_record
+from backend.app.services.metadata import (
+    normalize_source_video,
+    persist_metadata_record,
+    source_detail_with_search_result_fallbacks,
+)
 from backend.app.services.nfo import movie_nfo_relative_path, render_movie_nfo
 from backend.app.services.normalization import normalize_filename_for_search
 from backend.app.services.operation_executor import OperationExecutor, OperationJournal
@@ -386,6 +390,10 @@ class Worker:
                 selected_row.id,
             )
             detail = await search_adapter.fetch_video_detail(selected_row.source_url)
+            detail = source_detail_with_search_result_fallbacks(
+                detail,
+                _search_result_from_candidate(selected_row),
+            )
             record = normalize_source_video(detail)
             selection = select_assets(
                 record,
@@ -743,6 +751,14 @@ def _candidate_from_detail(
         asset_ready=not strict_assets or not strict_assets_missing,
         unique_detail=True,
     )
+
+
+def _search_result_from_candidate(row: SearchCandidate | None) -> dict[str, Any] | None:
+    if row is None:
+        return None
+    payload = row.candidate_json or {}
+    result = payload.get("search_result") if isinstance(payload, dict) else None
+    return result if isinstance(result, dict) else None
 
 
 def _decision_payload(decision, *, lead: int | None) -> dict[str, Any]:
