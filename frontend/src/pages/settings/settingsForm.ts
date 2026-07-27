@@ -8,7 +8,7 @@ export const emptySettings: AppSettings = {
     env_roots: [],
   },
   xchina: {
-    base_url: "https://www.xchina.co",
+    base_url: "https://xchina.co",
     flaresolverr_url: null,
     proxy_url: null,
     cache_dir: null,
@@ -182,6 +182,9 @@ export function validateSettings(
   }
   if (settings.xchina.base_url && !looksLikeHttpUrl(settings.xchina.base_url)) {
     warnings.push("XChina 基础 URL 看起来不是 http/https 地址。");
+  }
+  if (settings.xchina.base_url && looksLikeHttpUrl(settings.xchina.base_url) && !looksLikeHttpOrigin(settings.xchina.base_url)) {
+    errors.push("XChina 基础 URL 只能填写协议和域名，不能包含路径、查询或片段。");
   }
   if (settings.xchina.flaresolverr_url && !looksLikeHttpUrl(settings.xchina.flaresolverr_url)) {
     warnings.push("FlareSolverr 端点看起来不是 http/https 地址。");
@@ -400,6 +403,22 @@ function normalizePathPrefix(path: string): string {
 
 function looksLikeHttpUrl(value: string): boolean {
   return /^https?:\/\//i.test(value.trim());
+}
+
+function looksLikeHttpOrigin(value: string): boolean {
+  try {
+    const parsed = new URL(value.trim());
+    return (
+      (parsed.protocol === "http:" || parsed.protocol === "https:") &&
+      !parsed.username &&
+      !parsed.password &&
+      parsed.pathname === "/" &&
+      parsed.search === "" &&
+      parsed.hash === ""
+    );
+  } catch {
+    return false;
+  }
 }
 
 function cleanOptional(value: string | null | undefined): string | null {

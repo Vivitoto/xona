@@ -4,6 +4,8 @@ from pathlib import Path
 
 from backend.app.integrations.xchina import (
     parse_actor_detail,
+    parse_listing_next_page_url,
+    parse_listing_results,
     parse_search_results,
     parse_video_detail,
 )
@@ -43,6 +45,83 @@ def test_realistic_search_parser_extracts_current_xchina_cards() -> None:
     assert results[0].series == "糖心Vlog"
 
 
+def test_listing_parser_extracts_cloudstream_style_cards() -> None:
+    results = parse_listing_results(
+        _fixture("listing_cards_cloudstream.html"),
+        base_url="https://en.xchina.co",
+    )
+
+    assert len(results) == 2
+    assert results[0].source_candidate_id == "CARD001"
+    assert results[0].title == "Cloud Card One"
+    assert results[0].url == "https://en.xchina.co/video/id-CARD001.html"
+    assert results[0].thumbnail_url == "https://en.xchina.co/cover/card-001.webp"
+    assert results[0].series == "Series One"
+    assert [actor.name for actor in results[0].actors] == ["Actor One"]
+    assert results[0].actors[0].source_id == "MODEL001"
+    assert results[0].actors[0].profile_url == "https://en.xchina.co/model/id-MODEL001.html"
+    assert results[0].actors[0].portrait_url == "https://en.xchina.co/model/model-001.jpg"
+    assert results[1].source_candidate_id == "CARD002"
+    assert results[1].thumbnail_url == "https://en.xchina.co/cover/card-002.webp"
+    assert results[1].series == "Series Two"
+
+
+def test_listing_next_page_parser_supports_known_keyword_and_series_shapes() -> None:
+    assert (
+        parse_listing_next_page_url(
+            _fixture("keyword_numbered_page_1.html"),
+            current_url="https://en.xchina.co/videos/keyword-page%20shape.html",
+            base_url="https://en.xchina.co",
+        )
+        == "https://en.xchina.co/videos/keyword-page%20shape/2.html"
+    )
+    assert (
+        parse_listing_next_page_url(
+            _fixture("series_numbered_page_1.html"),
+            current_url="https://en.xchina.co/videos/series-61014080dbfde.html",
+            base_url="https://en.xchina.co",
+        )
+        == "https://en.xchina.co/videos/series-61014080dbfde/2.html"
+    )
+
+
+def test_listing_next_page_parser_rejects_cross_scheme_and_port_changes() -> None:
+    html = '<nav class="pagination"><a class="next" href="http://xchina.co/videos/series-demo/2.html">Next</a></nav>'
+
+    assert (
+        parse_listing_next_page_url(
+            html,
+            current_url="https://xchina.co/videos/series-demo.html",
+            base_url="https://xchina.co",
+        )
+        is None
+    )
+
+    html = '<nav class="pagination"><a class="next" href="https://xchina.co:444/videos/series-demo/2.html">Next</a></nav>'
+
+    assert (
+        parse_listing_next_page_url(
+            html,
+            current_url="https://xchina.co/videos/series-demo.html",
+            base_url="https://xchina.co",
+        )
+        is None
+    )
+
+
+def test_listing_next_page_text_fallback_preserves_current_host() -> None:
+    html = '<nav class="pagination">1 2 3</nav>'
+
+    assert (
+        parse_listing_next_page_url(
+            html,
+            current_url="https://en.xchina.co/videos/series-demo.html",
+            base_url="https://xchina.co",
+        )
+        == "https://en.xchina.co/videos/series-demo/2.html"
+    )
+
+
 def test_realistic_video_detail_parser_extracts_current_xchina_detail_page() -> None:
     detail = parse_video_detail(
         _fixture("video_detail_realistic.html"),
@@ -59,6 +138,32 @@ def test_realistic_video_detail_parser_extracts_current_xchina_detail_page() -> 
     assert detail.actors[0].portrait_url == "https://upload.xchina.io/model/6894b60a1ae47.jpg"
     assert detail.poster and detail.poster.url == "https://img.xchina.download/cover/6a5ccfe84b03f.webp"
     assert detail.fanart and detail.fanart.url == "https://img.xchina.download/screenshot/6a5ccfe84b03f.webp"
+    assert detail.is_complete is True
+
+
+def test_video_detail_parser_extracts_cloudstream_style_metadata() -> None:
+    detail = parse_video_detail(
+        _fixture("video_detail_cloudstream.html"),
+        source_url="https://en.xchina.co/video/id-DETAILURL.html",
+        base_url="https://en.xchina.co",
+    )
+
+    assert detail.source_id == "DETAIL001"
+    assert detail.title == "Cloud Detail Title"
+    assert detail.plot == "Cloud detail plot."
+    assert detail.release_date == "2026-04-18"
+    assert detail.runtime_minutes == 68
+    assert detail.series == "Series One"
+    assert detail.genres == ["Genre One"]
+    assert detail.tags == ["Tag One", "Tag Two"]
+    assert [actor.name for actor in detail.actors] == ["Actor One"]
+    assert detail.actors[0].source_id == "MODEL001"
+    assert detail.actors[0].portrait_url == "https://en.xchina.co/model/model-001.jpg"
+    assert detail.poster and detail.poster.url == "https://en.xchina.co/cover/detail-og.webp"
+    assert detail.fanart and detail.fanart.url == "https://en.xchina.co/screens/detail-shot-2.webp"
+    assert [asset.url for asset in detail.backdrops] == [
+        "https://en.xchina.co/screens/detail-shot-2.webp"
+    ]
     assert detail.is_complete is True
 
 

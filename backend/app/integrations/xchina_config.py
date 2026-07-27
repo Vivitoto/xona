@@ -4,9 +4,10 @@ from collections.abc import Mapping
 from typing import Any
 from urllib.parse import urlsplit
 
-DEFAULT_XCHINA_BASE_URL = "https://www.xchina.co"
+DEFAULT_XCHINA_BASE_URL = "https://xchina.co"
 DEFAULT_XCHINA_MAX_SEARCH_PAGES = 50
 DEFAULT_XCHINA_IMAGE_HOSTS = {
+    "en.xchina.co",
     "www.xchina.co",
     "xchina.co",
     "img.xchina.download",
@@ -17,8 +18,23 @@ DEFAULT_XCHINA_IMAGE_HOSTS = {
 def xchina_base_url(store_settings: Mapping[str, Any] | None) -> str:
     configured = (store_settings or {}).get("base_url")
     if isinstance(configured, str) and configured.strip():
-        return configured.strip().rstrip("/")
+        return normalize_xchina_base_url(configured)
     return DEFAULT_XCHINA_BASE_URL
+
+
+def normalize_xchina_base_url(value: str) -> str:
+    parsed = urlsplit(value.strip())
+    if parsed.scheme.lower() not in {"http", "https"} or not parsed.netloc:
+        raise ValueError("XChina base URL must be an absolute http(s) origin")
+    try:
+        parsed.port
+    except ValueError as exc:
+        raise ValueError("XChina base URL must include a valid port") from exc
+    if parsed.username or parsed.password:
+        raise ValueError("XChina base URL must not include credentials")
+    if parsed.path not in {"", "/"} or parsed.query or parsed.fragment:
+        raise ValueError("XChina base URL must be an origin without path, query, or fragment")
+    return f"{parsed.scheme.lower()}://{parsed.netloc.lower()}"
 
 
 def xchina_max_search_pages(store_settings: Mapping[str, Any] | None) -> int:

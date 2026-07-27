@@ -101,6 +101,197 @@ def test_search_follows_pagination_links_and_deduplicates_results(tmp_path: Path
         engine.dispose()
 
 
+def test_search_follows_known_keyword_page_number_shape(tmp_path: Path) -> None:
+    first_url = "https://example.test/videos/keyword-page%20shape.html"
+    second_url = "https://example.test/videos/keyword-page%20shape/2.html"
+    engine, sessionmaker = _database(tmp_path)
+    try:
+        with sessionmaker() as session:
+            flaresolverr = FakeFlareSolverr(
+                {
+                    first_url: _fixture("keyword_numbered_page_1.html"),
+                    second_url: _fixture("keyword_numbered_page_2.html"),
+                }
+            )
+            adapter = XChinaAdapter(flaresolverr, session, base_url="https://example.test")
+
+            results = asyncio.run(adapter.search("page shape"))
+
+            assert [item.source_candidate_id for item in results] == ["KEY001", "KEY002"]
+            assert flaresolverr.urls == [first_url, second_url]
+            assert session.query(HttpCache).count() == 2
+    finally:
+        engine.dispose()
+
+
+def test_fetch_listing_follows_series_pagination_and_deduplicates_results(
+    tmp_path: Path,
+) -> None:
+    first_url = "https://example.test/videos/series-61014080dbfde.html"
+    second_url = "https://example.test/videos/series-61014080dbfde/2.html"
+    engine, sessionmaker = _database(tmp_path)
+    try:
+        with sessionmaker() as session:
+            flaresolverr = FakeFlareSolverr(
+                {
+                    first_url: _fixture("series_page_1.html"),
+                    second_url: _fixture("series_page_2.html"),
+                }
+            )
+            adapter = XChinaAdapter(flaresolverr, session, base_url="https://example.test")
+
+            results = asyncio.run(adapter.fetch_listing("/videos/series-61014080dbfde.html"))
+
+            assert [item.source_candidate_id for item in results] == [
+                "SERIES001",
+                "SERIES002",
+                "SERIES003",
+            ]
+            assert flaresolverr.urls == [first_url, second_url]
+            assert session.query(HttpCache).count() == 2
+    finally:
+        engine.dispose()
+
+
+def test_fetch_listing_follows_general_xchina_listing_numbered_pagination(
+    tmp_path: Path,
+) -> None:
+    first_url = "https://example.test/videos/category-demo.html"
+    second_url = "https://example.test/videos/category-demo/2.html"
+    engine, sessionmaker = _database(tmp_path)
+    try:
+        with sessionmaker() as session:
+            flaresolverr = FakeFlareSolverr(
+                {
+                    first_url: _fixture("general_numbered_page_1.html"),
+                    second_url: _fixture("general_numbered_page_2.html"),
+                }
+            )
+            adapter = XChinaAdapter(flaresolverr, session, base_url="https://example.test")
+
+            results = asyncio.run(adapter.fetch_listing("/videos/category-demo.html"))
+
+            assert [item.source_candidate_id for item in results] == ["GEN001", "GEN002"]
+            assert flaresolverr.urls == [first_url, second_url]
+            assert session.query(HttpCache).count() == 2
+    finally:
+        engine.dispose()
+
+
+def test_fetch_series_supports_named_common_series_and_numbered_pagination(
+    tmp_path: Path,
+) -> None:
+    first_url = "https://example.test/videos/series-61014080dbfde.html"
+    second_url = "https://example.test/videos/series-61014080dbfde/2.html"
+    engine, sessionmaker = _database(tmp_path)
+    try:
+        with sessionmaker() as session:
+            flaresolverr = FakeFlareSolverr(
+                {
+                    first_url: _fixture("series_numbered_page_1.html"),
+                    second_url: _fixture("series_numbered_page_2.html"),
+                }
+            )
+            adapter = XChinaAdapter(flaresolverr, session, base_url="https://example.test")
+
+            results = asyncio.run(adapter.fetch_series("tangxin_vlog"))
+
+            assert [item.source_candidate_id for item in results] == ["NUM001", "NUM002"]
+            assert flaresolverr.urls == [first_url, second_url]
+            assert session.query(HttpCache).count() == 2
+    finally:
+        engine.dispose()
+
+
+@pytest.mark.parametrize(
+    ("alias", "expected_url"),
+    [
+        ("Censored AV", "https://example.test/videos/series-6395aba3deb74.html"),
+        ("Model Media", "https://example.test/videos/series-5f904550b8fcc.html"),
+        ("Uncensored AV", "https://example.test/videos/series-6395ab7fee104.html"),
+        ("Independent Creators", "https://example.test/videos/series-61bf6e439fed6.html"),
+        ("Pans Videos", "https://example.test/videos/series-63963186ae145.html"),
+        ("Peach Media", "https://example.test/videos/series-5fe8403919165.html"),
+        ("Star Media", "https://example.test/videos/series-6054e93356ded.html"),
+        ("Timi Media", "https://example.test/videos/series-60153c49058ce.html"),
+        ("91mv", "https://example.test/videos/series-5fe840718d665.html"),
+    ],
+)
+def test_fetch_series_supports_xchina_main_listing_aliases(
+    tmp_path: Path,
+    alias: str,
+    expected_url: str,
+) -> None:
+    engine, sessionmaker = _database(tmp_path)
+    try:
+        with sessionmaker() as session:
+            flaresolverr = FakeFlareSolverr({expected_url: _fixture("general_numbered_page_2.html")})
+            adapter = XChinaAdapter(flaresolverr, session, base_url="https://example.test")
+
+            results = asyncio.run(adapter.fetch_series(alias))
+
+            assert [item.source_candidate_id for item in results] == ["GEN002"]
+            assert flaresolverr.urls == [expected_url]
+    finally:
+        engine.dispose()
+
+
+def test_fetch_listing_ignores_off_host_next_links(tmp_path: Path) -> None:
+    first_url = "https://example.test/videos/series-61014080dbfde.html"
+    engine, sessionmaker = _database(tmp_path)
+    try:
+        with sessionmaker() as session:
+            flaresolverr = FakeFlareSolverr(
+                {first_url: _fixture("series_offhost_next.html")}
+            )
+            adapter = XChinaAdapter(flaresolverr, session, base_url="https://example.test")
+
+            results = asyncio.run(adapter.fetch_listing(first_url))
+
+            assert [item.source_candidate_id for item in results] == ["SAFE001"]
+            assert flaresolverr.urls == [first_url]
+            assert session.query(HttpCache).count() == 1
+    finally:
+        engine.dispose()
+
+
+def test_fetch_listing_allows_known_xchina_host_next_links(tmp_path: Path) -> None:
+    first_url = "https://xchina.co/videos/series-demo.html"
+    second_url = "https://en.xchina.co/videos/series-demo/2.html"
+    engine, sessionmaker = _database(tmp_path)
+    try:
+        with sessionmaker() as session:
+            flaresolverr = FakeFlareSolverr(
+                {
+                    first_url: _fixture("general_numbered_page_1.html").replace(
+                        "/videos/category-demo/2.html",
+                        second_url,
+                    ),
+                    second_url: _fixture("general_numbered_page_2.html"),
+                }
+            )
+            adapter = XChinaAdapter(flaresolverr, session, base_url="https://xchina.co")
+
+            results = asyncio.run(adapter.fetch_listing("/videos/series-demo.html"))
+
+            assert [item.source_candidate_id for item in results] == ["GEN001", "GEN002"]
+            assert flaresolverr.urls == [first_url, second_url]
+    finally:
+        engine.dispose()
+
+
+def test_fetch_listing_rejects_off_host_start_url(tmp_path: Path) -> None:
+    engine, sessionmaker = _database(tmp_path)
+    try:
+        with sessionmaker() as session:
+            adapter = XChinaAdapter(FakeFlareSolverr({}), session, base_url="https://example.test")
+
+            with pytest.raises(XChinaParseError):
+                asyncio.run(adapter.fetch_listing("https://offsite.example/videos/series-demo.html"))
+    finally:
+        engine.dispose()
+
+
 def test_search_stops_at_configured_page_limit(tmp_path: Path) -> None:
     first_url = "https://example.test/videos/keyword-alpha%20sample.html"
     second_url = "https://example.test/videos/keyword-alpha%20sample-2.html"

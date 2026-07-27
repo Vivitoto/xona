@@ -20,7 +20,7 @@ if __package__:
         validate_disposable_root,
     )
 else:  # pragma: no cover - exercised by direct script execution.
-    from disposable_smoke import (
+    from disposable_smoke import (  # type: ignore[no-redef]
         SmokeSafetyError,
         canonicalize_path,
         cleanup_disposable_root,
@@ -35,7 +35,7 @@ FLARESOLVERR_URL_ENV = "XONA_REAL_XCHINA_FLARESOLVERR_URL"
 QUERY_ENV = "XONA_REAL_XCHINA_QUERY"
 PROXY_URL_ENV = "XONA_REAL_XCHINA_PROXY_URL"
 BASE_URL_ENV = "XONA_REAL_XCHINA_BASE_URL"
-DEFAULT_XCHINA_BASE_URL = "https://www.xchina.co"
+DEFAULT_XCHINA_BASE_URL = "https://xchina.co"
 
 
 @dataclass(frozen=True)

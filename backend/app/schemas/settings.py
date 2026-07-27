@@ -5,7 +5,10 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from backend.app.integrations.xchina_config import DEFAULT_XCHINA_MAX_SEARCH_PAGES
+from backend.app.integrations.xchina_config import (
+    DEFAULT_XCHINA_BASE_URL,
+    DEFAULT_XCHINA_MAX_SEARCH_PAGES,
+)
 from backend.app.schemas.emby import EmbyPathMapping
 from backend.app.schemas.operations import AssetPolicy, OrganizationMode
 
@@ -16,7 +19,7 @@ class StorageSettings(BaseModel):
 
 
 class XChinaSettings(BaseModel):
-    base_url: str = "https://www.xchina.co"
+    base_url: str = DEFAULT_XCHINA_BASE_URL
     flaresolverr_url: str | None = None
     proxy_url: str | None = None
     cache_dir: Path | None = None
@@ -118,6 +121,10 @@ class FlareSolverrTestResponse(BaseModel):
 
 class XChinaTestRequest(BaseModel):
     query: str = "sample"
+    base_url: str | None = None
+    flaresolverr_url: str | None = None
+    proxy_url: str | None = None
+    max_search_pages: int | None = Field(default=None, ge=1)
 
 
 class XChinaTestResponse(BaseModel):

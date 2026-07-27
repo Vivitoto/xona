@@ -204,6 +204,42 @@ describe("SettingsPage", () => {
     fireEvent.click(screen.getByRole("button", { name: "保存设置" }));
     expect(calls.filter((call) => call.method === "PUT")).toHaveLength(0);
   });
+
+  it("tests XChina with the current unsaved form values", async () => {
+    const { calls } = installFetchMock([
+      { path: "/api/settings", response: settingsFixture() },
+      {
+        method: "POST",
+        path: "/api/settings/xchina/test",
+        response: { ok: true, candidate_count: 2, diagnostics: {} },
+      },
+    ]);
+
+    render(<SettingsPage />);
+    await screen.findByRole("heading", { name: "XChina" });
+    fireEvent.change(screen.getByLabelText("XChina 基础 URL"), {
+      target: { value: "https://mirror.xchina.test" },
+    });
+    fireEvent.change(screen.getByLabelText("XChina 测试查询"), {
+      target: { value: "txvlog" },
+    });
+    fireEvent.change(screen.getByLabelText("搜索页数安全上限"), {
+      target: { value: "7" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "测试 XChina" }));
+
+    await screen.findByText(/candidate_count/);
+    const testCall = calls.find(
+      (call) => call.method === "POST" && call.url === "/api/settings/xchina/test",
+    );
+    expect(testCall?.body).toMatchObject({
+      query: "txvlog",
+      base_url: "https://mirror.xchina.test",
+      flaresolverr_url: "http://solver:8191/custom",
+      max_search_pages: 7,
+    });
+    expect(testCall?.body).not.toHaveProperty("proxy_url");
+  });
 });
 
 function settingsFixture(): AppSettings {

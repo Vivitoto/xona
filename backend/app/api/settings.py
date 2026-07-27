@@ -13,7 +13,11 @@ from backend.app.core.settings import Settings
 from backend.app.integrations.emby import EmbyPathMapper
 from backend.app.integrations.flaresolverr import FlareSolverrClient
 from backend.app.integrations.xchina import XChinaAdapter
-from backend.app.integrations.xchina_config import xchina_base_url, xchina_max_search_pages
+from backend.app.integrations.xchina_config import (
+    normalize_xchina_base_url,
+    xchina_base_url,
+    xchina_max_search_pages,
+)
 from backend.app.schemas.settings import (
     AppSettingsRead,
     AppSettingsUpdate,
@@ -86,8 +90,16 @@ async def test_flaresolverr(
 ) -> FlareSolverrTestResponse:
     store_settings = SettingsStore(session).xchina_settings()
     settings: Settings = request.app.state.settings
-    endpoint = payload.url or settings.flaresolverr_url or store_settings.get("flaresolverr_url")
-    proxy_url = payload.proxy_url or settings.proxy_url or store_settings.get("proxy_url")
+    endpoint = (
+        payload.url
+        if "url" in payload.model_fields_set
+        else settings.flaresolverr_url or store_settings.get("flaresolverr_url")
+    )
+    proxy_url = (
+        payload.proxy_url
+        if "proxy_url" in payload.model_fields_set
+        else settings.proxy_url or store_settings.get("proxy_url")
+    )
     if not endpoint:
         logger.warning("FlareSolverr test rejected reason=url_required")
         raise HTTPException(status_code=400, detail="FlareSolverr URL required")
@@ -151,19 +163,39 @@ async def test_xchina(
     if adapter is None:
         settings: Settings = request.app.state.settings
         store_settings = SettingsStore(session).xchina_settings()
-        endpoint = settings.flaresolverr_url or store_settings.get("flaresolverr_url")
+        test_settings = dict(store_settings)
+        if payload.base_url is not None:
+            test_settings["base_url"] = payload.base_url
+        if payload.max_search_pages is not None:
+            test_settings["max_search_pages"] = payload.max_search_pages
+        try:
+            test_base_url = xchina_base_url(test_settings)
+            test_max_search_pages = xchina_max_search_pages(test_settings)
+        except ValueError as exc:
+            logger.warning("XChina test rejected reason=invalid_base_url error=%s", exc)
+            return XChinaTestResponse(ok=False, diagnostics={"error": redact_payload(str(exc))})
+        endpoint = (
+            payload.flaresolverr_url
+            if "flaresolverr_url" in payload.model_fields_set
+            else settings.flaresolverr_url or store_settings.get("flaresolverr_url")
+        )
         if not endpoint:
             logger.warning("XChina test rejected reason=flaresolverr_url_required")
             raise HTTPException(status_code=400, detail="FlareSolverr URL required")
+        proxy_url = (
+            payload.proxy_url
+            if "proxy_url" in payload.model_fields_set
+            else settings.proxy_url or store_settings.get("proxy_url")
+        )
         flaresolverr = FlareSolverrClient(
             str(endpoint),
-            proxy_url=settings.proxy_url or store_settings.get("proxy_url"),
+            proxy_url=proxy_url,
         )
         adapter = XChinaAdapter(
             flaresolverr,
             session,
-            base_url=xchina_base_url(store_settings),
-            max_search_pages=xchina_max_search_pages(store_settings),
+            base_url=test_base_url,
+            max_search_pages=test_max_search_pages,
         )
         closer = flaresolverr.close
     try:
@@ -273,6 +305,8 @@ def _validate_settings_patch(
     for section_name in ("xchina", "confidence_safety"):
         section = patch.get(section_name)
         if isinstance(section, dict):
+            if section_name == "xchina" and "base_url" in section:
+                section["base_url"] = normalize_xchina_base_url(str(section["base_url"]))
             for key in ("cache_dir",):
                 if key in section and section[key] is not None:
                     _validate_cache_dir(settings, Path(section[key]))

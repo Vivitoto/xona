@@ -20,10 +20,14 @@ export function XChinaSettings({
   async function testFlareSolverr() {
     setDiagnostic("");
     const payload: Record<string, unknown> = {
-      url: settings.flaresolverr_url || null,
-      test_url: settings.base_url || "https://www.xchina.co",
+      test_url: settings.base_url || "https://xchina.co",
     };
-    if (useProxyForTest && !isRedactedPlaceholder(settings.proxy_url)) {
+    if (!isRedactedPlaceholder(settings.flaresolverr_url)) {
+      payload.url = settings.flaresolverr_url || null;
+    }
+    if (!useProxyForTest) {
+      payload.proxy_url = null;
+    } else if (!isRedactedPlaceholder(settings.proxy_url)) {
       payload.proxy_url = settings.proxy_url || null;
     }
     const response = await apiFetch<Record<string, unknown>>(
@@ -35,9 +39,22 @@ export function XChinaSettings({
 
   async function testXChina() {
     setDiagnostic("");
+    const payload: Record<string, unknown> = {
+      query: testQuery,
+      base_url: settings.base_url,
+      max_search_pages: settings.max_search_pages,
+    };
+    if (!isRedactedPlaceholder(settings.flaresolverr_url)) {
+      payload.flaresolverr_url = settings.flaresolverr_url || null;
+    }
+    if (!useProxyForTest) {
+      payload.proxy_url = null;
+    } else if (!isRedactedPlaceholder(settings.proxy_url)) {
+      payload.proxy_url = settings.proxy_url || null;
+    }
     const response = await apiFetch<Record<string, unknown>>(
       "/api/settings/xchina/test",
-      { method: "POST", body: { query: testQuery } },
+      { method: "POST", body: payload },
     );
     setDiagnostic(redactText(response));
   }
@@ -47,7 +64,7 @@ export function XChinaSettings({
       <div className="grid three">
         <FormField label="XChina 基础 URL">
           <input
-            placeholder="https://www.xchina.co"
+            placeholder="https://xchina.co"
             value={settings.base_url}
             onChange={(event) => onChange({ base_url: event.target.value })}
           />

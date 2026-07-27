@@ -4,7 +4,9 @@ import asyncio
 from pathlib import Path
 
 import httpx
+import pytest
 
+from backend.app.api import settings as settings_api
 from backend.app.core.settings import Settings
 from backend.app.db.models import Setting
 from backend.app.integrations.flaresolverr import FlareSolverrResponse
@@ -35,6 +37,43 @@ class FakeXChina:
                 url="https://xchina.example.test/videos/xc-001.html",
             )
         ]
+
+
+class RecordingXChina:
+    instances: list["RecordingXChina"] = []
+
+    def __init__(
+        self,
+        _flaresolverr: object,
+        _session: object,
+        *,
+        base_url: str,
+        max_search_pages: int,
+    ) -> None:
+        self.base_url = base_url
+        self.max_search_pages = max_search_pages
+        RecordingXChina.instances.append(self)
+
+    async def search(self, query: str) -> list[SourceSearchResult]:
+        return [
+            SourceSearchResult(
+                source_candidate_id="XC-TEST",
+                title=query,
+                url=f"{self.base_url}/video/id-XC-TEST.html",
+            )
+        ]
+
+
+class RecordingFlareSolverr:
+    instances: list["RecordingFlareSolverr"] = []
+
+    def __init__(self, endpoint: str, *, proxy_url: str | None = None) -> None:
+        self.endpoint = endpoint
+        self.proxy_url = proxy_url
+        RecordingFlareSolverr.instances.append(self)
+
+    async def close(self) -> None:
+        return None
 
 
 def test_settings_api_saves_sections_redacts_secrets_and_tests_connectors(
@@ -143,6 +182,139 @@ def test_settings_api_saves_sections_redacts_secrets_and_tests_connectors(
     assert responses["flare"].json()["status_code"] == 200
     assert responses["xchina"].json()["candidate_count"] == 1
     assert responses["template"].json()["filename"] == "XC-001 - Sample"
+
+
+def test_xchina_test_uses_request_overrides_before_saved_settings(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    settings = Settings(config_dir=tmp_path / "config", auth_enabled=False)
+    RecordingXChina.instances.clear()
+    RecordingFlareSolverr.instances.clear()
+    monkeypatch.setattr(settings_api, "XChinaAdapter", RecordingXChina)
+    monkeypatch.setattr(settings_api, "FlareSolverrClient", RecordingFlareSolverr)
+
+    async def run() -> httpx.Response:
+        app = create_app(settings)
+        async with app.router.lifespan_context(app):
+            async with httpx.AsyncClient(
+                transport=httpx.ASGITransport(app=app),
+                base_url=ORIGIN,
+            ) as client:
+                await client.put(
+                    "/api/settings",
+                    json={
+                        "xchina": {
+                            "base_url": "https://saved.xchina.test",
+                            "flaresolverr_url": "http://saved-solver:8191/v1",
+                            "proxy_url": "http://saved-proxy:8080",
+                            "max_search_pages": 77,
+                        }
+                    },
+                    headers={"Origin": ORIGIN},
+                )
+                return await client.post(
+                    "/api/settings/xchina/test",
+                    json={
+                        "query": "override-query",
+                        "base_url": "https://override.xchina.test",
+                        "flaresolverr_url": "http://override-solver:8191/v1",
+                        "proxy_url": None,
+                        "max_search_pages": 3,
+                    },
+                    headers={"Origin": ORIGIN},
+                )
+
+    response = asyncio.run(run())
+
+    assert response.status_code == 200, response.text
+    assert response.json()["candidate_count"] == 1
+    assert RecordingFlareSolverr.instances[0].endpoint == "http://override-solver:8191/v1"
+    assert RecordingFlareSolverr.instances[0].proxy_url is None
+    assert RecordingXChina.instances[0].base_url == "https://override.xchina.test"
+    assert RecordingXChina.instances[0].max_search_pages == 3
+
+
+def test_xchina_test_empty_base_url_falls_back_to_default(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    settings = Settings(config_dir=tmp_path / "config", auth_enabled=False)
+    RecordingXChina.instances.clear()
+    monkeypatch.setattr(settings_api, "XChinaAdapter", RecordingXChina)
+    monkeypatch.setattr(settings_api, "FlareSolverrClient", RecordingFlareSolverr)
+
+    async def run() -> httpx.Response:
+        app = create_app(settings)
+        async with app.router.lifespan_context(app):
+            async with httpx.AsyncClient(
+                transport=httpx.ASGITransport(app=app),
+                base_url=ORIGIN,
+            ) as client:
+                return await client.post(
+                    "/api/settings/xchina/test",
+                    json={
+                        "query": "default-query",
+                        "base_url": "",
+                        "flaresolverr_url": "http://solver:8191/v1",
+                    },
+                    headers={"Origin": ORIGIN},
+                )
+
+    response = asyncio.run(run())
+
+    assert response.status_code == 200, response.text
+    assert RecordingXChina.instances[0].base_url == "https://xchina.co"
+
+
+def test_xchina_test_invalid_base_url_returns_controlled_diagnostic(tmp_path: Path) -> None:
+    settings = Settings(config_dir=tmp_path / "config", auth_enabled=False)
+
+    async def run() -> httpx.Response:
+        app = create_app(settings)
+        async with app.router.lifespan_context(app):
+            async with httpx.AsyncClient(
+                transport=httpx.ASGITransport(app=app),
+                base_url=ORIGIN,
+            ) as client:
+                return await client.post(
+                    "/api/settings/xchina/test",
+                    json={
+                        "query": "invalid-base",
+                        "base_url": "https://xchina.co/videos",
+                        "flaresolverr_url": "http://solver:8191/v1",
+                    },
+                    headers={"Origin": ORIGIN},
+                )
+
+    response = asyncio.run(run())
+
+    assert response.status_code == 200, response.text
+    payload = response.json()
+    assert payload["ok"] is False
+    assert "origin without path" in payload["diagnostics"]["error"]
+
+
+def test_settings_api_rejects_xchina_base_url_with_path(tmp_path: Path) -> None:
+    settings = Settings(config_dir=tmp_path / "config", auth_enabled=False)
+
+    async def run() -> httpx.Response:
+        app = create_app(settings)
+        async with app.router.lifespan_context(app):
+            async with httpx.AsyncClient(
+                transport=httpx.ASGITransport(app=app),
+                base_url=ORIGIN,
+            ) as client:
+                return await client.put(
+                    "/api/settings",
+                    json={"xchina": {"base_url": "https://xchina.co/videos"}},
+                    headers={"Origin": ORIGIN},
+                )
+
+    response = asyncio.run(run())
+
+    assert response.status_code == 400
+    assert "origin without path" in response.text
 
 
 def test_settings_api_migrates_legacy_manual_defaults(tmp_path: Path) -> None:
