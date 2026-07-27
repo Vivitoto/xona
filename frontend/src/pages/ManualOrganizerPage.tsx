@@ -423,19 +423,20 @@ export function ManualOrganizerPage() {
                 <small>父目录：{activeMedia ? parentName(activeMedia.path) : "未知"}</small>
               </div>
 
-              {resultsFocused && searchState === "success" ? (
-                <div className="results-refine-bar">
-                  <button
-                    className="secondary"
-                    type="button"
-                    onClick={() => setResultsFocused(false)}
-                  >
-                    返回修改搜索
-                  </button>
-                  <span>当前关键词：{searchQuery}</span>
-                </div>
-              ) : (
-                <>
+              <div className="manual-search-controls">
+                {resultsFocused && searchState === "success" ? (
+                  <div className="results-refine-bar">
+                    <button
+                      className="secondary"
+                      type="button"
+                      onClick={() => setResultsFocused(false)}
+                    >
+                      返回修改搜索
+                    </button>
+                    <span>当前关键词：{searchQuery}</span>
+                  </div>
+                ) : (
+                  <>
                   <div className="query-toolbar">
                     <button className={querySource === "filename" ? "" : "secondary"} disabled={searchState === "searching"} type="button" onClick={() => void search("filename")}>
                       用文件名搜索
@@ -494,12 +495,13 @@ export function ManualOrganizerPage() {
                           onChange={(checked) =>
                             setSafety((current) => ({ ...current, [key]: checked }))
                           }
-                        />
-                      ))}
-                    </div>
-                  </details>
-                </>
-              )}
+                      />
+                    ))}
+                  </div>
+                </details>
+                  </>
+                )}
+              </div>
 
               <div className="candidate-results-panel" aria-label="候选结果">
                 <SearchFeedback

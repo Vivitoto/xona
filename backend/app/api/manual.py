@@ -9,7 +9,7 @@ from backend.app.core.redaction import redact_payload
 from backend.app.core.settings import Settings
 from backend.app.integrations.assets import normalize_content_type, normalize_fetched_asset
 from backend.app.integrations.flaresolverr import FlareSolverrClient
-from backend.app.integrations.xchina import XChinaAdapter
+from backend.app.integrations.xchina import FetchedAsset, XChinaAdapter
 from backend.app.integrations.xchina_config import (
     is_allowed_xchina_resource_url,
     xchina_base_url,
@@ -196,11 +196,10 @@ async def get_manual_job(
 async def proxy_manual_image(
     request: Request,
     url: str = Query(..., min_length=1),
-    session: Session = Depends(get_db),
 ) -> Response:
-    store_settings = SettingsStore(session).xchina_settings()
+    store_settings = _xchina_settings_snapshot(request)
     _validate_image_proxy_url(url, store_settings)
-    adapter, closer = await _asset_adapter_for(request, session)
+    adapter, closer = await _asset_adapter_for(request, store_settings)
     if adapter is None:
         raise HTTPException(status_code=400, detail="FlareSolverr URL required")
     try:
@@ -278,7 +277,7 @@ async def _service_for(
 
 async def _asset_adapter_for(
     request: Request,
-    session: Session,
+    store_settings: dict[str, object],
 ):
     settings: Settings = request.app.state.settings
     adapter = getattr(request.app.state, "manual_search_adapter", None)
@@ -286,7 +285,6 @@ async def _asset_adapter_for(
         adapter = getattr(request.app.state, "xchina_adapter", None)
     if adapter is not None:
         return adapter, None
-    store_settings = SettingsStore(session).xchina_settings()
     endpoint = settings.flaresolverr_url or store_settings.get("flaresolverr_url")
     if not endpoint:
         return None, None
@@ -295,15 +293,21 @@ async def _asset_adapter_for(
         str(endpoint),
         settings.proxy_url or store_settings.get("proxy_url"),
     )
-    return (
-        XChinaAdapter(
-            flaresolverr,
-            session,
-            base_url=xchina_base_url(store_settings),
-            max_search_pages=xchina_max_search_pages(store_settings),
-        ),
-        None,
-    )
+    return _ImageProxyAssetAdapter(flaresolverr, base_url=xchina_base_url(store_settings)), None
+
+
+def _xchina_settings_snapshot(request: Request) -> dict[str, object]:
+    with request.app.state.sessionmaker() as session:
+        return dict(SettingsStore(session).xchina_settings())
+
+
+class _ImageProxyAssetAdapter:
+    def __init__(self, flaresolverr: FlareSolverrClient, *, base_url: str) -> None:
+        self._flaresolverr = flaresolverr
+        self._base_url = base_url
+
+    async def fetch_asset(self, url: str) -> FetchedAsset:
+        return await self._flaresolverr.request_asset(url, base_url=self._base_url)
 
 
 async def _shared_flaresolverr_client(

@@ -5,6 +5,8 @@ from pathlib import Path
 
 import httpx
 import pytest
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
 
 import backend.app.api.manual as manual_api
 from backend.app.core.settings import Settings
@@ -134,6 +136,12 @@ class FakeImageAsset:
         return FetchedAsset(url=url, content=self.content, content_type=self.content_type)
 
 
+class SlowImageAsset(FakeImageAsset):
+    async def fetch_asset(self, url: str) -> FetchedAsset:
+        await asyncio.sleep(0.2)
+        return await super().fetch_asset(url)
+
+
 class FakeStoredSettingsFlareSolverr:
     instances: list["FakeStoredSettingsFlareSolverr"] = []
 
@@ -141,10 +149,21 @@ class FakeStoredSettingsFlareSolverr:
         self.url = url
         self.proxy_url = proxy_url
         self.closed = False
+        self.asset_requests: list[tuple[str, str | None, str | None]] = []
         self.instances.append(self)
 
     async def close(self) -> None:
         self.closed = True
+
+    async def request_asset(
+        self,
+        url: str,
+        *,
+        referer_url: str | None = None,
+        base_url: str | None = None,
+    ) -> FetchedAsset:
+        self.asset_requests.append((url, referer_url, base_url))
+        return FetchedAsset(url=url, content=b"proxied-image-bytes", content_type="image/webp")
 
 
 class FakeStoredSettingsXChina:
@@ -892,7 +911,6 @@ def test_manual_image_proxy_uses_saved_xchina_settings(
     FakeStoredSettingsFlareSolverr.instances.clear()
     FakeStoredSettingsXChina.instances.clear()
     monkeypatch.setattr(manual_api, "FlareSolverrClient", FakeStoredSettingsFlareSolverr)
-    monkeypatch.setattr(manual_api, "XChinaAdapter", FakeStoredSettingsXChina)
 
     root = tmp_path / "media"
     root.mkdir()
@@ -935,7 +953,14 @@ def test_manual_image_proxy_uses_saved_xchina_settings(
     assert FakeStoredSettingsFlareSolverr.instances[0].url == "http://solver:8191/v1"
     assert FakeStoredSettingsFlareSolverr.instances[0].proxy_url == "http://proxy:8080"
     assert FakeStoredSettingsFlareSolverr.instances[0].closed is True
-    assert FakeStoredSettingsXChina.instances[0].base_url == "https://media.xchina.test"
+    assert FakeStoredSettingsFlareSolverr.instances[0].asset_requests == [
+        (
+            "https://media.xchina.test/cover/demo.webp",
+            None,
+            "https://media.xchina.test",
+        )
+    ]
+    assert FakeStoredSettingsXChina.instances == []
 
 
 def test_manual_image_proxy_rejects_untrusted_hosts(tmp_path: Path) -> None:
@@ -1033,6 +1058,64 @@ def test_manual_image_proxy_rejects_html_masquerading_as_image(tmp_path: Path) -
     response = asyncio.run(run())
 
     assert response.status_code == 415
+
+
+def test_manual_image_proxy_does_not_hold_db_connection_while_fetching_assets(
+    tmp_path: Path,
+) -> None:
+    root = tmp_path / "media"
+    root.mkdir()
+    settings = Settings(
+        config_dir=tmp_path / "config",
+        storage_roots=(root,),
+        auth_enabled=False,
+    )
+
+    async def run() -> list[httpx.Response | BaseException]:
+        app = create_app(settings)
+        app.state.manual_search_adapter = SlowImageAsset(b"image-bytes", "image/jpeg")
+        async with app.router.lifespan_context(app):
+            original_engine = app.state.engine
+            original_engine.dispose()
+            engine = create_engine(
+                settings.effective_database_url,
+                connect_args={"check_same_thread": False},
+                pool_size=1,
+                max_overflow=0,
+                pool_timeout=0.05,
+            )
+            app.state.engine = engine
+            app.state.sessionmaker = sessionmaker(
+                bind=engine,
+                autoflush=False,
+                expire_on_commit=False,
+            )
+            try:
+                async with httpx.AsyncClient(
+                    transport=httpx.ASGITransport(app=app),
+                    base_url=ORIGIN,
+                ) as client:
+                    return await asyncio.gather(
+                        client.get(
+                            "/api/manual/image-proxy",
+                            params={"url": "https://img.xchina.download/cover-a.jpg"},
+                        ),
+                        client.get(
+                            "/api/manual/image-proxy",
+                            params={"url": "https://img.xchina.download/cover-b.jpg"},
+                        ),
+                        return_exceptions=True,
+                    )
+            finally:
+                engine.dispose()
+
+    responses = asyncio.run(run())
+
+    assert [type(response).__name__ for response in responses] == ["Response", "Response"]
+    assert [response.status_code for response in responses if isinstance(response, httpx.Response)] == [
+        200,
+        200,
+    ]
 
 
 def test_manual_selection_refuses_unsafe_paths(tmp_path: Path) -> None:

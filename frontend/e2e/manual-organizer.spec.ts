@@ -45,6 +45,23 @@ test("手动整理 scans, searches, and starts organization from one action", as
   await expectNoOverlappingControls(page);
 });
 
+test("手动整理搜索和详情 URL 控件在窄桌面宽度保持紧凑", async ({
+  page,
+  request,
+}) => {
+  const fixture = await resetFixture(request);
+  await page.setViewportSize({ width: 1100, height: 900 });
+
+  await page.goto("/");
+  await page.getByRole("navigation", { name: "主导航" }).getByRole("button", { name: "手动整理" }).click();
+  await page.getByLabel("源目录").fill(fixture.source_dir);
+  await page.getByRole("button", { name: "扫描源目录" }).click();
+  await expect(page.getByText("已扫描 1 个视频文件")).toBeVisible();
+
+  await expectNoOverlappingControls(page);
+  await expectManualSearchControlsStayGrouped(page);
+});
+
 function activePage(page: Page) {
   return page.locator(".page-header");
 }
@@ -94,4 +111,32 @@ async function expectNoOverlappingControls(page: Page) {
     },
   );
   expect(overlaps).toEqual([]);
+}
+
+async function expectManualSearchControlsStayGrouped(page: Page) {
+  const layout = await page.locator(".manual-search-controls").evaluate((controls) => {
+    const searchRow = controls.querySelector(".manual-search-row");
+    const detailRow = controls.querySelector(".manual-detail-url");
+    const candidatePanel = document.querySelector(".candidate-results-panel");
+    if (!searchRow || !detailRow || !candidatePanel) {
+      return { ok: false, reason: "missing controls" };
+    }
+    const controlsRect = controls.getBoundingClientRect();
+    const searchRect = searchRow.getBoundingClientRect();
+    const detailRect = detailRow.getBoundingClientRect();
+    const candidateRect = candidatePanel.getBoundingClientRect();
+    return {
+      ok: true,
+      searchToDetailGap: detailRect.top - searchRect.bottom,
+      detailToCandidatesGap: candidateRect.top - detailRect.bottom,
+      controlsHeight: controlsRect.height,
+      controlsBottomToCandidatesGap: candidateRect.top - controlsRect.bottom,
+    };
+  });
+
+  expect(layout.ok).toBe(true);
+  expect(layout.searchToDetailGap).toBeLessThanOrEqual(24);
+  expect(layout.detailToCandidatesGap).toBeLessThanOrEqual(96);
+  expect(layout.controlsBottomToCandidatesGap).toBeLessThanOrEqual(24);
+  expect(layout.controlsHeight).toBeLessThanOrEqual(360);
 }

@@ -2241,6 +2241,13 @@ nav {
   align-items: start;
 }
 
+.manual-search-controls {
+  display: grid;
+  align-content: start;
+  gap: 0.65rem;
+  min-width: 0;
+}
+
 .query-toolbar {
   grid-template-columns: repeat(2, minmax(0, 1fr));
 }
@@ -2632,6 +2639,17 @@ td {
   .hero-actions {
     min-width: 0;
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .manual-search-row,
+  .manual-detail-url {
+    grid-template-columns: 1fr;
+  }
+
+  .manual-search-row > button,
+  .manual-detail-url > button {
+    width: 100%;
+    margin-top: 0;
   }
 }
 
