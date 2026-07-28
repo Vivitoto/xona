@@ -2,13 +2,12 @@ import type { ReactNode } from "react";
 
 import { APP_VERSION_LABEL } from "../appVersion";
 import { useImageSafetyMode } from "./ImageSafetyMode";
+import { useThemeMode } from "./ThemeMode";
 
 export type PageId =
   | "dashboard"
-  | "manual"
-  | "unmatched"
-  | "monitors"
-  | "review"
+  | "localMetadata"
+  | "xchinaSearch"
   | "tasks"
   | "actors"
   | "history"
@@ -17,11 +16,9 @@ export type PageId =
 
 export const navigationItems: { id: PageId; label: string; icon: string }[] = [
   { id: "dashboard", label: "仪表盘", icon: "⌘" },
-  { id: "manual", label: "手动整理", icon: "↳" },
-  { id: "unmatched", label: "未匹配视频", icon: "□" },
-  { id: "monitors", label: "自动监控", icon: "◌" },
-  { id: "review", label: "复核队列", icon: "◇" },
-  { id: "tasks", label: "任务中心", icon: "☰" },
+  { id: "localMetadata", label: "本地元数据生成", icon: "↳" },
+  { id: "xchinaSearch", label: "XChina 元数据搜索", icon: "⌕" },
+  { id: "tasks", label: "任务记录", icon: "☰" },
   { id: "actors", label: "演员库", icon: "◎" },
   { id: "history", label: "历史/回滚", icon: "↺" },
   { id: "logs", label: "日志", icon: "≋" },
@@ -40,9 +37,11 @@ export function AppLayout({
   const activeItem = navigationItems.find((item) => item.id === activePage);
   const { imageSafetyModeEnabled, setImageSafetyModeEnabled } =
     useImageSafetyMode();
+  const { themeMode, toggleThemeMode } = useThemeMode();
+  const themeToggleLabel = themeMode === "dark" ? "浅色模式" : "深色模式";
 
   return (
-    <div className="app-shell">
+    <div className="app-shell" data-testid="app-theme-root" data-theme={themeMode}>
       <aside className="sidebar">
         <div className="brand">
           <span className="brand-mark" aria-hidden="true">
@@ -80,6 +79,16 @@ export function AppLayout({
             <span className="version-badge" aria-label={`Xona 版本 ${APP_VERSION_LABEL}`}>
               {APP_VERSION_LABEL}
             </span>
+            <button
+              className="theme-toggle"
+              type="button"
+              aria-label={themeToggleLabel}
+              title={`切换到${themeToggleLabel}`}
+              onClick={toggleThemeMode}
+            >
+              <span aria-hidden="true">{themeMode === "dark" ? "☼" : "☾"}</span>
+              <span>{themeToggleLabel}</span>
+            </button>
             <label
               className="image-safety-toggle"
               title="开启后候选图片和演员头像会默认模糊，悬停、聚焦或轻点图片可临时查看。"

@@ -145,6 +145,104 @@ export interface ManualSearchResponse {
   candidates: ManualCandidateCard[];
 }
 
+export interface XChinaSearchCandidate {
+  source: string;
+  source_candidate_id: string;
+  title: string;
+  image_url: string | null;
+  actors: string[];
+  studio: string | null;
+  series: string | null;
+  release_date: string | null;
+  url: string;
+}
+
+export interface XChinaSearchResponse {
+  query: string;
+  normalized_query: string;
+  candidates: XChinaSearchCandidate[];
+}
+
+export interface SourceActorRef {
+  name: string;
+  source_id: string | null;
+  profile_url: string | null;
+  portrait_url: string | null;
+}
+
+export interface SourceAsset {
+  url: string;
+  kind: string;
+}
+
+export interface SourceVideoDetail {
+  source: string;
+  source_id: string;
+  source_url: string;
+  title: string;
+  original_title: string | null;
+  plot: string | null;
+  release_date: string | null;
+  runtime_minutes: number | null;
+  studio: string | null;
+  series: string | null;
+  director: string | null;
+  actors: SourceActorRef[];
+  genres: string[];
+  tags: string[];
+  poster: SourceAsset | null;
+  fanart: SourceAsset | null;
+  backdrops: SourceAsset[];
+  trailer: SourceAsset | null;
+  source_snapshot_eligible: boolean;
+  is_complete: boolean;
+  completeness_flags: string[];
+}
+
+export interface XChinaMetadataActor {
+  name: string;
+  role?: string | null;
+  source_id?: string | null;
+  profile_url?: string | null;
+  portrait_url?: string | null;
+  portrait_reference?: string | null;
+}
+
+export interface XChinaMetadataAssets {
+  poster_url: string | null;
+  fanart_url: string | null;
+  backdrop_urls: string[];
+  thumb_url: string | null;
+  clearlogo_url: string | null;
+  trailer_url: string | null;
+}
+
+export interface XChinaMetadataRecord {
+  source: string;
+  xchina_id: string | null;
+  source_url: string;
+  title: string;
+  original_title: string | null;
+  sort_title: string | null;
+  plot: string | null;
+  outline: string | null;
+  release_date: string | null;
+  runtime_minutes: number | null;
+  studio: string | null;
+  series: string | null;
+  director: string | null;
+  actors: XChinaMetadataActor[];
+  genres: string[];
+  tags: string[];
+  assets: XChinaMetadataAssets;
+}
+
+export interface XChinaDetailResponse {
+  source_url: string;
+  detail: SourceVideoDetail;
+  metadata: XChinaMetadataRecord;
+}
+
 export interface ManualSelectCandidateResponse {
   job_id: number;
   accepted: boolean;

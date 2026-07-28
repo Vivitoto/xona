@@ -33,8 +33,14 @@ def test_api_contract_script_loads_backend_paths_from_openapi() -> None:
     openapi_paths = {
         path for path in create_app().openapi()["paths"] if path.startswith("/api")
     }
+    loaded_paths = set(check_api_contract.load_backend_openapi_paths())
 
-    assert set(check_api_contract.load_backend_openapi_paths()) == openapi_paths
+    assert openapi_paths <= loaded_paths
+    assert "/api/local-metadata/cache/{asset_id:path}" in loaded_paths
+    assert check_api_contract.route_matches(
+        "/api/local-metadata/cache/frames/frame.jpg",
+        "/api/local-metadata/cache/{asset_id:path}",
+    )
 
 
 def test_fixture_privacy_script_reuses_pytest_banned_patterns() -> None:

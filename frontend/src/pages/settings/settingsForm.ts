@@ -150,10 +150,6 @@ export function buildSettingsPayload(settings: AppSettings): AppSettingsUpdate {
       asset_policy: settings.organization_defaults.asset_policy,
       include_source_snapshot: settings.organization_defaults.include_source_snapshot,
     },
-    confidence_safety: {
-      ...settings.confidence_safety,
-      cache_dir: cleanOptional(settings.confidence_safety.cache_dir),
-    },
     auth: {
       enabled: settings.auth.enabled,
       username: cleanOptional(settings.auth.username),
@@ -206,7 +202,7 @@ export function validateSettings(
     warnings.push(`这些媒体目录已由容器挂载自动提供，保存时会忽略重复项：${envRootCollisions.join("、")}`);
   }
   if (!userRoots.length && !settings.storage.env_roots.length) {
-    warnings.push("尚未配置媒体目录；手动整理和自动监控需要至少一个媒体根目录。请选择或输入一个目录。");
+    warnings.push("尚未配置媒体目录；本地元数据生成需要至少一个媒体根目录。请选择或输入一个目录。");
   }
 
   if (settings.emby.enabled && !cleanOptional(settings.emby.server_url)) {
@@ -244,9 +240,6 @@ export function validateSettings(
     warnings.push("文件名模板没有包含标题、番号或 XChina ID，可能难以辨认。建议至少包含 {title}、{number} 或 {xchina_id}。 ");
   }
 
-  if (settings.confidence_safety.confidence_threshold < 0 || settings.confidence_safety.confidence_threshold > 100) {
-    errors.push("置信度阈值必须在 0 到 100 之间。");
-  }
   if (settings.metadata_assets.max_asset_bytes <= 0) {
     errors.push("最大资源大小必须大于 0。 ");
   }
@@ -351,9 +344,6 @@ function summarizeChanges(settings: AppSettings, baseline: AppSettings): string[
   }
   if (JSON.stringify(settings.organization_defaults) !== JSON.stringify(baseline.organization_defaults)) {
     changes.push("整理默认值将更新");
-  }
-  if (JSON.stringify(settings.confidence_safety) !== JSON.stringify(baseline.confidence_safety)) {
-    changes.push("置信度/安全策略将更新");
   }
   if (JSON.stringify(settings.auth) !== JSON.stringify(baseline.auth)) {
     changes.push("认证设置将更新");

@@ -1031,7 +1031,7 @@ export function UnmatchedVideosPage() {
         {scannedVideos.length ? (
           <div className="table-wrap">
             <table>
-              <caption>未匹配视频批量列表</caption>
+              <caption>本地视频批量列表</caption>
               <thead>
                 <tr>
                   <th>选择</th>

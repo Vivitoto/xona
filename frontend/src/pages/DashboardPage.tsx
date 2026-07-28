@@ -1,22 +1,14 @@
 import { useEffect, useState } from "react";
 
-import type { PageId } from "../components/AppLayout";
 import { apiFetch } from "../api/client";
-import type { ActorListResponse, JobListResponse, WatchRuleList } from "../api/types";
+import type { ActorListResponse } from "../api/types";
+import type { PageId } from "../components/AppLayout";
 import { LoadingSkeleton } from "../components/LoadingSkeleton";
 
 export function DashboardPage({ onNavigate }: { onNavigate: (page: PageId) => void }) {
-  const [reviewCount, setReviewCount] = useState<number | null>(null);
-  const [ruleCount, setRuleCount] = useState<number | null>(null);
   const [actorCount, setActorCount] = useState<number | null>(null);
 
   useEffect(() => {
-    apiFetch<JobListResponse>("/api/jobs?state=review_required")
-      .then((payload) => setReviewCount(payload.jobs.length))
-      .catch(() => setReviewCount(null));
-    apiFetch<WatchRuleList>("/api/watch-rules")
-      .then((payload) => setRuleCount(payload.rules.length))
-      .catch(() => setRuleCount(null));
     apiFetch<ActorListResponse>("/api/actors")
       .then((payload) => setActorCount(payload.actors.length))
       .catch(() => setActorCount(null));
@@ -28,17 +20,17 @@ export function DashboardPage({ onNavigate }: { onNavigate: (page: PageId) => vo
         <div className="hero-copy">
           <p className="eyebrow">Dashboard</p>
           <h2>首页</h2>
-          <p>本地媒体整理控制台，围绕扫描、复核、预览执行和回滚保持当前状态清晰。</p>
+          <p>本地媒体元数据工作台，聚焦本地生成与 XChina 元数据搜索。</p>
         </div>
         <div className="hero-actions">
-          <button type="button" onClick={() => onNavigate("manual")}>
-            整理文件
+          <button type="button" onClick={() => onNavigate("localMetadata")}>
+            本地元数据生成
           </button>
-          <button className="secondary" type="button" onClick={() => onNavigate("settings")}>
-            系统设置
+          <button type="button" onClick={() => onNavigate("xchinaSearch")}>
+            XChina 元数据搜索
           </button>
-          <button className="secondary" type="button" onClick={() => onNavigate("monitors")}>
-            监控规则
+          <button className="secondary" type="button" onClick={() => onNavigate("tasks")}>
+            任务记录
           </button>
         </div>
       </section>
@@ -51,15 +43,15 @@ export function DashboardPage({ onNavigate }: { onNavigate: (page: PageId) => vo
           </div>
         </div>
         <div className="metric-grid metric-grid-compact">
-          <Metric label="待复核" value={reviewCount} hint="待确认任务" tone="warning" />
-          <Metric label="监控规则" value={ruleCount} hint="已配置规则" tone="primary" />
-          <Metric label="演员缓存" value={actorCount} hint="本地条目" tone="success" />
+          <Metric label="本地生成" value="单个/批量" hint="NFO、封面与整理预览" tone="primary" />
+          <Metric label="XChina 搜索" value="独立入口" hint="不依赖本地任务" tone="success" />
+          <Metric label="演员库" value={actorCount} hint="本地条目" tone="warning" />
         </div>
-        {reviewCount === null && ruleCount === null && actorCount === null ? (
+        {actorCount === null ? (
           <LoadingSkeleton rows={3} title="正在读取运行概览" />
         ) : null}
         <div className="workflow-strip dashboard-workflow" aria-label="整理流程">
-          {["扫描", "搜索", "复核", "预览", "执行", "回滚"].map((step, index) => (
+          {["本地文件", "元数据草稿", "封面/NFO", "整理预览", "任务记录", "回滚"].map((step, index) => (
             <span className="workflow-step" key={step}>
               <b>{index + 1}</b>
               <strong>{step}</strong>
@@ -81,7 +73,7 @@ function Metric({
   hint: string;
   label: string;
   tone: "primary" | "success" | "warning";
-  value: number | null;
+  value: number | string | null;
 }) {
   return (
     <div className={`metric metric-${tone}`}>

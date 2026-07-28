@@ -129,7 +129,7 @@ export function TaskCenterPage() {
             </div>
             <div>
               <dt>来源</dt>
-              <dd>{job.manual ? "手动任务" : job.rule_id ?? "自动监控"}</dd>
+              <dd>{job.manual ? "本地元数据生成" : job.rule_id ? `规则任务 #${job.rule_id}` : "后台任务"}</dd>
             </div>
             <div>
               <dt>尝试次数</dt>

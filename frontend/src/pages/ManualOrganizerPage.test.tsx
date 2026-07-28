@@ -408,7 +408,7 @@ describe("ManualOrganizerPage", () => {
     expect(await screen.findByLabelText(/目标目录/i)).toHaveValue("/media/default");
     expect(screen.getByLabelText(/整理模式/i)).toHaveValue("hardlink");
     expect(screen.getByLabelText(/资源缺失处理/i)).toHaveValue("strict");
-    expect(screen.getByLabelText(/包含源快照/i)).toBeChecked();
+    expect(screen.getByLabelText(/保存来源页面快照/i)).toBeChecked();
     expect(screen.getByLabelText(/文件夹模板/i)).toHaveValue(
       "{studio}\n{xchina_id} - {title}",
     );

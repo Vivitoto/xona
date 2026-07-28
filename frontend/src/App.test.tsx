@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import App from "./App";
@@ -7,6 +7,7 @@ import { installFetchMock } from "./test/mockFetch";
 
 afterEach(() => {
   vi.unstubAllGlobals();
+  localStorage.clear();
 });
 
 describe("App", () => {
@@ -21,10 +22,33 @@ describe("App", () => {
     expect(screen.getByRole("heading", { name: "Xona" })).toBeTruthy();
     expect(
       screen.getByLabelText(`Xona 版本 ${APP_VERSION_LABEL}`),
-    ).toHaveTextContent("v1.1.3");
+    ).toHaveTextContent("v1.1.4");
   });
 
-  it("exposes every first-release navigation destination", () => {
+  it("toggles theme mode and persists the selection", () => {
+    installFetchMock([
+      { path: "/api/jobs?state=review_required", response: { jobs: [] } },
+      { path: "/api/watch-rules", response: { rules: [] } },
+      { path: "/api/actors", response: { actors: [] } },
+    ]);
+    localStorage.setItem("xona-theme", "dark");
+    render(<App />);
+
+    const shell = screen.getByTestId("app-theme-root");
+    expect(shell).toHaveAttribute("data-theme", "dark");
+
+    fireEvent.click(screen.getByRole("button", { name: "浅色模式" }));
+
+    expect(shell).toHaveAttribute("data-theme", "light");
+    expect(localStorage.getItem("xona-theme")).toBe("light");
+
+    fireEvent.click(screen.getByRole("button", { name: "深色模式" }));
+
+    expect(shell).toHaveAttribute("data-theme", "dark");
+    expect(localStorage.getItem("xona-theme")).toBe("dark");
+  });
+
+  it("exposes the v1.2 product navigation without retired primary entries", () => {
     installFetchMock([
       { path: "/api/jobs?state=review_required", response: { jobs: [] } },
       { path: "/api/watch-rules", response: { rules: [] } },
@@ -32,23 +56,33 @@ describe("App", () => {
     ]);
     render(<App />);
 
+    const navigation = screen.getByRole("navigation", { name: "主导航" });
     for (const name of [
       "仪表盘",
-      "手动整理",
-      "未匹配视频",
-      "自动监控",
-      "复核队列",
-      "任务中心",
+      "本地元数据生成",
+      "XChina 元数据搜索",
+      "任务记录",
       "演员库",
       "历史/回滚",
       "日志",
       "设置",
     ]) {
-      expect(screen.getByRole("button", { name })).toBeTruthy();
+      expect(within(navigation).getByRole("button", { name })).toBeTruthy();
+    }
+
+    for (const retiredName of [
+      "手动整理",
+      "未匹配视频",
+      "自动监控",
+      "复核队列",
+    ]) {
+      expect(
+        within(navigation).queryByRole("button", { name: retiredName }),
+      ).not.toBeInTheDocument();
     }
   });
 
-  it("renders the unmatched videos workflow from navigation", async () => {
+  it("renders the local metadata workflow from navigation", async () => {
     installFetchMock([
       { path: "/api/jobs?state=review_required", response: { jobs: [] } },
       { path: "/api/watch-rules", response: { rules: [] } },
@@ -57,84 +91,60 @@ describe("App", () => {
     ]);
     render(<App />);
 
-    fireEvent.click(screen.getByRole("button", { name: "未匹配视频" }));
+    fireEvent.click(
+      within(screen.getByRole("navigation", { name: "主导航" })).getByRole(
+        "button",
+        { name: "本地元数据生成" },
+      ),
+    );
 
     expect(
-      await screen.findByRole("heading", { name: "未匹配视频" }),
+      await screen.findByRole("heading", { name: "本地元数据生成" }),
     ).toBeTruthy();
     expect(screen.getByLabelText("视频路径")).toBeTruthy();
     expect(screen.getByRole("button", { name: "生成 NFO 预览" })).toBeTruthy();
   });
 
-  it("defaults image safety mode on and toggles candidate and actor image blur", async () => {
+  it("promotes local metadata and XChina search from the dashboard", async () => {
+    installFetchMock([
+      { path: "/api/jobs?state=review_required", response: { jobs: [] } },
+      { path: "/api/watch-rules", response: { rules: [] } },
+      { path: "/api/actors", response: { actors: [] } },
+    ]);
+    render(<App />);
+
+    const main = screen.getByRole("main");
+    expect(
+      await within(main).findByRole("button", { name: "本地元数据生成" }),
+    ).toBeTruthy();
+    expect(
+      within(main).getByRole("button", { name: "XChina 元数据搜索" }),
+    ).toBeTruthy();
+    expect(
+      within(main).queryByRole("button", { name: "监控规则" }),
+    ).not.toBeInTheDocument();
+    expect(screen.queryByText("复核")).not.toBeInTheDocument();
+  });
+
+  it("defaults image safety mode on and toggles actor image blur independently from theme mode", async () => {
     installFetchMock([
       { path: "/api/jobs?state=review_required", response: { jobs: [] } },
       { path: "/api/watch-rules", response: { rules: [] } },
       { path: "/api/actors", response: { actors: [actorFixture()] } },
-      {
-        method: "POST",
-        path: "/api/manual/scan",
-        response: {
-          scanned_count: 1,
-          jobs: [
-            {
-              job_id: 7,
-              state: "discovered",
-              media_identity: "sample-work",
-              media_items: [
-                {
-                  path: "/media/incoming/Sample.Work.mkv",
-                  group_key: "sample-work",
-                  identity: "sample-work",
-                  size_bytes: 4,
-                  multipart_index: null,
-                },
-              ],
-            },
-          ],
-        },
-      },
-      {
-        method: "POST",
-        path: "/api/manual/search",
-        response: {
-          job_id: 7,
-          search_query_id: 11,
-          query: "Sample Work",
-          normalized_query: "Sample Work",
-          candidates: [candidateFixture()],
-        },
-      },
     ]);
+    localStorage.setItem("xona-theme", "dark");
     render(<App />);
 
+    const shell = screen.getByTestId("app-theme-root");
     const safetyToggle = screen.getByRole("checkbox", {
       name: "安全模式：模糊图片",
     });
     expect(safetyToggle).toBeChecked();
 
-    fireEvent.click(screen.getByRole("button", { name: "手动整理" }));
-    fireEvent.change(screen.getByLabelText(/源目录/i), {
-      target: { value: "/media/incoming" },
-    });
-    fireEvent.click(screen.getByRole("button", { name: "扫描源目录" }));
-    await screen.findByText(/已扫描 1 个视频文件/);
-    fireEvent.click(screen.getByRole("button", { name: "搜索" }));
-
-    const candidateImage = await screen.findByRole("img", {
-      name: /Sample Work 候选图片/,
-    });
-    expect(candidateImage).toHaveClass("safety-image");
-    expect(candidateImage).toHaveClass("is-blurred");
-    expect(candidateImage).toHaveAttribute("data-image-safety", "blurred");
-
-    fireEvent.click(safetyToggle);
-    expect(safetyToggle).not.toBeChecked();
-    expect(candidateImage).not.toHaveClass("is-blurred");
-    expect(candidateImage).toHaveAttribute("data-image-safety", "visible");
-
-    fireEvent.click(safetyToggle);
+    fireEvent.click(screen.getByRole("button", { name: "浅色模式" }));
+    expect(shell).toHaveAttribute("data-theme", "light");
     expect(safetyToggle).toBeChecked();
+
     fireEvent.click(screen.getByRole("button", { name: "演员库" }));
 
     const actorPortrait = await screen.findByRole("img", {
@@ -147,25 +157,13 @@ describe("App", () => {
     fireEvent.click(safetyToggle);
     expect(actorPortrait).not.toHaveClass("is-blurred");
     expect(actorPortrait).toHaveAttribute("data-image-safety", "visible");
+
+    fireEvent.click(screen.getByRole("button", { name: "深色模式" }));
+    expect(shell).toHaveAttribute("data-theme", "dark");
+    expect(safetyToggle).not.toBeChecked();
+    expect(actorPortrait).toHaveAttribute("data-image-safety", "visible");
   });
 });
-
-function candidateFixture() {
-  return {
-    candidate_id: 3,
-    source: "xchina",
-    source_candidate_id: "XC-001",
-    title: "Sample Work",
-    image_url: "https://images.example.test/poster.jpg",
-    actors: ["Actor One"],
-    studio: "Studio One",
-    series: "Series One",
-    release_date: "2026-01-02",
-    url: "https://xchina.example.test/videos/xc-001.html",
-    confidence_score: 96,
-    score_breakdown: { title: 80, actors: 16 },
-  };
-}
 
 function actorFixture() {
   return {

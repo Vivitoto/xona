@@ -7,7 +7,6 @@ import { ErrorNotice } from "../components/ErrorNotice";
 import { LoadingSkeleton } from "../components/LoadingSkeleton";
 import { Tabs, type TabItem } from "../components/Tabs";
 import { AuthSettings } from "./settings/AuthSettings";
-import { ConfidenceSafetySettings } from "./settings/ConfidenceSafetySettings";
 import { EmbySettings } from "./settings/EmbySettings";
 import { MetadataAssetSettings } from "./settings/MetadataAssetSettings";
 import { OrganizationConfigSettings } from "./settings/OrganizationConfigSettings";
@@ -24,7 +23,6 @@ type SettingsTab =
   | "emby"
   | "organization_config"
   | "metadata"
-  | "confidence"
   | "auth";
 
 const settingsTabs: readonly TabItem<SettingsTab>[] = [
@@ -32,7 +30,6 @@ const settingsTabs: readonly TabItem<SettingsTab>[] = [
   { id: "emby", label: "Emby" },
   { id: "organization_config", label: "整理配置" },
   { id: "metadata", label: "元数据/资源" },
-  { id: "confidence", label: "置信度/安全" },
   { id: "auth", label: "认证" },
 ];
 
@@ -141,13 +138,6 @@ export function SettingsPage() {
           <MetadataAssetSettings
             settings={settings.metadata_assets}
             onChange={(patch) => patchSettings("metadata_assets", patch)}
-          />
-        );
-      case "confidence":
-        return (
-          <ConfidenceSafetySettings
-            settings={settings.confidence_safety}
-            onChange={(patch) => patchSettings("confidence_safety", patch)}
           />
         );
       case "auth":

@@ -26,6 +26,7 @@ PROTECTED_API_PREFIXES = (
     "/api/settings",
     "/api/storage-roots",
     "/api/watch-rules",
+    "/api/xchina",
 )
 
 

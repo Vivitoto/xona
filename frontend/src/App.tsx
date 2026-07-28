@@ -3,16 +3,15 @@ import { useState } from "react";
 import { AppLayout, type PageId } from "./components/AppLayout";
 import { ErrorBoundary } from "./components/ErrorBoundary";
 import { ImageSafetyModeProvider } from "./components/ImageSafetyMode";
+import { ThemeModeProvider } from "./components/ThemeMode";
 import { ActorLibraryPage } from "./pages/ActorLibraryPage";
-import { AutomaticMonitorsPage } from "./pages/AutomaticMonitorsPage";
 import { DashboardPage } from "./pages/DashboardPage";
 import { HistoryRollbackPage } from "./pages/HistoryRollbackPage";
 import { LogsPage } from "./pages/LogsPage";
-import { ManualOrganizerPage } from "./pages/ManualOrganizerPage";
-import { ReviewQueuePage } from "./pages/ReviewQueuePage";
 import { SettingsPage } from "./pages/SettingsPage";
 import { TaskCenterPage } from "./pages/TaskCenterPage";
 import { UnmatchedVideosPage } from "./pages/UnmatchedVideosPage";
+import { XChinaSearchPage } from "./pages/XChinaSearchPage";
 import "./styles.css";
 
 export default function App() {
@@ -20,32 +19,30 @@ export default function App() {
   const [imageSafetyModeEnabled, setImageSafetyModeEnabled] = useState(true);
 
   return (
-    <ImageSafetyModeProvider
-      enabled={imageSafetyModeEnabled}
-      onChange={setImageSafetyModeEnabled}
-    >
-      <AppLayout activePage={activePage} onNavigate={setActivePage}>
-        <ErrorBoundary
-          resetKey={activePage}
-          onReturnHome={() => setActivePage("dashboard")}
-        >
-          {renderPage(activePage, setActivePage)}
-        </ErrorBoundary>
-      </AppLayout>
-    </ImageSafetyModeProvider>
+    <ThemeModeProvider>
+      <ImageSafetyModeProvider
+        enabled={imageSafetyModeEnabled}
+        onChange={setImageSafetyModeEnabled}
+      >
+        <AppLayout activePage={activePage} onNavigate={setActivePage}>
+          <ErrorBoundary
+            resetKey={activePage}
+            onReturnHome={() => setActivePage("dashboard")}
+          >
+            {renderPage(activePage, setActivePage)}
+          </ErrorBoundary>
+        </AppLayout>
+      </ImageSafetyModeProvider>
+    </ThemeModeProvider>
   );
 }
 
 function renderPage(page: PageId, onNavigate: (page: PageId) => void) {
   switch (page) {
-    case "manual":
-      return <ManualOrganizerPage />;
-    case "unmatched":
+    case "localMetadata":
       return <UnmatchedVideosPage />;
-    case "monitors":
-      return <AutomaticMonitorsPage />;
-    case "review":
-      return <ReviewQueuePage />;
+    case "xchinaSearch":
+      return <XChinaSearchPage />;
     case "tasks":
       return <TaskCenterPage />;
     case "actors":

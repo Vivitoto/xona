@@ -24,6 +24,7 @@ from backend.app.api.manual import close_shared_flaresolverr_client, router as m
 from backend.app.api.settings import router as settings_router
 from backend.app.api.storage_roots import router as storage_roots_router
 from backend.app.api.watch_rules import router as watch_rules_router
+from backend.app.api.xchina_search import router as xchina_search_router
 from backend.app.core.logging import configure_logging
 from backend.app.core.settings import Settings
 from backend.app.db.migrations import run_migrations
@@ -125,6 +126,7 @@ def create_app(
     app.include_router(storage_roots_router)
     app.include_router(watch_rules_router)
     app.include_router(manual_router)
+    app.include_router(xchina_search_router)
     app.include_router(emby_router)
     app.include_router(jobs_router)
     app.include_router(local_metadata_router)

@@ -1,7 +1,7 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import type { AppSettings } from "../api/types";
+import type { AppSettings, AppSettingsUpdate } from "../api/types";
 import { SettingsPage } from "./SettingsPage";
 import { installFetchMock } from "../test/mockFetch";
 
@@ -34,12 +34,12 @@ describe("SettingsPage", () => {
       ["Emby", "Emby"],
       ["整理配置", "目录配置"],
       ["元数据/资源", "元数据/资源"],
-      ["置信度/安全", "置信度/安全"],
       ["认证", "认证"],
     ]) {
       fireEvent.click(screen.getByRole("tab", { name: tab }));
       expect(screen.getByRole("heading", { name: heading })).toBeTruthy();
     }
+    expect(screen.queryByRole("tab", { name: "置信度/安全" })).toBeNull();
     expect(screen.queryByRole("tab", { name: "媒体目录" })).toBeNull();
     expect(screen.queryByRole("tab", { name: "命名模板" })).toBeNull();
     expect(screen.queryByRole("tab", { name: "整理默认值" })).toBeNull();
@@ -109,7 +109,7 @@ describe("SettingsPage", () => {
     fireEvent.change(screen.getByLabelText(/默认整理模式/i), {
       target: { value: "move" },
     });
-    fireEvent.click(screen.getByLabelText(/默认包含源快照/i));
+    fireEvent.click(screen.getByLabelText(/默认保存来源页面快照/i));
     fireEvent.click(screen.getByRole("button", { name: "保存设置" }));
 
     await waitFor(() =>
@@ -239,6 +239,41 @@ describe("SettingsPage", () => {
       max_search_pages: 7,
     });
     expect(testCall?.body).not.toHaveProperty("proxy_url");
+  });
+
+  it("keeps confidence safety hidden from preflight and save payload", async () => {
+    const settingsWithLegacyConfidence = settingsFixture();
+    settingsWithLegacyConfidence.confidence_safety = {
+      ...settingsWithLegacyConfidence.confidence_safety,
+      confidence_threshold: 150,
+    };
+    const { calls } = installFetchMock([
+      { path: "/api/settings", response: settingsWithLegacyConfidence },
+      { method: "PUT", path: "/api/settings", response: settingsWithLegacyConfidence },
+    ]);
+
+    render(<SettingsPage />);
+
+    await screen.findByRole("heading", { name: "XChina" });
+    expect(screen.queryByRole("tab", { name: "置信度/安全" })).toBeNull();
+    expect(screen.queryByText(/置信度/)).toBeNull();
+
+    fireEvent.change(screen.getByLabelText("XChina 基础 URL"), {
+      target: { value: "https://mirror.xchina.test" },
+    });
+
+    expect(await screen.findByText("XChina 基础 URL 将更新")).toBeTruthy();
+    expect(screen.queryByText(/置信度/)).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "保存设置" }));
+
+    await waitFor(() =>
+      expect(calls.some((call) => call.method === "PUT")).toBe(true),
+    );
+    const put = calls.find((call) => call.method === "PUT");
+    expect(put?.body).not.toHaveProperty("confidence_safety");
+    expect((put?.body as AppSettingsUpdate).xchina).toMatchObject({
+      base_url: "https://mirror.xchina.test",
+    });
   });
 });
 

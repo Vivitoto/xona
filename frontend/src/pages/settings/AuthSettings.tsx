@@ -13,7 +13,8 @@ export function AuthSettings({
       <div className="grid three">
         <CheckboxField
           checked={settings.enabled}
-          label="API 路由需要认证"
+          label="启用登录保护"
+          description="开启后，访问 Xona 的 API 和管理操作需要先登录。"
           onChange={(enabled) => onChange({ enabled })}
         />
         <FormField label="用户名">
@@ -25,8 +26,8 @@ export function AuthSettings({
           />
         </FormField>
         <FormField
-          description="占位符不会提交。"
-          label="密码占位符"
+          description="这里不会显示或提交已保存密码；需要修改密码时请通过部署配置更新。"
+          label="已配置密码"
         >
           <input readOnly type="password" value="********" />
         </FormField>

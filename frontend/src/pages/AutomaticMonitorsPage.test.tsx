@@ -61,7 +61,7 @@ describe("AutomaticMonitorsPage", () => {
     expect(screen.getAllByLabelText(/文件名模板/i)[0]).toHaveValue(
       "{xchina_id} - {title}",
     );
-    expect(screen.getByLabelText(/包含源快照/i)).toBeChecked();
+    expect(screen.getByLabelText(/保存来源页面快照/i)).toBeChecked();
     for (const label of [
       "源目录",
       "目标目录",

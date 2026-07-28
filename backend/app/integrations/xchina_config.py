@@ -13,6 +13,11 @@ DEFAULT_XCHINA_IMAGE_HOSTS = {
     "img.xchina.download",
     "upload.xchina.io",
 }
+DEFAULT_XCHINA_SITE_HOSTS = {
+    "en.xchina.co",
+    "www.xchina.co",
+    "xchina.co",
+}
 
 
 def xchina_base_url(store_settings: Mapping[str, Any] | None) -> str:
@@ -65,3 +70,46 @@ def is_allowed_xchina_resource_url(
     if parsed.scheme.lower() not in {"http", "https"} or not parsed.hostname:
         return False
     return parsed.hostname.lower() in xchina_allowed_image_hosts(store_settings)
+
+
+def is_allowed_xchina_detail_url(
+    url: str,
+    store_settings: Mapping[str, Any] | None,
+) -> bool:
+    parsed = urlsplit(url)
+    if parsed.scheme.lower() not in {"http", "https"} or not parsed.hostname:
+        return False
+    try:
+        parsed.port
+    except ValueError:
+        return False
+    if parsed.username or parsed.password:
+        return False
+    if not (parsed.path == "/videos" or parsed.path.startswith("/videos/")):
+        return False
+
+    base = urlsplit(xchina_base_url(store_settings))
+    if parsed.scheme.lower() != base.scheme.lower():
+        return False
+    if _effective_port(parsed) != _effective_port(base):
+        return False
+
+    candidate_host = parsed.hostname.lower()
+    base_host = (base.hostname or "").lower()
+    if candidate_host == base_host:
+        return True
+    return candidate_host in DEFAULT_XCHINA_SITE_HOSTS and base_host in DEFAULT_XCHINA_SITE_HOSTS
+
+
+def _effective_port(parts: Any) -> int | None:
+    try:
+        explicit_port = parts.port
+    except ValueError:
+        return None
+    if explicit_port is not None:
+        return explicit_port
+    if parts.scheme == "http":
+        return 80
+    if parts.scheme == "https":
+        return 443
+    return None

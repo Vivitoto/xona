@@ -600,7 +600,7 @@ export function ManualOrganizerPage() {
           </FormField>
           <CheckboxField
             checked={includeSourceSnapshot}
-            label="包含源快照"
+            label="保存来源页面快照"
             onChange={(checked) => {
               markOrganizationConfigTouched();
               setIncludeSourceSnapshot(checked);

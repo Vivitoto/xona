@@ -54,7 +54,8 @@ export function OrganizationDefaultsSettings({
         </FormField>
         <CheckboxField
           checked={settings.include_source_snapshot}
-          label="默认包含源快照"
+          label="默认保存来源页面快照"
+          description="整理时额外保存 source-snapshot.html，用于记录当时的来源详情页。"
           onChange={(include_source_snapshot) =>
             onChange({ include_source_snapshot })
           }

@@ -288,7 +288,7 @@ export function WatchRuleEditor({
         />
         <CheckboxField
           checked={Boolean(draft.metadata_options.include_source_snapshot)}
-          label="包含源快照"
+          label="保存来源页面快照"
           onChange={(checked) => patchMetadata("include_source_snapshot", checked)}
         />
         <CheckboxField

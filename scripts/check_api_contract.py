@@ -53,8 +53,32 @@ def load_backend_openapi_paths() -> tuple[str, ...]:
 
     from backend.app.main import create_app
 
-    openapi = create_app().openapi()
-    return tuple(sorted(path for path in openapi["paths"] if path.startswith(API_PREFIX)))
+    app = create_app()
+    openapi = app.openapi()
+    openapi_paths = {path for path in openapi["paths"] if path.startswith(API_PREFIX)}
+    # OpenAPI renders Starlette catch-all route params such as `{asset_id:path}`
+    # as ordinary `{asset_id}` params. Keep the raw app route paths as well so
+    # the matcher can verify frontend references like
+    # `/api/local-metadata/cache/frames/frame.jpg` against the backend route.
+    raw_route_paths = set(_iter_raw_app_route_paths(app))
+    return tuple(sorted(openapi_paths | raw_route_paths))
+
+
+def _iter_raw_app_route_paths(app: object) -> Iterable[str]:
+    routes = getattr(app, "routes", ())
+    for route in routes:
+        path = getattr(route, "path", None)
+        if isinstance(path, str) and path.startswith(API_PREFIX):
+            yield path
+
+        # OpenClaw/FastAPI may wrap included routers. The wrapper itself has no
+        # path, but its original router still retains raw APIRoute paths such as
+        # `/api/local-metadata/cache/{asset_id:path}`.
+        router = getattr(route, "original_router", None)
+        for child in getattr(router, "routes", ()):
+            child_path = getattr(child, "path", None)
+            if isinstance(child_path, str) and child_path.startswith(API_PREFIX):
+                yield child_path
 
 
 def audit_frontend_api_paths(
@@ -131,9 +155,21 @@ def normalize_route_template(route_path: str) -> str:
 def route_matches(frontend_path: str, route_path: str) -> bool:
     frontend_segments = _segments(normalize_route_template(frontend_path))
     route_segments = _segments(normalize_route_template(route_path))
+    if _has_trailing_path_param(route_path):
+        if len(frontend_segments) < len(route_segments):
+            return False
+        return all(
+            _segment_matches(frontend, route)
+            for frontend, route in zip(frontend_segments, route_segments[:-1])
+        )
     if len(frontend_segments) != len(route_segments):
         return False
     return all(_segment_matches(frontend, route) for frontend, route in zip(frontend_segments, route_segments))
+
+
+def _has_trailing_path_param(route_path: str) -> bool:
+    path = route_path.split("?", 1)[0].split("#", 1)[0].rstrip("/")
+    return bool(re.search(r"/\{[^/{}]+:path\}$", path))
 
 
 def main(argv: Sequence[str] | None = None) -> int:

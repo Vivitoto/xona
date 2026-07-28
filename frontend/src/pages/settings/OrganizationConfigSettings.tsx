@@ -167,7 +167,7 @@ export function OrganizationConfigSettings({
         <div className="settings-subsection">
           <h3>整理目标目录</h3>
           <p className="section-lead">
-            设置手动整理和自动整理默认写入的位置。单个任务或自动规则里仍可单独覆盖。
+            设置本地元数据生成默认写入的位置。单个生成任务里仍可单独覆盖。
           </p>
           <div className="path-field">
             <FormField label="默认目标目录">
@@ -194,7 +194,7 @@ export function OrganizationConfigSettings({
 
       <Section title="命名模板">
         <p className="section-lead">
-          这套模板同时用于命名预览、手动整理默认值和自动整理默认值。
+          这套模板用于命名预览和本地元数据生成默认值。
           文件夹模板一行一级目录；文件名模板只写最终文件名。
         </p>
         <div className="grid two">
@@ -271,7 +271,7 @@ export function OrganizationConfigSettings({
 
       <Section title="整理行为">
         <p className="section-lead">
-          设置整理任务的默认动作。具体手动任务或自动规则里仍可按需覆盖。
+          设置本地元数据生成任务的默认文件动作。具体生成任务里仍可按需覆盖。
         </p>
         <div className="grid four">
           <FormField label="默认整理模式">
@@ -303,8 +303,8 @@ export function OrganizationConfigSettings({
           </FormField>
           <CheckboxField
             checked={settings.organization_defaults.include_source_snapshot}
-            label="默认包含源快照"
-            description="记录整理前源文件状态，便于后续审计和回滚判断。"
+            label="默认保存来源页面快照"
+            description="整理时额外保存 source-snapshot.html，用于记录当时的来源详情页，方便审计或排查。"
             onChange={(include_source_snapshot) =>
               onOrganizationDefaultsChange({ include_source_snapshot })
             }
