@@ -343,7 +343,7 @@ def _step(
     metadata: dict[str, object] | None = None,
 ) -> OperationStep:
     effective_operation: OperationName = "preview" if mode == "preview" else operation
-    if source_path is not None:
+    if source_path is not None and not materialized_asset:
         _validate_storage_path(storage_roots, source_path, "source path")
     _validate_storage_path(storage_roots, target_path, "target path")
     _validate_storage_path(storage_roots, target_path.parent, "target parent")

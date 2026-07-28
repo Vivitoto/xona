@@ -229,6 +229,143 @@ export interface ManualExecutePlanResponse {
   state: string;
 }
 
+export type CoverTemplateName =
+  | "simple_poster"
+  | "jav_classic_left_strip"
+  | "tangxin_vlog";
+
+export type PosterFontId =
+  | "source_han_sans"
+  | "noto_sans_jp"
+  | "dela_gothic_one"
+  | "bebas_neue"
+  | "anton"
+  | "smiley_sans"
+  | "zcool_qingke_huangyou"
+  | "lxgw_wenkai";
+
+export interface LocalVideoTechnicalInfo {
+  path: string;
+  size_bytes: number;
+  duration_seconds: number | null;
+  width: number | null;
+  height: number | null;
+  video_codec: string | null;
+  audio_codec: string | null;
+  format_name: string | null;
+  bit_rate: number | null;
+  fps: number | null;
+}
+
+export interface LocalMetadataDraft {
+  video_path: string;
+  title: string;
+  organize_filename: string | null;
+  plot: string | null;
+  tags: string[];
+  studio: string | null;
+  series: string | null;
+  release_date: string | null;
+  runtime_minutes: number | null;
+  genres: string[];
+}
+
+export interface LocalAnalyzeResponse {
+  video_path: string;
+  cleaned_title: string;
+  default_organize_filename: string;
+  default_plot: string;
+  default_tags: string[];
+  technical: LocalVideoTechnicalInfo;
+  warnings: string[];
+}
+
+export interface LocalCachedAsset {
+  id: string;
+  kind: string;
+  url: string;
+  cache_path: string;
+  content_type: string;
+  size_bytes: number;
+  sha256: string;
+  width: number | null;
+  height: number | null;
+  time_seconds: number | null;
+}
+
+export interface LocalFrameResponse {
+  video_path: string;
+  frames: LocalCachedAsset[];
+  warnings: string[];
+}
+
+export interface LocalCoverPreviewRequest extends Record<string, unknown> {
+  video_path: string;
+  title: string;
+  title_angle_degrees: number;
+  title_position_x_percent: number;
+  title_position_y_percent: number;
+  template: CoverTemplateName;
+  title_font_id: PosterFontId;
+  selected_frame_ids: string[];
+}
+
+export interface LocalCoverPreviewResponse {
+  poster: LocalCachedAsset;
+  fanart: LocalCachedAsset;
+  template: CoverTemplateName;
+  title_font_id: PosterFontId;
+  selected_frame_ids: string[];
+  warnings: string[];
+}
+
+export interface LocalNfoPreviewResponse {
+  xml_text: string;
+  metadata: Record<string, unknown>;
+}
+
+export interface LocalPlanPreviewRequest extends Record<string, unknown> {
+  metadata: LocalMetadataDraft;
+  destination_root: string;
+  mode: OrganizationMode;
+  folder_templates: string[];
+  filename_template: string;
+  poster_ref: string | null;
+  fanart_ref: string | null;
+  selected_frame_ids: string[];
+  extra_backdrop_count: number;
+}
+
+export interface LocalPlanPreviewResponse {
+  plan_id: string;
+  metadata: Record<string, unknown>;
+  materialized_assets: Record<string, unknown>[];
+  nfo_xml: string;
+  plan: OperationPlan;
+}
+
+export interface LocalExecutePlanResponse {
+  plan_id: string;
+  job_id: number | null;
+  state: string;
+}
+
+export interface LocalScannedVideo {
+  path: string;
+  filename: string;
+  cleaned_title: string;
+  default_organize_filename: string;
+  size_bytes: number;
+  mtime_ns: number;
+  group_key: string;
+  multipart_index: number | null;
+}
+
+export interface LocalScanResponse {
+  scanned_count: number;
+  videos: LocalScannedVideo[];
+}
+
 export interface JobSummaryRead {
   id: number;
   state: string;

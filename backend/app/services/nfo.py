@@ -1,5 +1,4 @@
 from __future__ import annotations
-
 from pathlib import Path
 from xml.etree import ElementTree
 
@@ -41,8 +40,8 @@ def render_movie_nfo(record: MetadataRecordData) -> bytes:
         "uniqueid",
         {"type": record.source, "default": "true"},
     )
-    unique_id.text = record.xchina_id
-    _sub(movie, "id", record.xchina_id)
+    unique_id.text = record.source_id
+    _sub(movie, "id", record.source_id)
     _sub(movie, "sourceurl", record.source_url)
     ElementTree.indent(movie)
     return ElementTree.tostring(movie, encoding="utf-8", xml_declaration=True)

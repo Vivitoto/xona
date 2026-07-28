@@ -101,7 +101,7 @@ def persist_metadata_record(
         session.query(MetadataRecord)
         .filter(
             MetadataRecord.source == record.source,
-            MetadataRecord.source_id == record.xchina_id,
+            MetadataRecord.source_id == record.source_id,
             MetadataRecord.media_item_id == media_item_id,
         )
         .one_or_none()
@@ -111,7 +111,7 @@ def persist_metadata_record(
         existing = MetadataRecord(
             media_item_id=media_item_id,
             source=record.source,
-            source_id=record.xchina_id,
+            source_id=record.source_id,
             source_url=record.source_url,
             title=record.title,
             original_title=record.original_title,

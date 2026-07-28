@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import hashlib
+
 from pydantic import BaseModel, Field
 
 
@@ -23,7 +25,7 @@ class MetadataAssets(BaseModel):
 
 class MetadataRecordData(BaseModel):
     source: str
-    xchina_id: str
+    xchina_id: str | None = None
     source_url: str
     title: str
     original_title: str | None = None
@@ -42,4 +44,10 @@ class MetadataRecordData(BaseModel):
 
     @property
     def source_id(self) -> str:
-        return self.xchina_id
+        if self.xchina_id:
+            return self.xchina_id
+        digest = hashlib.sha256()
+        digest.update(self.source.encode("utf-8"))
+        digest.update(b"\0")
+        digest.update(self.source_url.encode("utf-8"))
+        return f"{self.source}-{digest.hexdigest()[:16]}"

@@ -370,6 +370,8 @@ def _resolve_for_step(
             raise OperationExecutionError("target_parent_unavailable") from exc
 
     for path in paths:
+        if step.materialized_asset and path == step.source_path:
+            continue
         _ensure_inside_root(storage_roots, path)
         _ensure_no_symlink_ancestors(path, include_self=path == step.source_path)
 

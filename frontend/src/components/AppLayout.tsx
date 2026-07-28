@@ -1,10 +1,12 @@
 import type { ReactNode } from "react";
 
+import { APP_VERSION_LABEL } from "../appVersion";
 import { useImageSafetyMode } from "./ImageSafetyMode";
 
 export type PageId =
   | "dashboard"
   | "manual"
+  | "unmatched"
   | "monitors"
   | "review"
   | "tasks"
@@ -16,6 +18,7 @@ export type PageId =
 export const navigationItems: { id: PageId; label: string; icon: string }[] = [
   { id: "dashboard", label: "仪表盘", icon: "⌘" },
   { id: "manual", label: "手动整理", icon: "↳" },
+  { id: "unmatched", label: "未匹配视频", icon: "□" },
   { id: "monitors", label: "自动监控", icon: "◌" },
   { id: "review", label: "复核队列", icon: "◇" },
   { id: "tasks", label: "任务中心", icon: "☰" },
@@ -73,18 +76,25 @@ export function AppLayout({
             <p className="eyebrow">Xona</p>
             <h2>{activeItem?.label ?? "仪表盘"}</h2>
           </div>
-          <label
-            className="image-safety-toggle"
-            title="开启后候选图片和演员头像会默认模糊，悬停、聚焦或轻点图片可临时查看。"
-          >
-            <input
-              aria-label="安全模式：模糊图片"
-              checked={imageSafetyModeEnabled}
-              type="checkbox"
-              onChange={(event) => setImageSafetyModeEnabled(event.target.checked)}
-            />
-            <span>安全模式：模糊图片</span>
-          </label>
+          <div className="page-header-actions">
+            <span className="version-badge" aria-label={`Xona 版本 ${APP_VERSION_LABEL}`}>
+              {APP_VERSION_LABEL}
+            </span>
+            <label
+              className="image-safety-toggle"
+              title="开启后候选图片和演员头像会默认模糊，悬停、聚焦或轻点图片可临时查看。"
+            >
+              <input
+                aria-label="安全模式：模糊图片"
+                checked={imageSafetyModeEnabled}
+                type="checkbox"
+                onChange={(event) =>
+                  setImageSafetyModeEnabled(event.target.checked)
+                }
+              />
+              <span>安全模式：模糊图片</span>
+            </label>
+          </div>
         </header>
         {children}
       </main>

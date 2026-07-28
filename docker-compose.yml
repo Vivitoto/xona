@@ -2,6 +2,9 @@ services:
   app:
     build:
       context: .
+      args:
+        APT_MIRROR: "${APT_MIRROR:-}"
+        APT_SECURITY_MIRROR: "${APT_SECURITY_MIRROR:-}"
     image: xona:test
     ports:
       - "${XONA_PORT:-8732}:8732"

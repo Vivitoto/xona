@@ -20,6 +20,7 @@ PROTECTED_API_PREFIXES = (
     "/api/history",
     "/api/jobs",
     "/api/logs",
+    "/api/local-metadata",
     "/api/manual",
     "/api/plans",
     "/api/settings",

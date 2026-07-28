@@ -10,6 +10,9 @@ RUN npm run build
 
 FROM python:3.12-slim AS runtime
 
+ARG APT_MIRROR=
+ARG APT_SECURITY_MIRROR=
+
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PYTHONPATH=/app \
@@ -18,9 +21,16 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 
 WORKDIR /app
 
-RUN apt-get update \
-    && apt-get install -y --no-install-recommends ca-certificates util-linux \
-    && rm -rf /var/lib/apt/lists/*
+RUN set -eux; \
+    if [ -n "$APT_MIRROR" ]; then \
+        sed -i "s|http://deb.debian.org/debian|$APT_MIRROR|g" /etc/apt/sources.list.d/debian.sources; \
+    fi; \
+    if [ -n "$APT_SECURITY_MIRROR" ]; then \
+        sed -i "s|http://deb.debian.org/debian-security|$APT_SECURITY_MIRROR|g" /etc/apt/sources.list.d/debian.sources; \
+    fi; \
+    apt-get -o Acquire::Retries=5 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 update; \
+    apt-get -o Acquire::Retries=5 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 install -y --no-install-recommends ca-certificates ffmpeg fonts-noto-cjk util-linux; \
+    rm -rf /var/lib/apt/lists/*
 
 COPY constraints.txt ./
 RUN python -m pip install --no-cache-dir -r constraints.txt

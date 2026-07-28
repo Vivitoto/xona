@@ -4,6 +4,7 @@ from pathlib import Path
 from xml.etree import ElementTree
 
 from backend.app.integrations.xchina import parse_video_detail
+from backend.app.schemas.metadata import MetadataRecordData
 from backend.app.services.metadata import normalize_source_video
 from backend.app.services.nfo import movie_nfo_relative_path, render_movie_nfo
 
@@ -56,3 +57,24 @@ def test_movie_nfo_contains_emby_kodi_metadata() -> None:
     assert actor.findtext("role") == "Lead"
     assert actor.findtext("profile") == "https://example.test/models/actor-one.html"
     assert actor.findtext("thumb") == ".actors/Actor One.jpg"
+
+
+def test_movie_nfo_uses_local_unique_id_when_source_id_is_absent() -> None:
+    record = MetadataRecordData(
+        source="local",
+        xchina_id=None,
+        source_url="file:///media/incoming/Unmatched.Work.mp4",
+        title="Unmatched Work",
+        plot="Local draft.",
+        tags=["local-generated", "unmatched"],
+    )
+
+    root = ElementTree.fromstring(render_movie_nfo(record))
+
+    unique_id = root.find("uniqueid")
+    assert unique_id is not None
+    assert unique_id.attrib == {"type": "local", "default": "true"}
+    assert unique_id.text is not None
+    assert unique_id.text.startswith("local-")
+    assert root.findtext("id") == unique_id.text
+    assert root.findtext("title") == "Unmatched Work"

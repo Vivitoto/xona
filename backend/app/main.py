@@ -18,6 +18,7 @@ from backend.app.api.emby import router as emby_router
 from backend.app.api.health import router as health_router
 from backend.app.api.history import router as history_router
 from backend.app.api.jobs import router as jobs_router
+from backend.app.api.local_metadata import router as local_metadata_router
 from backend.app.api.logs import router as logs_router
 from backend.app.api.manual import close_shared_flaresolverr_client, router as manual_router
 from backend.app.api.settings import router as settings_router
@@ -126,6 +127,7 @@ def create_app(
     app.include_router(manual_router)
     app.include_router(emby_router)
     app.include_router(jobs_router)
+    app.include_router(local_metadata_router)
     app.include_router(logs_router)
     app.include_router(history_router)
     app.include_router(settings_router)

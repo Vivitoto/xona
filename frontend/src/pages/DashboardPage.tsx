@@ -24,14 +24,13 @@ export function DashboardPage({ onNavigate }: { onNavigate: (page: PageId) => vo
 
   return (
     <div className="page-stack dashboard-page">
-      <section className="section dashboard-section">
-        <div className="section-heading">
-          <div>
-            <p className="eyebrow">Dashboard</p>
-            <h2>首页</h2>
-          </div>
+      <section className="hero-panel hero-panel-compact dashboard-hero">
+        <div className="hero-copy">
+          <p className="eyebrow">Dashboard</p>
+          <h2>首页</h2>
+          <p>本地媒体整理控制台，围绕扫描、复核、预览执行和回滚保持当前状态清晰。</p>
         </div>
-        <div className="button-row">
+        <div className="hero-actions">
           <button type="button" onClick={() => onNavigate("manual")}>
             整理文件
           </button>
@@ -59,6 +58,15 @@ export function DashboardPage({ onNavigate }: { onNavigate: (page: PageId) => vo
         {reviewCount === null && ruleCount === null && actorCount === null ? (
           <LoadingSkeleton rows={3} title="正在读取运行概览" />
         ) : null}
+        <div className="workflow-strip dashboard-workflow" aria-label="整理流程">
+          {["扫描", "搜索", "复核", "预览", "执行", "回滚"].map((step, index) => (
+            <span className="workflow-step" key={step}>
+              <b>{index + 1}</b>
+              <strong>{step}</strong>
+              <small>本地优先</small>
+            </span>
+          ))}
+        </div>
       </section>
     </div>
   );

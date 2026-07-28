@@ -2,6 +2,7 @@ import { fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import App from "./App";
+import { APP_VERSION_LABEL } from "./appVersion";
 import { installFetchMock } from "./test/mockFetch";
 
 afterEach(() => {
@@ -18,6 +19,9 @@ describe("App", () => {
     render(<App />);
 
     expect(screen.getByRole("heading", { name: "Xona" })).toBeTruthy();
+    expect(
+      screen.getByLabelText(`Xona 版本 ${APP_VERSION_LABEL}`),
+    ).toHaveTextContent("v1.1.3");
   });
 
   it("exposes every first-release navigation destination", () => {
@@ -31,6 +35,7 @@ describe("App", () => {
     for (const name of [
       "仪表盘",
       "手动整理",
+      "未匹配视频",
       "自动监控",
       "复核队列",
       "任务中心",
@@ -41,6 +46,24 @@ describe("App", () => {
     ]) {
       expect(screen.getByRole("button", { name })).toBeTruthy();
     }
+  });
+
+  it("renders the unmatched videos workflow from navigation", async () => {
+    installFetchMock([
+      { path: "/api/jobs?state=review_required", response: { jobs: [] } },
+      { path: "/api/watch-rules", response: { rules: [] } },
+      { path: "/api/actors", response: { actors: [] } },
+      { path: "/api/settings", response: settingsFixture() },
+    ]);
+    render(<App />);
+
+    fireEvent.click(screen.getByRole("button", { name: "未匹配视频" }));
+
+    expect(
+      await screen.findByRole("heading", { name: "未匹配视频" }),
+    ).toBeTruthy();
+    expect(screen.getByLabelText("视频路径")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "生成 NFO 预览" })).toBeTruthy();
   });
 
   it("defaults image safety mode on and toggles candidate and actor image blur", async () => {
@@ -161,5 +184,53 @@ function actorFixture() {
     associated_works: [],
     emby_person_id: null,
     linked_works: [],
+  };
+}
+
+function settingsFixture() {
+  return {
+    storage: { roots: ["/media"], env_roots: [] },
+    xchina: {
+      base_url: "https://xchina.co",
+      flaresolverr_url: null,
+      proxy_url: null,
+      cache_dir: null,
+      max_search_pages: 50,
+    },
+    emby: {
+      enabled: false,
+      server_url: null,
+      api_key: null,
+      path_mappings: [],
+      upload_actor_portraits: true,
+    },
+    naming: {
+      folder_templates: ["{studio}", "{title}"],
+      filename_template: "{title}",
+    },
+    metadata_assets: {
+      write_nfo: true,
+      include_source_snapshot: false,
+      asset_policy: "lenient",
+      max_asset_bytes: 10485760,
+    },
+    organization_defaults: {
+      destination_directory: "/media/organized",
+      organization_mode: "preview",
+      folder_templates: ["{studio}", "{title}"],
+      filename_template: "{title}",
+      asset_policy: "lenient",
+      include_source_snapshot: false,
+    },
+    confidence_safety: {
+      confidence_threshold: 92,
+      refuse_destination_collisions: true,
+      refuse_unresolved_multipart: true,
+      cache_dir: null,
+    },
+    auth: {
+      enabled: false,
+      username: null,
+    },
   };
 }

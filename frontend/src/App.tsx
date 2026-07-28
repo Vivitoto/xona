@@ -12,6 +12,7 @@ import { ManualOrganizerPage } from "./pages/ManualOrganizerPage";
 import { ReviewQueuePage } from "./pages/ReviewQueuePage";
 import { SettingsPage } from "./pages/SettingsPage";
 import { TaskCenterPage } from "./pages/TaskCenterPage";
+import { UnmatchedVideosPage } from "./pages/UnmatchedVideosPage";
 import "./styles.css";
 
 export default function App() {
@@ -39,6 +40,8 @@ function renderPage(page: PageId, onNavigate: (page: PageId) => void) {
   switch (page) {
     case "manual":
       return <ManualOrganizerPage />;
+    case "unmatched":
+      return <UnmatchedVideosPage />;
     case "monitors":
       return <AutomaticMonitorsPage />;
     case "review":
