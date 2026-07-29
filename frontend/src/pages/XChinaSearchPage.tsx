@@ -1,4 +1,5 @@
 import { FormEvent, useMemo, useState } from "react";
+import { SearchCheck } from "lucide-react";
 
 import { apiFetch } from "../api/client";
 import type {
@@ -264,6 +265,9 @@ export function XChinaSearchPage() {
             />
           ) : (
             <div className="empty-state xchina-empty-state">
+              <span className="empty-state-icon" aria-hidden="true">
+                <SearchCheck size={20} strokeWidth={2.2} />
+              </span>
               <strong>等待详情</strong>
               <span>从搜索结果选择来源，或直接粘贴详情 URL。</span>
             </div>

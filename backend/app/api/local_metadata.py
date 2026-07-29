@@ -9,6 +9,8 @@ from backend.app.core.settings import Settings
 from backend.app.schemas.local_metadata import (
     LocalAnalyzeRequest,
     LocalAnalyzeResponse,
+    LocalCacheCleanupRequest,
+    LocalCacheCleanupResponse,
     LocalCoverPreviewRequest,
     LocalCoverPreviewResponse,
     LocalExecutePlanRequest,
@@ -134,6 +136,28 @@ async def execute_local_plan(
         response = service.execute_plan(
             plan_id,
             approved=payload.approved,
+            plan_version=payload.plan_version,
+        )
+        session.commit()
+        return response
+    except LocalMetadataError as exc:
+        raise _local_metadata_error(session, exc) from exc
+
+
+@router.post(
+    "/plans/{plan_id}/cleanup-cache",
+    response_model=LocalCacheCleanupResponse,
+)
+async def cleanup_local_plan_cache(
+    plan_id: str,
+    payload: LocalCacheCleanupRequest,
+    request: Request,
+    session: Session = Depends(get_db),
+) -> LocalCacheCleanupResponse:
+    service = _service_for(request, session)
+    try:
+        response = service.cleanup_plan_cache(
+            plan_id,
             plan_version=payload.plan_version,
         )
         session.commit()

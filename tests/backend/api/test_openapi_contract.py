@@ -37,6 +37,7 @@ def test_api_contract_script_loads_backend_paths_from_openapi() -> None:
 
     assert openapi_paths <= loaded_paths
     assert "/api/local-metadata/cache/{asset_id:path}" in loaded_paths
+    assert "/api/local-metadata/plans/{plan_id}/cleanup-cache" in loaded_paths
     assert check_api_contract.route_matches(
         "/api/local-metadata/cache/frames/frame.jpg",
         "/api/local-metadata/cache/{asset_id:path}",

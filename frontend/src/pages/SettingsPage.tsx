@@ -1,4 +1,5 @@
 import { FormEvent, useEffect, useMemo, useState } from "react";
+import { CheckCircle2 } from "lucide-react";
 
 import { apiFetch } from "../api/client";
 import type { AppSettings } from "../api/types";
@@ -196,7 +197,7 @@ function SettingsPreflight({
     return (
       <EmptyState
         description="当前没有待保存改动。"
-        icon="✓"
+        icon={CheckCircle2}
         title="无改动"
       />
     );

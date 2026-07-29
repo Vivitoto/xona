@@ -43,6 +43,7 @@ export function CheckboxField({
   return (
     <label className="check-field">
       <input
+        aria-label={label}
         checked={checked}
         disabled={disabled}
         type="checkbox"

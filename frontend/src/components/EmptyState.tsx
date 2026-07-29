@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import { CircleDashed, type LucideIcon } from "lucide-react";
 
 interface EmptyStateAction {
   label: string;
@@ -10,19 +11,19 @@ interface EmptyStateProps {
   title: string;
   description: ReactNode;
   actions?: EmptyStateAction[];
-  icon?: string;
+  icon?: LucideIcon;
 }
 
 export function EmptyState({
   title,
   description,
   actions = [],
-  icon = "◇",
+  icon: Icon = CircleDashed,
 }: EmptyStateProps) {
   return (
     <div className="empty-state product-empty-state">
       <span className="empty-state-icon" aria-hidden="true">
-        {icon}
+        <Icon size={20} strokeWidth={2.2} />
       </span>
       <strong>{title}</strong>
       <span>{description}</span>

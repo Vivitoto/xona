@@ -17,9 +17,10 @@ describe("App", () => {
       { path: "/api/watch-rules", response: { rules: [] } },
       { path: "/api/actors", response: { actors: [] } },
     ]);
-    render(<App />);
+    const { container } = render(<App />);
 
     expect(screen.getByRole("heading", { name: "Xona" })).toBeTruthy();
+    expect(container.querySelector(".brand-mark img[src='/favicon.svg']")).toBeTruthy();
     expect(
       screen.getByLabelText(`Xona 版本 ${APP_VERSION_LABEL}`),
     ).toHaveTextContent(APP_VERSION_LABEL);
@@ -67,7 +68,9 @@ describe("App", () => {
       "日志",
       "设置",
     ]) {
-      expect(within(navigation).getByRole("button", { name })).toBeTruthy();
+      const navButton = within(navigation).getByRole("button", { name });
+      expect(navButton).toBeTruthy();
+      expect(navButton.querySelector("svg")).toBeTruthy();
     }
 
     for (const retiredName of [

@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { ClipboardCheck } from "lucide-react";
 
 import { apiFetch } from "../api/client";
 import type { JobListResponse, JobSummaryRead } from "../api/types";
@@ -107,7 +108,7 @@ export function ReviewQueuePage() {
           <EmptyState
             actions={[{ label: "刷新队列", onClick: loadQueue }]}
             description="低置信度匹配或安全门禁拒绝会显示在这里。"
-            icon="◇"
+            icon={ClipboardCheck}
             title="没有待复核任务"
           />
         )}

@@ -162,6 +162,18 @@ class LocalExecutePlanResponse(BaseModel):
     state: str
 
 
+class LocalCacheCleanupRequest(BaseModel):
+    plan_version: int = 1
+
+
+class LocalCacheCleanupResponse(BaseModel):
+    plan_id: str
+    deleted_directories: int
+    deleted_files: int
+    cache_dirs: list[Path] = Field(default_factory=list)
+    warnings: list[str] = Field(default_factory=list)
+
+
 class LocalScanRequest(BaseModel):
     directory: Path
     recursive: bool = True

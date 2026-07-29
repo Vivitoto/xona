@@ -466,6 +466,14 @@ export interface LocalExecutePlanResponse {
   state: string;
 }
 
+export interface LocalCacheCleanupResponse {
+  plan_id: string;
+  deleted_directories: number;
+  deleted_files: number;
+  cache_dirs: string[];
+  warnings: string[];
+}
+
 export interface LocalScannedVideo {
   path: string;
   filename: string;

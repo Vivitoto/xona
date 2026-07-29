@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { FileSearch, History } from "lucide-react";
 
 import { ApiError, apiFetch } from "../api/client";
 import type {
@@ -163,7 +164,7 @@ export function HistoryRollbackPage() {
           <EmptyState
             actions={[{ label: "刷新历史", onClick: loadHistory }]}
             description="操作计划会显示在这里。"
-            icon="↺"
+            icon={History}
             title="暂无操作历史"
           />
         )}
@@ -193,7 +194,7 @@ export function HistoryRollbackPage() {
         ) : (
           <EmptyState
             description="从历史列表选择一个计划。"
-            icon="◎"
+            icon={FileSearch}
             title="还没有选择计划"
           />
         )}

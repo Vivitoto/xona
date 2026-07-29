@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import hashlib
+import logging
 import mimetypes
+import shutil
 from pathlib import Path
 from urllib.parse import quote
 
@@ -15,6 +17,7 @@ from backend.app.schemas.assets import MaterializedAsset
 from backend.app.schemas.local_metadata import (
     LocalAnalyzeRequest,
     LocalAnalyzeResponse,
+    LocalCacheCleanupResponse,
     LocalCachedAsset,
     LocalCoverPreviewRequest,
     LocalCoverPreviewResponse,
@@ -68,6 +71,7 @@ from backend.app.services.video_probe import (
 
 DEFAULT_LOCAL_TAGS = ["local-generated", "unmatched"]
 MAX_EXTRA_BACKDROP_COUNT = 10
+logger = logging.getLogger(__name__)
 
 
 class LocalMetadataError(ValueError):
@@ -323,6 +327,73 @@ class LocalMetadataService:
             state=row.status,
         )
 
+    def cleanup_plan_cache(
+        self,
+        plan_id: str,
+        *,
+        plan_version: int,
+    ) -> LocalCacheCleanupResponse:
+        row = self._session.scalar(
+            select(OperationPlanModel).where(OperationPlanModel.plan_id == plan_id)
+        )
+        if row is None:
+            raise LocalMetadataError("plan_not_found", status_code=404)
+        if row.job_id is not None:
+            raise LocalMetadataError("plan_not_found", status_code=404)
+        if int(row.version) != plan_version:
+            raise LocalMetadataError("plan_version_mismatch")
+        if row.status != "completed":
+            raise LocalMetadataError("plan_not_completed", status_code=409)
+
+        plan = OperationPlan.model_validate(row.plan_json)
+        cache_dirs = self._local_metadata_cache_dirs_for_plan(plan)
+        deleted_directories = 0
+        deleted_files = 0
+        warnings: list[str] = []
+
+        for cache_dir in cache_dirs:
+            if not cache_dir.exists():
+                warnings.append(f"cache_dir_missing:{cache_dir}")
+                logger.info(
+                    "Local metadata cache cleanup skipped missing directory plan_id=%s cache_dir=%s",
+                    plan_id,
+                    cache_dir,
+                )
+                continue
+            if not cache_dir.is_dir():
+                warnings.append(f"cache_dir_not_directory:{cache_dir}")
+                logger.warning(
+                    "Local metadata cache cleanup skipped non-directory plan_id=%s cache_dir=%s",
+                    plan_id,
+                    cache_dir,
+                )
+                continue
+
+            file_count = sum(1 for item in cache_dir.rglob("*") if item.is_file())
+            shutil.rmtree(cache_dir)
+            deleted_directories += 1
+            deleted_files += file_count
+            logger.info(
+                "Local metadata cache directory removed plan_id=%s cache_dir=%s files=%s",
+                plan_id,
+                cache_dir,
+                file_count,
+            )
+
+        if not cache_dirs:
+            logger.info(
+                "Local metadata cache cleanup found no per-video cache directories plan_id=%s",
+                plan_id,
+            )
+
+        return LocalCacheCleanupResponse(
+            plan_id=plan_id,
+            deleted_directories=deleted_directories,
+            deleted_files=deleted_files,
+            cache_dirs=list(cache_dirs),
+            warnings=warnings,
+        )
+
     def cache_path_for_ref(self, ref: str) -> Path:
         relative = Path(ref)
         if relative.is_absolute() or any(part == ".." for part in relative.parts):
@@ -381,6 +452,18 @@ class LocalMetadataService:
             height=image_height,
             time_seconds=time_seconds,
         )
+
+    def _local_metadata_cache_dirs_for_plan(
+        self,
+        plan: OperationPlan,
+    ) -> tuple[Path, ...]:
+        root = self._cache_root().resolve(strict=False)
+        cache_dirs: list[Path] = []
+        for cache_path in plan.materialized_asset_cache_paths:
+            cache_dir = _video_cache_dir_for_asset_path(cache_path, root=root)
+            if cache_dir is not None:
+                cache_dirs.append(cache_dir)
+        return tuple(dict.fromkeys(cache_dirs))
 
     def _plan_assets(
         self,
@@ -488,6 +571,39 @@ class LocalMetadataService:
             size_bytes=source.stat().st_size,
             sha256=digest,
         )
+
+
+def _video_cache_dir_for_asset_path(path: Path, *, root: Path) -> Path | None:
+    candidate = Path(path).resolve(strict=False)
+    try:
+        relative = candidate.relative_to(root)
+    except ValueError:
+        return None
+
+    parts = relative.parts
+    if len(parts) < 3:
+        return None
+    prefix, key = parts[0], parts[1]
+    if not _looks_like_video_cache_key(prefix, key):
+        return None
+
+    cache_dir = (root / prefix / key).resolve(strict=False)
+    try:
+        cache_dir.relative_to(root)
+    except ValueError:
+        return None
+    if cache_dir == root:
+        return None
+    return cache_dir
+
+
+def _looks_like_video_cache_key(prefix: str, key: str) -> bool:
+    return (
+        len(prefix) == 2
+        and len(key) == 64
+        and key.startswith(prefix)
+        and all(character in "0123456789abcdef" for character in key.lower())
+    )
 
 
 def clean_local_title(video_path: Path | str) -> str:

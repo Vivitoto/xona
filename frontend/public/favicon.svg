@@ -1,18 +1,14 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="Xona">
   <defs>
-    <linearGradient id="bg" x1="10" y1="6" x2="56" y2="58" gradientUnits="userSpaceOnUse">
-      <stop offset="0" stop-color="#6EE7F9"/>
-      <stop offset="0.45" stop-color="#7C3AED"/>
-      <stop offset="1" stop-color="#111827"/>
-    </linearGradient>
-    <linearGradient id="play" x1="20" y1="18" x2="46" y2="44" gradientUnits="userSpaceOnUse">
-      <stop offset="0" stop-color="#FFFFFF"/>
-      <stop offset="1" stop-color="#DDE7FF"/>
+    <linearGradient id="xona-bg" x1="8" y1="6" x2="56" y2="58" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#59c9d6"/>
+      <stop offset="0.58" stop-color="#0f7285"/>
+      <stop offset="1" stop-color="#071018"/>
     </linearGradient>
   </defs>
-  <rect width="64" height="64" rx="16" fill="url(#bg)"/>
-  <path d="M18 18.5C18 16.6 19.6 15 21.5 15h21c1.9 0 3.5 1.6 3.5 3.5v27c0 1.9-1.6 3.5-3.5 3.5h-21c-1.9 0-3.5-1.6-3.5-3.5v-27Z" fill="rgba(255,255,255,.13)" stroke="rgba(255,255,255,.55)" stroke-width="2"/>
-  <path d="M27 23.5 43 32 27 40.5v-17Z" fill="url(#play)"/>
-  <path d="M14 15 22 7M50 15 42 7M14 49 22 57M50 49 42 57" stroke="rgba(255,255,255,.7)" stroke-width="3" stroke-linecap="round"/>
-  <path d="M19 18h26M19 46h26" stroke="rgba(255,255,255,.25)" stroke-width="2"/>
+  <rect width="64" height="64" rx="14" fill="url(#xona-bg)"/>
+  <path d="M16 22c0-3.3 2.7-6 6-6h9l5 6h6c3.3 0 6 2.7 6 6v14c0 3.3-2.7 6-6 6H22c-3.3 0-6-2.7-6-6V22Z" fill="#f8fbff" opacity=".94"/>
+  <path d="M16 29h32" fill="none" stroke="#0f7285" stroke-width="3" stroke-linecap="round"/>
+  <path d="M29 31.5 39 37l-10 5.5v-11Z" fill="#0f7285"/>
+  <path d="M22 20h8l4 5h12" fill="none" stroke="#071018" stroke-opacity=".28" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
 </svg>

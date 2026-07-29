@@ -131,6 +131,7 @@ button {
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  gap: 0.38rem;
   isolation: isolate;
   min-height: var(--control-height);
   overflow: hidden;
@@ -150,6 +151,10 @@ button {
     border-color 140ms ease,
     box-shadow 140ms ease,
     transform 140ms ease;
+}
+
+.button-icon {
+  flex: 0 0 auto;
 }
 
 button:not(.link-button)::after {
@@ -371,6 +376,7 @@ pre {
   width: 36px;
   height: 36px;
   place-items: center;
+  overflow: hidden;
   border-radius: 11px;
   color: var(--on-primary);
   background:
@@ -378,6 +384,12 @@ pre {
     linear-gradient(135deg, var(--primary), var(--primary-hover));
   box-shadow: 0 10px 24px var(--primary-border);
   font-weight: 800;
+}
+
+.brand-mark img {
+  display: block;
+  width: 100%;
+  height: 100%;
 }
 
 .brand h1 {
@@ -442,6 +454,12 @@ nav {
   border-radius: 9px;
   background: var(--primary-soft);
   font-weight: 900;
+}
+
+.nav-icon svg,
+.empty-state-icon svg,
+.directory-icon svg {
+  display: block;
 }
 
 .nav-button[aria-current="page"] .nav-icon {
@@ -994,6 +1012,7 @@ nav {
 
 .table-wrap {
   width: 100%;
+  max-width: 100%;
   overflow-x: auto;
   border: 1px solid var(--border);
   border-radius: 14px;
@@ -1003,6 +1022,10 @@ nav {
 
 .table-wrap td {
   vertical-align: middle;
+}
+
+td {
+  overflow-wrap: anywhere;
 }
 
 .table-wrap table {
@@ -1516,6 +1539,7 @@ nav {
 
 .empty-state {
   display: grid;
+  align-content: center;
   justify-items: center;
   gap: 0.25rem;
   border: 1px dashed var(--border-strong);
@@ -2303,11 +2327,15 @@ nav {
 
 .dialog-backdrop {
   z-index: 50;
+  place-items: start center;
+  overflow: auto;
   background: rgb(15 23 42 / 0.52);
   backdrop-filter: blur(5px);
 }
 
 .dialog {
+  max-height: calc(100vh - 2rem);
+  overflow: auto;
   border: 1px solid var(--border);
   border-radius: 18px;
   box-shadow: var(--shadow);
@@ -2316,7 +2344,7 @@ nav {
 .directory-picker-dialog {
   width: min(920px, 100%);
   max-height: min(760px, calc(100vh - 2rem));
-  overflow: auto;
+  overflow: hidden;
 }
 
 .root-picker {
@@ -2346,6 +2374,7 @@ nav {
 }
 
 .root-name {
+  flex: 1 1 auto;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -2363,6 +2392,7 @@ nav {
   display: grid;
   gap: 0.65rem;
   min-width: 0;
+  min-height: 0;
 }
 
 .directory-path {
@@ -2377,7 +2407,7 @@ nav {
 .directory-tree {
   display: grid;
   gap: 0.35rem;
-  max-height: 360px;
+  max-height: min(360px, 42vh);
   margin: 0;
   overflow: auto;
   padding: 0;
@@ -2411,7 +2441,9 @@ nav {
 }
 
 .directory-icon {
-  font-size: 1.15rem;
+  display: grid;
+  place-items: center;
+  color: var(--primary);
 }
 
 .directory-main {
@@ -2933,8 +2965,12 @@ nav {
 
 .organize-actions-row,
 .batch-actions-row {
-  align-items: center;
+  align-items: flex-end;
   padding-top: 0.1rem;
+}
+
+.batch-actions-row .field {
+  width: min(220px, 100%);
 }
 
 .batch-draft-grid {
@@ -2943,6 +2979,45 @@ nav {
 
 .batch-draft-grid textarea {
   min-height: 82px;
+}
+
+.batch-cover-style-panel {
+  display: grid;
+  gap: 0.85rem;
+  padding-block-start: 0.2rem;
+}
+
+.batch-cover-style-panel h3 {
+  margin: 0 0 0.3rem;
+}
+
+.batch-cover-style-grid {
+  grid-template-columns: repeat(3, minmax(180px, 1fr));
+}
+
+.batch-output-results table {
+  min-width: 1120px;
+}
+
+.batch-output-details {
+  display: grid;
+  gap: 0.18rem;
+  min-width: 180px;
+  color: var(--muted);
+  font-size: 0.82rem;
+}
+
+.batch-output-error {
+  margin: 0.35rem 0 0;
+}
+
+.batch-output-log-cell {
+  width: 34%;
+  min-width: 300px;
+}
+
+.batch-output-log-cell .progress-log {
+  max-height: 148px;
 }
 
 .manual-scan-bar .action-panel {
@@ -3258,6 +3333,10 @@ td {
     grid-template-columns: 1fr;
   }
 
+  .xchina-results-layout {
+    grid-template-columns: 1fr;
+  }
+
   .organize-preview-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
@@ -3336,6 +3415,7 @@ td {
   .unmatched-batch-scan,
   .organize-preview-grid,
   .batch-draft-grid,
+  .batch-cover-style-grid,
   .manual-search-row,
   .manual-detail-url {
     grid-template-columns: 1fr;

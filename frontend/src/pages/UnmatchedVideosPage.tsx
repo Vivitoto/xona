@@ -1,4 +1,15 @@
 import { FormEvent, useEffect, useId, useMemo, useRef, useState } from "react";
+import {
+  CornerUpLeft,
+  FileVideo,
+  Folder,
+  FolderOpen,
+  HardDrive,
+  Images,
+  ListVideo,
+  RefreshCw,
+  X,
+} from "lucide-react";
 
 import { apiFetch } from "../api/client";
 import type {
@@ -6,6 +17,7 @@ import type {
   BrowseResponse,
   CoverTemplateName,
   LocalAnalyzeResponse,
+  LocalCacheCleanupResponse,
   LocalCachedAsset,
   LocalCoverPreviewRequest,
   LocalCoverPreviewResponse,
@@ -55,10 +67,20 @@ const MIN_TITLE_ANGLE_DEGREES = -20;
 const MAX_TITLE_ANGLE_DEGREES = 20;
 const MIN_TITLE_OFFSET = -50;
 const MAX_TITLE_OFFSET = 50;
+const MIN_TITLE_FONT_SIZE = 16;
+const MAX_TITLE_FONT_SIZE = 180;
+const MIN_TITLE_STROKE_WIDTH = 0;
+const MAX_TITLE_STROKE_WIDTH = 20;
+const BATCH_TITLE_FONT_SIZE_JITTER_RANGE = 10;
+const BATCH_TITLE_ANGLE_JITTER_RANGE = 5;
+const BATCH_TITLE_OFFSET_JITTER_RANGE = 10;
 const DEFAULT_SCREENSHOT_COUNT = 9;
 const MIN_COVER_FRAME_COUNT = 9;
 const MIN_SCREENSHOT_COUNT = MIN_COVER_FRAME_COUNT;
 const MAX_SCREENSHOT_COUNT = 36;
+const DEFAULT_BATCH_CONCURRENCY = 2;
+const MIN_BATCH_CONCURRENCY = 1;
+const MAX_BATCH_CONCURRENCY = 3;
 const DEFAULT_TITLE_POSITION_BY_TEMPLATE: Record<
   CoverTemplateName,
   { x: number; y: number }
@@ -112,17 +134,75 @@ type BusyAction =
   | "plan"
   | "execute"
   | "scan"
+  | "batch_generate"
+  | "batch_execute"
   | null;
 
 interface BatchDraftStatus {
   path: string;
   filename: string;
   draft: LocalMetadataDraft;
+  coverSettings: CoverEditorSettings;
   status: BatchDraftState;
 }
 
 type BatchDraftState = "drafted" | "loaded" | "updated";
+type BatchOutputState =
+  | "pending"
+  | "running"
+  | "succeeded"
+  | "failed"
+  | "executing"
+  | "executed"
+  | "execute_failed";
+type BatchOutputLogTone = "active" | "success" | "warning" | "danger" | "neutral";
 type LocalMetadataWorkflowTab = "single" | "batch";
+
+interface BatchOutputLog {
+  tone: BatchOutputLogTone;
+  message: string;
+}
+
+interface BatchOutputItem {
+  path: string;
+  filename: string;
+  draft: LocalMetadataDraft;
+  coverSettings: CoverEditorSettings;
+  status: BatchOutputState;
+  logs: BatchOutputLog[];
+  frames: LocalCachedAsset[];
+  selectedFrameIds: string[];
+  coverPreview: LocalCoverPreviewResponse | null;
+  planPreview: LocalPlanPreviewResponse | null;
+  executeResult: LocalExecutePlanResponse | null;
+  error: string | null;
+}
+
+interface CoverEditorSettings {
+  template: CoverTemplateName;
+  titleFontId: PosterFontId;
+  titleFontSize: number;
+  titleFillColor: string;
+  titleStrokeColor: string;
+  titleStrokeWidth: number;
+  titleEffect: PosterTextEffect;
+  titleAngleDegrees: number;
+  titleOffsetX: number;
+  titleOffsetY: number;
+}
+
+interface BatchCoverStyleSettings extends CoverEditorSettings {
+  randomTitleFormat: boolean;
+}
+
+interface BatchRunOptions {
+  destinationRoot: string;
+  mode: OrganizationMode;
+  folderTemplates: string[];
+  filenameTemplate: string;
+  extraBackdropCount: number;
+  frameCount: number;
+}
 
 const localMetadataWorkflowTabs: readonly TabItem<LocalMetadataWorkflowTab>[] = [
   { id: "single", label: "单个整理" },
@@ -195,12 +275,47 @@ export function UnmatchedVideosPage() {
   const [batchTags, setBatchTags] = useState(() => defaultLocalTags().join("\n"));
   const [batchGenres, setBatchGenres] = useState("");
   const [batchPlot, setBatchPlot] = useState("");
+  const [batchCoverTemplate, setBatchCoverTemplate] =
+    useState<CoverTemplateName>("simple_poster");
+  const [batchCoverTitleFontId, setBatchCoverTitleFontId] = useState<PosterFontId>(
+    DEFAULT_TITLE_FONT_BY_TEMPLATE.simple_poster,
+  );
+  const [batchCoverTitleFontSize, setBatchCoverTitleFontSize] = useState(
+    DEFAULT_TITLE_STYLE_BY_TEMPLATE.simple_poster.fontSize,
+  );
+  const [batchCoverTitleFillColor, setBatchCoverTitleFillColor] = useState(
+    DEFAULT_TITLE_STYLE_BY_TEMPLATE.simple_poster.fillColor,
+  );
+  const [batchCoverTitleStrokeColor, setBatchCoverTitleStrokeColor] = useState(
+    DEFAULT_TITLE_STYLE_BY_TEMPLATE.simple_poster.strokeColor,
+  );
+  const [batchCoverTitleStrokeWidth, setBatchCoverTitleStrokeWidth] = useState(
+    DEFAULT_TITLE_STYLE_BY_TEMPLATE.simple_poster.strokeWidth,
+  );
+  const [batchCoverTitleEffect, setBatchCoverTitleEffect] =
+    useState<PosterTextEffect>(DEFAULT_TITLE_STYLE_BY_TEMPLATE.simple_poster.effect);
+  const [batchCoverTitleAngleDegrees, setBatchCoverTitleAngleDegrees] = useState(
+    DEFAULT_TITLE_ANGLE_DEGREES,
+  );
+  const [batchCoverTitleOffsetX, setBatchCoverTitleOffsetX] = useState(
+    titlePositionPercentToOffset(DEFAULT_TITLE_POSITION_BY_TEMPLATE.simple_poster.x),
+  );
+  const [batchCoverTitleOffsetY, setBatchCoverTitleOffsetY] = useState(
+    titlePositionPercentToOffset(DEFAULT_TITLE_POSITION_BY_TEMPLATE.simple_poster.y),
+  );
+  const [batchCoverRandomTitleFormat, setBatchCoverRandomTitleFormat] =
+    useState(true);
   const [batchStatuses, setBatchStatuses] = useState<BatchDraftStatus[]>([]);
+  const [batchConcurrency, setBatchConcurrency] = useState(
+    DEFAULT_BATCH_CONCURRENCY,
+  );
+  const [batchOutputItems, setBatchOutputItems] = useState<BatchOutputItem[]>([]);
   const [busy, setBusy] = useState<BusyAction>(null);
   const [status, setStatus] = useState("");
   const [error, setError] = useState("");
   const posterTitleTouched = useRef(false);
   const titleFontTouched = useRef(false);
+  const batchTitleFontTouched = useRef(false);
 
   const selectedVideos = useMemo(
     () => scannedVideos.filter((video) => selectedBatchPaths.includes(video.path)),
@@ -223,6 +338,14 @@ export function UnmatchedVideosPage() {
   const canExecutePlan =
     Boolean(planPreview && planPreview.plan.mode !== "preview" && !executeResult) &&
     busy !== "execute";
+  const canGenerateBatchOutputs =
+    Boolean(batchStatuses.length && destinationRoot.trim()) && busy === null;
+  const executableBatchOutputItems = useMemo(
+    () => batchOutputItems.filter(canExecuteBatchOutputItem),
+    [batchOutputItems],
+  );
+  const canExecuteBatchOutputs =
+    Boolean(executableBatchOutputItems.length) && busy === null;
 
   useEffect(() => {
     let active = true;
@@ -311,10 +434,13 @@ export function UnmatchedVideosPage() {
     }
   }
 
-  async function requestFrames(sourceVideoPath: string): Promise<LocalFrameResponse> {
+  async function requestFrames(
+    sourceVideoPath: string,
+    frameCount = screenshotCount,
+  ): Promise<LocalFrameResponse> {
     const body: LocalFrameRequest = {
       video_path: sourceVideoPath,
-      frame_count: screenshotCount,
+      frame_count: frameCount,
     };
     return apiFetch<LocalFrameResponse>("/api/local-metadata/frames", {
       method: "POST",
@@ -336,21 +462,12 @@ export function UnmatchedVideosPage() {
     setError("");
     setStatus("正在生成封面");
     try {
-      const body: LocalCoverPreviewRequest = {
-        video_path: draft.video_path,
+      const body = buildCoverPreviewRequest({
+        videoPath: draft.video_path,
         title,
-        title_angle_degrees: titleAngleDegrees,
-        title_position_x_percent: titleOffsetToTitlePositionPercent(titleOffsetX),
-        title_position_y_percent: titleOffsetToTitlePositionPercent(titleOffsetY),
-        template,
-        title_font_id: titleFontId,
-        title_font_size: titleFontSize,
-        title_fill_color: titleFillColor,
-        title_stroke_color: titleStrokeColor,
-        title_stroke_width: titleStrokeWidth,
-        title_effect: titleEffect,
-        selected_frame_ids: selectedFrameIds,
-      };
+        settings: currentCoverEditorSettings(),
+        selectedFrameIds,
+      });
       const response = await apiFetch<LocalCoverPreviewResponse>(
         "/api/local-metadata/cover-preview",
         {
@@ -404,18 +521,16 @@ export function UnmatchedVideosPage() {
     setError("");
     setStatus("正在生成整理预览");
     try {
-      const body: LocalPlanPreviewRequest = {
-        metadata: cleanedDraft(draft),
-        destination_root: destinationRoot.trim(),
+      const body = buildPlanPreviewRequest({
+        draft: cleanedDraft(draft),
+        destinationRoot: destinationRoot.trim(),
         mode,
-        folder_templates: linesToList(folderTemplates),
-        filename_template: filenameTemplate,
-        poster_ref: coverPreview?.poster.id ?? null,
-        fanart_ref: coverPreview?.fanart.id ?? null,
-        thumb_ref: coverPreview?.thumb.id ?? null,
-        selected_frame_ids: selectedFrameIds,
-        extra_backdrop_count: extraBackdropCount,
-      };
+        folderTemplates: linesToList(folderTemplates),
+        filenameTemplate,
+        coverPreview,
+        selectedFrameIds,
+        extraBackdropCount,
+      });
       const response = await apiFetch<LocalPlanPreviewResponse>(
         "/api/local-metadata/preview-plan",
         {
@@ -493,6 +608,7 @@ export function UnmatchedVideosPage() {
       setScannedVideos(response.videos);
       setSelectedBatchPaths(response.videos.slice(0, 5).map((video) => video.path));
       setBatchStatuses([]);
+      setBatchOutputItems([]);
       setStatus(`已扫描 ${response.scanned_count} 个视频文件`);
     } catch (exc) {
       setError(exc instanceof Error ? exc.message : "目录扫描失败");
@@ -520,12 +636,26 @@ export function UnmatchedVideosPage() {
   }
 
   function applyBatchFields() {
-    const statuses = selectedVideos.map((video) => ({
-      path: video.path,
-      filename: video.filename,
-      draft: buildBatchDraft(video),
-      status: "drafted" as const,
-    }));
+    const previousTechnicalByPath = new Map(
+      batchStatuses.map((item) => [item.path, item.draft.technical]),
+    );
+    const selectedBatchCoverStyle = currentBatchCoverStyleSettings();
+    const statuses = selectedVideos.map((video) => {
+      const knownTechnical =
+        (draft.video_path === video.path ? draft.technical ?? technical : null) ??
+        previousTechnicalByPath.get(video.path) ??
+        null;
+      return {
+        path: video.path,
+        filename: video.filename,
+        draft: buildBatchDraft(video, knownTechnical),
+        coverSettings: randomizedBatchCoverSettings(
+          video.path,
+          selectedBatchCoverStyle,
+        ),
+        status: "drafted" as const,
+      };
+    });
     const draftToLoad =
       statuses.find((item) => item.path === draft.video_path) ??
       (!draft.video_path ? statuses[0] : null);
@@ -539,12 +669,334 @@ export function UnmatchedVideosPage() {
         : statuses,
     );
     if (draftToLoad) {
-      loadDraftIntoEditor(draftToLoad.draft);
+      loadDraftIntoEditor(draftToLoad.draft, draftToLoad.coverSettings);
     }
+    setBatchOutputItems([]);
     setStatus(`已为 ${statuses.length} 个视频生成整理信息`);
   }
 
-  function buildBatchDraft(video: LocalScannedVideo): LocalMetadataDraft {
+  async function generateBatchOutputs() {
+    if (!batchStatuses.length) {
+      setError("请先为已选视频生成整理信息。");
+      return;
+    }
+    if (!destinationRoot.trim()) {
+      setError("请输入目标目录。");
+      return;
+    }
+
+    const options: BatchRunOptions = {
+      destinationRoot: destinationRoot.trim(),
+      mode,
+      folderTemplates: linesToList(folderTemplates),
+      filenameTemplate,
+      extraBackdropCount,
+      frameCount: screenshotCount,
+    };
+    const items = batchStatuses.map((item) => initialBatchOutputItem(item));
+    const concurrency = clampBatchConcurrencyValue(batchConcurrency);
+
+    setBatchOutputItems(items);
+    setBusy("batch_generate");
+    setError("");
+    setStatus(`正在以 ${concurrency} 路并发生成批量 NFO、封面与整理预览`);
+
+    try {
+      const results = await runLimitedConcurrency(
+        items,
+        concurrency,
+        async (item) => generateBatchOutputItem(item, options),
+      );
+      const successCount = results.filter(Boolean).length;
+      const failureCount = results.length - successCount;
+      setStatus(`批量生成完成：成功 ${successCount} 个，失败 ${failureCount} 个`);
+    } catch (exc) {
+      setError(exc instanceof Error ? exc.message : "批量生成失败");
+      setStatus("");
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function generateBatchOutputItem(
+    item: BatchOutputItem,
+    options: BatchRunOptions,
+  ): Promise<boolean> {
+    updateBatchOutputItem(item.path, (current) => ({
+      ...current,
+      status: "running",
+      logs: [{ tone: "active", message: "开始处理" }],
+      error: null,
+    }));
+
+    try {
+      appendBatchOutputLog(item.path, "active", "正在分析视频");
+      const analyzeResponse = await apiFetch<LocalAnalyzeResponse>(
+        "/api/local-metadata/analyze",
+        {
+          method: "POST",
+          body: { video_path: item.draft.video_path },
+        },
+      );
+      const analyzedDraft = cleanedDraft({
+        ...item.draft,
+        video_path: analyzeResponse.video_path,
+        runtime_minutes: runtimeMinutes(
+          analyzeResponse.technical.duration_seconds,
+        ),
+        technical: analyzeResponse.technical,
+      });
+      updateBatchStatusDraft(item.path, analyzedDraft);
+      updateBatchOutputItem(item.path, (current) => ({
+        ...current,
+        draft: cloneDraft(analyzedDraft),
+      }));
+      appendBatchOutputLog(item.path, "success", "分析完成");
+
+      appendBatchOutputLog(
+        item.path,
+        "active",
+        `正在生成 ${options.frameCount} 张截图`,
+      );
+      const frameResponse = await requestFrames(
+        analyzeResponse.video_path,
+        options.frameCount,
+      );
+      const selectedFrames = selectedInitialFrameIds(frameResponse.frames);
+      if (selectedFrames.length < MIN_COVER_FRAME_COUNT) {
+        throw new Error(
+          `截图不足，至少需要 ${MIN_COVER_FRAME_COUNT} 张用于封面。`,
+        );
+      }
+      updateBatchOutputItem(item.path, (current) => ({
+        ...current,
+        frames: frameResponse.frames,
+        selectedFrameIds: selectedFrames,
+      }));
+      appendBatchOutputLog(
+        item.path,
+        "success",
+        `截图完成，已选择 ${selectedFrames.length} 张封面素材`,
+      );
+
+      appendBatchOutputLog(item.path, "active", "正在生成封面预览");
+      const coverRequest = buildCoverPreviewRequest({
+        videoPath: analyzeResponse.video_path,
+        title: analyzedDraft.title,
+        settings: item.coverSettings,
+        selectedFrameIds: selectedFrames,
+      });
+      const coverResponse = await apiFetch<LocalCoverPreviewResponse>(
+        "/api/local-metadata/cover-preview",
+        {
+          method: "POST",
+          body: coverRequest,
+        },
+      );
+      updateBatchOutputItem(item.path, (current) => ({
+        ...current,
+        coverPreview: coverResponse,
+      }));
+      appendBatchOutputLog(item.path, "success", "封面预览已生成");
+
+      appendBatchOutputLog(item.path, "active", "正在生成 NFO 与整理计划");
+      const planRequest = buildPlanPreviewRequest({
+        draft: analyzedDraft,
+        destinationRoot: options.destinationRoot,
+        mode: options.mode,
+        folderTemplates: options.folderTemplates,
+        filenameTemplate: options.filenameTemplate,
+        coverPreview: coverResponse,
+        selectedFrameIds: selectedFrames,
+        extraBackdropCount: options.extraBackdropCount,
+      });
+      const planResponse = await apiFetch<LocalPlanPreviewResponse>(
+        "/api/local-metadata/preview-plan",
+        {
+          method: "POST",
+          body: planRequest,
+        },
+      );
+      updateBatchOutputItem(item.path, (current) => ({
+        ...current,
+        status: "succeeded",
+        planPreview: planResponse,
+        error: null,
+      }));
+      appendBatchOutputLog(
+        item.path,
+        "success",
+        `NFO 与整理计划已生成，计划 ${planResponse.plan_id}`,
+      );
+      return true;
+    } catch (exc) {
+      const message = exc instanceof Error ? exc.message : "批量条目生成失败";
+      updateBatchOutputItem(item.path, (current) => ({
+        ...current,
+        status: "failed",
+        error: message,
+      }));
+      appendBatchOutputLog(item.path, "danger", `失败：${message}`);
+      return false;
+    }
+  }
+
+  async function executeBatchOutputs() {
+    const items = batchOutputItems.filter(canExecuteBatchOutputItem);
+    if (!items.length) {
+      setError("没有可执行的批量整理计划。");
+      return;
+    }
+
+    const concurrency = clampBatchConcurrencyValue(batchConcurrency);
+    setBusy("batch_execute");
+    setError("");
+    setStatus(`正在以 ${concurrency} 路并发执行批量整理计划`);
+    try {
+      const results = await runLimitedConcurrency(
+        items,
+        concurrency,
+        executeBatchOutputItem,
+      );
+      const successCount = results.filter(Boolean).length;
+      const failureCount = results.length - successCount;
+      setStatus(`批量执行完成：成功 ${successCount} 个，失败 ${failureCount} 个`);
+    } catch (exc) {
+      setError(exc instanceof Error ? exc.message : "批量执行失败");
+      setStatus("");
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function executeBatchOutputItem(item: BatchOutputItem): Promise<boolean> {
+    if (!item.planPreview) {
+      return false;
+    }
+    updateBatchOutputItem(item.path, (current) => ({
+      ...current,
+      status: "executing",
+      error: null,
+    }));
+    appendBatchOutputLog(
+      item.path,
+      "active",
+      `正在执行整理计划 ${item.planPreview.plan_id}`,
+    );
+    try {
+      const response = await apiFetch<LocalExecutePlanResponse>(
+        `/api/local-metadata/plans/${item.planPreview.plan_id}/execute`,
+        {
+          method: "POST",
+          body: {
+            approved: true,
+            plan_version: item.planPreview.plan.version,
+          },
+        },
+      );
+      updateBatchOutputItem(item.path, (current) => ({
+        ...current,
+        status: "executed",
+        executeResult: response,
+        error: null,
+      }));
+      appendBatchOutputLog(
+        item.path,
+        "success",
+        response.state === "completed"
+          ? "整理执行完成"
+          : `整理执行状态：${response.state}`,
+      );
+      if (response.state === "completed") {
+        await cleanupExecutedBatchPlanCache(item);
+      }
+      return true;
+    } catch (exc) {
+      const message = exc instanceof Error ? exc.message : "批量条目执行失败";
+      updateBatchOutputItem(item.path, (current) => ({
+        ...current,
+        status: "execute_failed",
+        error: message,
+      }));
+      appendBatchOutputLog(item.path, "danger", `执行失败：${message}`);
+      return false;
+    }
+  }
+
+  async function cleanupExecutedBatchPlanCache(item: BatchOutputItem) {
+    if (!item.planPreview) {
+      return;
+    }
+    appendBatchOutputLog(item.path, "active", "正在清理本地元数据缓存");
+    try {
+      const response = await apiFetch<LocalCacheCleanupResponse>(
+        `/api/local-metadata/plans/${item.planPreview.plan_id}/cleanup-cache`,
+        {
+          method: "POST",
+          body: {
+            plan_version: item.planPreview.plan.version,
+          },
+        },
+      );
+      appendBatchOutputLog(
+        item.path,
+        "success",
+        response.deleted_directories
+          ? `本地元数据缓存已清理：${response.deleted_directories} 个目录，${response.deleted_files} 个文件`
+          : "本地元数据缓存无需清理",
+      );
+      if (response.warnings.length) {
+        appendBatchOutputLog(
+          item.path,
+          "warning",
+          `缓存清理提示：${response.warnings.join("；")}`,
+        );
+      }
+    } catch (exc) {
+      const message = exc instanceof Error ? exc.message : "缓存清理失败";
+      appendBatchOutputLog(
+        item.path,
+        "warning",
+        `本地元数据缓存清理失败：${message}`,
+      );
+    }
+  }
+
+  function updateBatchStatusDraft(path: string, nextDraft: LocalMetadataDraft) {
+    setBatchStatuses((current) =>
+      current.map((entry) =>
+        entry.path === path ? { ...entry, draft: cloneDraft(nextDraft) } : entry,
+      ),
+    );
+  }
+
+  function updateBatchOutputItem(
+    path: string,
+    updater: (item: BatchOutputItem) => BatchOutputItem,
+  ) {
+    setBatchOutputItems((current) =>
+      current.map((item) => (item.path === path ? updater(item) : item)),
+    );
+  }
+
+  function appendBatchOutputLog(
+    path: string,
+    tone: BatchOutputLogTone,
+    message: string,
+  ) {
+    setBatchOutputItems((current) =>
+      current.map((item) =>
+        item.path === path
+          ? { ...item, logs: [...item.logs, { tone, message }] }
+          : item,
+      ),
+    );
+  }
+
+  function buildBatchDraft(
+    video: LocalScannedVideo,
+    knownTechnical: LocalMetadataDraft["technical"] = null,
+  ): LocalMetadataDraft {
     const fallbackTitle = video.cleaned_title || titleFromPath(video.path);
     const title = `${batchPrefix}${fallbackTitle}${batchSuffix}`.trim() || fallbackTitle;
     const organizeBase =
@@ -562,14 +1014,22 @@ export function UnmatchedVideosPage() {
       plot: batchPlot.trim() || `Local metadata generated for ${video.filename}.`,
       tags: tags.length ? tags : defaultLocalTags(),
       genres: listFromText(batchGenres),
+      runtime_minutes: runtimeMinutes(knownTechnical?.duration_seconds ?? null),
+      technical: knownTechnical,
     });
   }
 
-  function loadDraftIntoEditor(nextDraft: LocalMetadataDraft) {
+  function loadDraftIntoEditor(
+    nextDraft: LocalMetadataDraft,
+    coverSettings?: CoverEditorSettings,
+  ) {
     const editorDraft = cloneDraft(nextDraft);
     setVideoPath(editorDraft.video_path);
     setDraft(editorDraft);
     resetPosterTitle(editorDraft.title);
+    if (coverSettings) {
+      applyCoverSettingsToEditor(coverSettings);
+    }
     setTechnical(editorDraft.technical);
     clearGeneratedPreviews();
     setError("");
@@ -593,7 +1053,7 @@ export function UnmatchedVideosPage() {
   }
 
   function loadBatchDraft(item: BatchDraftStatus) {
-    loadDraftIntoEditor(item.draft);
+    loadDraftIntoEditor(item.draft, item.coverSettings);
     setBatchStatuses((current) =>
       current.map((entry) =>
         entry.path === item.path ? { ...entry, status: "loaded" } : entry,
@@ -604,6 +1064,7 @@ export function UnmatchedVideosPage() {
 
   function saveCurrentDraftToBatch(item: BatchDraftStatus) {
     const nextDraft = cleanedDraft(draft);
+    const nextCoverSettings = currentCoverEditorSettings();
     if (nextDraft.video_path !== item.path) {
       setError("当前编辑器草稿与批量条目不匹配。");
       return;
@@ -613,9 +1074,17 @@ export function UnmatchedVideosPage() {
     setBatchStatuses((current) =>
       current.map((entry) =>
         entry.path === item.path
-          ? { ...entry, draft: cloneDraft(nextDraft), status: "updated" }
+          ? {
+              ...entry,
+              draft: cloneDraft(nextDraft),
+              coverSettings: nextCoverSettings,
+              status: "updated",
+            }
           : entry,
       ),
+    );
+    setBatchOutputItems((current) =>
+      current.filter((entry) => entry.path !== item.path),
     );
     setError("");
     setStatus(`已保存当前草稿：${item.filename}`);
@@ -642,7 +1111,53 @@ export function UnmatchedVideosPage() {
   function updatePlanInput(action: () => void) {
     action();
     clearPlanPreview();
+    setBatchOutputItems([]);
     setStatus("");
+  }
+
+  function currentCoverEditorSettings(): CoverEditorSettings {
+    return {
+      template,
+      titleFontId,
+      titleFontSize,
+      titleFillColor,
+      titleStrokeColor,
+      titleStrokeWidth,
+      titleEffect,
+      titleAngleDegrees,
+      titleOffsetX,
+      titleOffsetY,
+    };
+  }
+
+  function currentBatchCoverStyleSettings(): BatchCoverStyleSettings {
+    return {
+      template: batchCoverTemplate,
+      titleFontId: batchCoverTitleFontId,
+      titleFontSize: batchCoverTitleFontSize,
+      titleFillColor: batchCoverTitleFillColor,
+      titleStrokeColor: batchCoverTitleStrokeColor,
+      titleStrokeWidth: batchCoverTitleStrokeWidth,
+      titleEffect: batchCoverTitleEffect,
+      titleAngleDegrees: batchCoverTitleAngleDegrees,
+      titleOffsetX: batchCoverTitleOffsetX,
+      titleOffsetY: batchCoverTitleOffsetY,
+      randomTitleFormat: batchCoverRandomTitleFormat,
+    };
+  }
+
+  function applyCoverSettingsToEditor(settings: CoverEditorSettings) {
+    setTemplate(settings.template);
+    setTitleFontId(settings.titleFontId);
+    setTitleFontSize(clampTitleFontSizeValue(settings.titleFontSize));
+    setTitleFillColor(normalizeHexColor(settings.titleFillColor, titleFillColor));
+    setTitleStrokeColor(normalizeHexColor(settings.titleStrokeColor, titleStrokeColor));
+    setTitleStrokeWidth(clampTitleStrokeWidthValue(settings.titleStrokeWidth));
+    setTitleEffect(settings.titleEffect);
+    setTitleAngleDegrees(clampTitleAngleDegreesValue(settings.titleAngleDegrees));
+    setTitleOffsetX(clampTitleOffsetValue(settings.titleOffsetX));
+    setTitleOffsetY(clampTitleOffsetValue(settings.titleOffsetY));
+    titleFontTouched.current = true;
   }
 
   function updateTemplate(nextTemplate: CoverTemplateName) {
@@ -718,6 +1233,27 @@ export function UnmatchedVideosPage() {
   function updateTitleEffect(value: PosterTextEffect) {
     setTitleEffect(value);
     clearPosterDependentPreviews();
+  }
+
+  function updateBatchCoverTemplate(nextTemplate: CoverTemplateName) {
+    const defaultPosition = DEFAULT_TITLE_POSITION_BY_TEMPLATE[nextTemplate];
+    const defaultStyle = DEFAULT_TITLE_STYLE_BY_TEMPLATE[nextTemplate];
+    setBatchCoverTemplate(nextTemplate);
+    setBatchCoverTitleOffsetX(titlePositionPercentToOffset(defaultPosition.x));
+    setBatchCoverTitleOffsetY(titlePositionPercentToOffset(defaultPosition.y));
+    setBatchCoverTitleFontSize(defaultStyle.fontSize);
+    setBatchCoverTitleFillColor(defaultStyle.fillColor);
+    setBatchCoverTitleStrokeColor(defaultStyle.strokeColor);
+    setBatchCoverTitleStrokeWidth(defaultStyle.strokeWidth);
+    setBatchCoverTitleEffect(defaultStyle.effect);
+    if (!batchTitleFontTouched.current) {
+      setBatchCoverTitleFontId(DEFAULT_TITLE_FONT_BY_TEMPLATE[nextTemplate]);
+    }
+  }
+
+  function updateBatchCoverTitleFont(nextFontId: PosterFontId) {
+    batchTitleFontTouched.current = true;
+    setBatchCoverTitleFontId(nextFontId);
   }
 
   function clearPosterDependentPreviews() {
@@ -1220,6 +1756,9 @@ export function UnmatchedVideosPage() {
                   </>
                 ) : (
                   <div className="empty-state">
+                    <span className="empty-state-icon" aria-hidden="true">
+                      <Images size={20} strokeWidth={2.2} />
+                    </span>
                     <strong>暂无截图</strong>
                     <span>
                       输入视频路径后生成截图；Xona 会自动选择前 {MIN_COVER_FRAME_COUNT} 张用于
@@ -1325,6 +1864,9 @@ export function UnmatchedVideosPage() {
                 </div>
               ) : (
                 <div className="empty-state">
+                  <span className="empty-state-icon" aria-hidden="true">
+                    <ListVideo size={20} strokeWidth={2.2} />
+                  </span>
                   <strong>暂无批量条目</strong>
                   <span>扫描目录后显示视频列表。</span>
                 </div>
@@ -1392,7 +1934,188 @@ export function UnmatchedVideosPage() {
                   />
                 </FormField>
               </div>
+              <div className="batch-cover-style-panel" aria-labelledby="batch-cover-style-title">
+                <div>
+                  <h3 id="batch-cover-style-title">批量封面风格</h3>
+                  <p className="section-lead">
+                    启用后，每个视频按路径稳定随机字体、颜色、镜像角度与几何微调；范围固定为字号
+                    +/-{BATCH_TITLE_FONT_SIZE_JITTER_RANGE}px、角度
+                    +/-{BATCH_TITLE_ANGLE_JITTER_RANGE} 度、位置
+                    +/-{BATCH_TITLE_OFFSET_JITTER_RANGE}。
+                  </p>
+                </div>
+                <CheckboxField
+                  checked={batchCoverRandomTitleFormat}
+                  description="关闭后完全使用下方基础值，不随机字体、颜色、角度、位置，也不会镜像倾斜方向。"
+                  label="随机标题格式"
+                  onChange={setBatchCoverRandomTitleFormat}
+                />
+                <div className="grid three batch-cover-style-grid">
+                  <FormField label="批量模板">
+                    <select
+                      value={batchCoverTemplate}
+                      onChange={(event) =>
+                        updateBatchCoverTemplate(
+                          event.target.value as CoverTemplateName,
+                        )
+                      }
+                    >
+                      {coverTemplates.map((item) => (
+                        <option key={item.value} value={item.value}>
+                          {item.label}
+                        </option>
+                      ))}
+                    </select>
+                  </FormField>
+                  <FormField
+                    label="批量标题字体"
+                    description="作为每个批量封面标题的基础字体。"
+                  >
+                    <select
+                      value={batchCoverTitleFontId}
+                      onChange={(event) =>
+                        updateBatchCoverTitleFont(event.target.value as PosterFontId)
+                      }
+                    >
+                      {posterFonts.map((item) => (
+                        <option key={item.value} value={item.value}>
+                          {item.label}
+                        </option>
+                      ))}
+                    </select>
+                  </FormField>
+                  <FormField label="基础字号">
+                    <input
+                      max={MAX_TITLE_FONT_SIZE}
+                      min={MIN_TITLE_FONT_SIZE}
+                      step={1}
+                      type="number"
+                      value={batchCoverTitleFontSize}
+                      onChange={(event) =>
+                        setBatchCoverTitleFontSize(
+                          clampTitleFontSize(event.target.value),
+                        )
+                      }
+                    />
+                  </FormField>
+                  <FormField
+                    label="基础填充色"
+                    description="关闭随机标题格式时使用；启用时每个视频生成稳定随机填充色。"
+                  >
+                    <input
+                      type="color"
+                      value={batchCoverTitleFillColor}
+                      onChange={(event) =>
+                        setBatchCoverTitleFillColor(event.target.value)
+                      }
+                    />
+                  </FormField>
+                  <FormField
+                    label="基础描边色"
+                    description="关闭随机标题格式时使用；启用时每个视频生成强对比随机描边色。"
+                  >
+                    <input
+                      type="color"
+                      value={batchCoverTitleStrokeColor}
+                      onChange={(event) =>
+                        setBatchCoverTitleStrokeColor(event.target.value)
+                      }
+                    />
+                  </FormField>
+                  <FormField label="基础描边宽度">
+                    <input
+                      max={MAX_TITLE_STROKE_WIDTH}
+                      min={MIN_TITLE_STROKE_WIDTH}
+                      step={1}
+                      type="number"
+                      value={batchCoverTitleStrokeWidth}
+                      onChange={(event) =>
+                        setBatchCoverTitleStrokeWidth(
+                          clampTitleStrokeWidth(event.target.value),
+                        )
+                      }
+                    />
+                  </FormField>
+                  <FormField label="批量文字效果">
+                    <select
+                      value={batchCoverTitleEffect}
+                      onChange={(event) =>
+                        setBatchCoverTitleEffect(
+                          event.target.value as PosterTextEffect,
+                        )
+                      }
+                    >
+                      {titleEffects.map((item) => (
+                        <option key={item.value} value={item.value}>
+                          {item.label}
+                        </option>
+                      ))}
+                    </select>
+                  </FormField>
+                  <FormField label="基础倾斜角度">
+                    <input
+                      max={MAX_TITLE_ANGLE_DEGREES}
+                      min={MIN_TITLE_ANGLE_DEGREES}
+                      step={1}
+                      type="number"
+                      value={batchCoverTitleAngleDegrees}
+                      onChange={(event) =>
+                        setBatchCoverTitleAngleDegrees(
+                          clampTitleAngleDegrees(event.target.value),
+                        )
+                      }
+                    />
+                  </FormField>
+                  <FormField
+                    label="基础横向偏移"
+                    description="0 表示居中；负数向左移动，正数向右移动。"
+                  >
+                    <input
+                      max={MAX_TITLE_OFFSET}
+                      min={MIN_TITLE_OFFSET}
+                      step={1}
+                      type="number"
+                      value={batchCoverTitleOffsetX}
+                      onChange={(event) =>
+                        setBatchCoverTitleOffsetX(clampTitleOffset(event.target.value))
+                      }
+                    />
+                  </FormField>
+                  <FormField
+                    label="基础纵向偏移"
+                    description="0 表示居中；负数向上移动，正数向下移动。"
+                  >
+                    <input
+                      max={MAX_TITLE_OFFSET}
+                      min={MIN_TITLE_OFFSET}
+                      step={1}
+                      type="number"
+                      value={batchCoverTitleOffsetY}
+                      onChange={(event) =>
+                        setBatchCoverTitleOffsetY(clampTitleOffset(event.target.value))
+                      }
+                    />
+                  </FormField>
+                </div>
+              </div>
               <div className="button-row batch-actions-row">
+                <FormField
+                  label="批量并发数"
+                  description={`限制为 ${MIN_BATCH_CONCURRENCY}-${MAX_BATCH_CONCURRENCY}，避免同时压满本地分析与截图任务。`}
+                >
+                  <input
+                    max={MAX_BATCH_CONCURRENCY}
+                    min={MIN_BATCH_CONCURRENCY}
+                    step={1}
+                    type="number"
+                    value={batchConcurrency}
+                    onChange={(event) =>
+                      setBatchConcurrency(
+                        clampBatchConcurrency(event.target.value),
+                      )
+                    }
+                  />
+                </FormField>
                 <button
                   disabled={!selectedBatchPaths.length}
                   type="button"
@@ -1400,7 +2123,29 @@ export function UnmatchedVideosPage() {
                 >
                   为已选视频生成整理信息
                 </button>
+                <button
+                  className="secondary"
+                  disabled={!canGenerateBatchOutputs}
+                  type="button"
+                  onClick={() => void generateBatchOutputs()}
+                >
+                  {busy === "batch_generate"
+                    ? "批量生成中..."
+                    : "生成批量 NFO/封面/整理预览"}
+                </button>
+                <button
+                  className="secondary"
+                  disabled={!canExecuteBatchOutputs}
+                  type="button"
+                  onClick={() => void executeBatchOutputs()}
+                >
+                  {busy === "batch_execute"
+                    ? "批量执行中..."
+                    : "执行已生成的批量整理计划"}
+                </button>
               </div>
+
+              <BatchOutputSummary batchOutputItems={batchOutputItems} busy={busy} />
 
               {batchStatuses.length ? (
                 <div className="table-wrap">
@@ -1411,6 +2156,7 @@ export function UnmatchedVideosPage() {
                         <th>视频</th>
                         <th>标题</th>
                         <th>整理文件名</th>
+                        <th>封面风格</th>
                         <th>状态</th>
                         <th>操作</th>
                       </tr>
@@ -1426,6 +2172,7 @@ export function UnmatchedVideosPage() {
                             <td>{item.path}</td>
                             <td>{item.draft.title}</td>
                             <td>{item.draft.organize_filename || "使用文件名模板"}</td>
+                            <td>{coverSettingsSummary(item.coverSettings)}</td>
                             <td>
                               <span
                                 className={`status-pill ${batchStatusClass(item.status)}`}
@@ -1457,6 +2204,75 @@ export function UnmatchedVideosPage() {
                           </tr>
                         );
                       })}
+                    </tbody>
+                  </table>
+                </div>
+              ) : null}
+
+              {batchOutputItems.length ? (
+                <div className="table-wrap batch-output-results">
+                  <table>
+                    <caption>批量生成结果</caption>
+                    <thead>
+                      <tr>
+                        <th>视频</th>
+                        <th>状态</th>
+                        <th>NFO / 封面 / 计划</th>
+                        <th>执行</th>
+                        <th>日志</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {batchOutputItems.map((item) => (
+                        <tr key={item.path}>
+                          <td>{item.path}</td>
+                          <td>
+                            <span
+                              className={`status-pill ${batchOutputStatusClass(
+                                item.status,
+                              )}`}
+                            >
+                              {batchOutputStatusLabel(item.status)}
+                            </span>
+                            {item.error ? (
+                              <p className="status error batch-output-error">
+                                {item.error}
+                              </p>
+                            ) : null}
+                          </td>
+                          <td>
+                            <div className="batch-output-details">
+                              <span>
+                                {item.planPreview ? "NFO 已生成" : "NFO 未生成"}
+                              </span>
+                              <span>
+                                {item.coverPreview
+                                  ? `封面 ${item.coverPreview.poster.id}`
+                                  : "封面未生成"}
+                              </span>
+                              <span>
+                                {item.planPreview
+                                  ? `计划 ${item.planPreview.plan_id}`
+                                  : "计划未生成"}
+                              </span>
+                            </div>
+                          </td>
+                          <td>
+                            {item.executeResult
+                              ? item.executeResult.state === "completed"
+                                ? "整理完成"
+                                : `状态 ${item.executeResult.state}`
+                              : item.planPreview?.plan.mode === "preview"
+                                ? "仅预览"
+                                : item.planPreview
+                                  ? "等待显式执行"
+                                  : "未生成计划"}
+                          </td>
+                          <td className="batch-output-log-cell">
+                            <BatchOutputLogView logs={item.logs} />
+                          </td>
+                        </tr>
+                      ))}
                     </tbody>
                   </table>
                 </div>
@@ -1499,9 +2315,10 @@ function VideoPathPicker({
     setLoading(true);
     try {
       const response = await apiFetch<StorageRootList>("/api/storage-roots");
-      setRoots(response.roots);
-      const matchingRoot = findRootForPickerPath(response.roots, path);
-      const root = matchingRoot ?? response.roots[0] ?? null;
+      const roots = Array.isArray(response.roots) ? response.roots : [];
+      setRoots(roots);
+      const matchingRoot = findRootForPickerPath(roots, path);
+      const root = matchingRoot ?? roots[0] ?? null;
       setSelectedRoot(root);
       if (root) {
         const relativePath = matchingRoot
@@ -1586,7 +2403,8 @@ function VideoPathPicker({
         type="button"
         onClick={openPicker}
       >
-        {buttonLabel}
+        <FolderOpen className="button-icon" aria-hidden="true" size={15} />
+        <span>{buttonLabel}</span>
       </button>
       {open ? (
         <div
@@ -1606,7 +2424,8 @@ function VideoPathPicker({
                 type="button"
                 onClick={() => setOpen(false)}
               >
-                关闭
+                <X className="button-icon" aria-hidden="true" size={15} />
+                <span>关闭</span>
               </button>
             </div>
 
@@ -1620,6 +2439,7 @@ function VideoPathPicker({
                     type="button"
                     onClick={() => switchRoot(root)}
                   >
+                    <HardDrive className="button-icon" aria-hidden="true" size={15} />
                     <span className="root-name">{root.path}</span>
                     <span className="badge">
                       {root.source === "user" ? "用户" : "容器挂载"}
@@ -1635,7 +2455,8 @@ function VideoPathPicker({
                 type="button"
                 onClick={() => void browse()}
               >
-                刷新
+                <RefreshCw className="button-icon" aria-hidden="true" size={15} />
+                <span>刷新</span>
               </button>
               <button
                 className="secondary"
@@ -1643,7 +2464,8 @@ function VideoPathPicker({
                 type="button"
                 onClick={goUp}
               >
-                上一层
+                <CornerUpLeft className="button-icon" aria-hidden="true" size={15} />
+                <span>上一层</span>
               </button>
             </div>
 
@@ -1672,7 +2494,11 @@ function VideoPathPicker({
                           }
                         >
                           <span className="directory-icon" aria-hidden="true">
-                            {entry.is_dir ? "目录" : "文件"}
+                            {entry.is_dir ? (
+                              <Folder size={18} strokeWidth={2.1} />
+                            ) : (
+                              <FileVideo size={18} strokeWidth={2.1} />
+                            )}
                           </span>
                           <span className="directory-main">
                             <strong>{entry.name}</strong>
@@ -1753,6 +2579,44 @@ function BatchDraftProgress({
     >
       {batchDraftProgressText({ batchStatuses, busy, scannedCount, selectedCount })}
     </p>
+  );
+}
+
+function BatchOutputSummary({
+  batchOutputItems,
+  busy,
+}: {
+  batchOutputItems: BatchOutputItem[];
+  busy: BusyAction;
+}) {
+  return (
+    <p
+      aria-label="批量生成摘要"
+      aria-live="polite"
+      className="status"
+      role="status"
+    >
+      {batchOutputSummaryText({ batchOutputItems, busy })}
+    </p>
+  );
+}
+
+function BatchOutputLogView({ logs }: { logs: BatchOutputLog[] }) {
+  return (
+    <div className="progress-log" aria-label="批量条目日志">
+      {logs.length ? (
+        <ol>
+          {logs.map((entry, index) => (
+            <li className={batchOutputLogClass(entry.tone)} key={index}>
+              <span aria-hidden="true" />
+              <p>{entry.message}</p>
+            </li>
+          ))}
+        </ol>
+      ) : (
+        <p className="muted">等待处理。</p>
+      )}
+    </div>
   );
 }
 
@@ -2021,6 +2885,12 @@ function organizeProgressText({
   if (busy === "execute") {
     return `${workflowLabel}预览状态：正在执行整理计划。`;
   }
+  if (busy === "batch_generate") {
+    return `${workflowLabel}预览状态：正在生成批量 NFO、封面与整理预览。`;
+  }
+  if (busy === "batch_execute") {
+    return `${workflowLabel}预览状态：正在执行批量整理计划。`;
+  }
   if (executeResult) {
     const stateLabel =
       executeResult.state === "completed"
@@ -2054,6 +2924,12 @@ function batchDraftProgressText({
   if (busy === "scan") {
     return "批量整理进度：正在扫描目录。";
   }
+  if (busy === "batch_generate") {
+    return "批量整理进度：正在生成批量 NFO、封面与整理预览。";
+  }
+  if (busy === "batch_execute") {
+    return "批量整理进度：正在执行批量整理计划。";
+  }
   if (batchStatuses.length) {
     const loadedCount = batchStatuses.filter(
       (item) => item.status === "loaded",
@@ -2067,6 +2943,42 @@ function batchDraftProgressText({
     return `批量整理进度：已扫描 ${scannedCount} 个视频，已选择 ${selectedCount} 个。`;
   }
   return "批量整理进度：等待扫描目录。";
+}
+
+function batchOutputSummaryText({
+  batchOutputItems,
+  busy,
+}: {
+  batchOutputItems: BatchOutputItem[];
+  busy: BusyAction;
+}): string {
+  if (!batchOutputItems.length) {
+    return "批量生成摘要：等待生成 NFO、封面与整理预览。";
+  }
+  const succeededCount = batchOutputItems.filter(
+    (item) =>
+      item.status === "succeeded" ||
+      item.status === "executing" ||
+      item.status === "executed",
+  ).length;
+  const failedCount = batchOutputItems.filter((item) => item.status === "failed").length;
+  const runningCount = batchOutputItems.filter(
+    (item) => item.status === "running" || item.status === "executing",
+  ).length;
+  const pendingCount = batchOutputItems.filter(
+    (item) => item.status === "pending",
+  ).length;
+  const executedCount = batchOutputItems.filter(
+    (item) => item.status === "executed",
+  ).length;
+  const executeFailedCount = batchOutputItems.filter(
+    (item) => item.status === "execute_failed",
+  ).length;
+
+  if (busy === "batch_generate" || busy === "batch_execute") {
+    return `批量生成摘要：共 ${batchOutputItems.length} 个，处理中 ${runningCount} 个，等待 ${pendingCount} 个，成功 ${succeededCount} 个，失败 ${failedCount + executeFailedCount} 个。`;
+  }
+  return `批量生成摘要：共 ${batchOutputItems.length} 个，成功 ${succeededCount} 个，失败 ${failedCount} 个，已执行 ${executedCount} 个，执行失败 ${executeFailedCount} 个。`;
 }
 
 function batchStatusLabel(status: BatchDraftState): string {
@@ -2091,6 +3003,448 @@ function batchStatusClass(status: BatchDraftState): string {
     default:
       return "status-pill-warning";
   }
+}
+
+function batchOutputStatusLabel(status: BatchOutputState): string {
+  switch (status) {
+    case "running":
+      return "生成中";
+    case "succeeded":
+      return "已生成";
+    case "failed":
+      return "生成失败";
+    case "executing":
+      return "执行中";
+    case "executed":
+      return "已执行";
+    case "execute_failed":
+      return "执行失败";
+    case "pending":
+    default:
+      return "等待";
+  }
+}
+
+function batchOutputStatusClass(status: BatchOutputState): string {
+  switch (status) {
+    case "succeeded":
+    case "executed":
+      return "status-pill-success";
+    case "failed":
+    case "execute_failed":
+      return "status-pill-danger";
+    case "running":
+    case "executing":
+      return "status-pill-neutral";
+    case "pending":
+    default:
+      return "status-pill-warning";
+  }
+}
+
+function batchOutputLogClass(tone: BatchOutputLogTone): string {
+  const suffix = tone === "neutral" ? "" : ` progress-log-line-${tone}`;
+  return `progress-log-line${suffix}`;
+}
+
+function canExecuteBatchOutputItem(item: BatchOutputItem): boolean {
+  return Boolean(
+    item.planPreview &&
+      item.planPreview.plan.mode !== "preview" &&
+      !item.executeResult &&
+      (item.status === "succeeded" || item.status === "execute_failed"),
+  );
+}
+
+function buildCoverPreviewRequest({
+  videoPath,
+  title,
+  settings,
+  selectedFrameIds,
+}: {
+  videoPath: string;
+  title: string;
+  settings: CoverEditorSettings;
+  selectedFrameIds: string[];
+}): LocalCoverPreviewRequest {
+  return {
+    video_path: videoPath,
+    title,
+    title_angle_degrees: settings.titleAngleDegrees,
+    title_position_x_percent: titleOffsetToTitlePositionPercent(settings.titleOffsetX),
+    title_position_y_percent: titleOffsetToTitlePositionPercent(settings.titleOffsetY),
+    template: settings.template,
+    title_font_id: settings.titleFontId,
+    title_font_size: settings.titleFontSize,
+    title_fill_color: settings.titleFillColor,
+    title_stroke_color: settings.titleStrokeColor,
+    title_stroke_width: settings.titleStrokeWidth,
+    title_effect: settings.titleEffect,
+    selected_frame_ids: selectedFrameIds,
+  };
+}
+
+function buildPlanPreviewRequest({
+  draft,
+  destinationRoot,
+  mode,
+  folderTemplates,
+  filenameTemplate,
+  coverPreview,
+  selectedFrameIds,
+  extraBackdropCount,
+}: {
+  draft: LocalMetadataDraft;
+  destinationRoot: string;
+  mode: OrganizationMode;
+  folderTemplates: string[];
+  filenameTemplate: string;
+  coverPreview: LocalCoverPreviewResponse | null;
+  selectedFrameIds: string[];
+  extraBackdropCount: number;
+}): LocalPlanPreviewRequest {
+  return {
+    metadata: cleanedDraft(draft),
+    destination_root: destinationRoot,
+    mode,
+    folder_templates: folderTemplates,
+    filename_template: filenameTemplate,
+    poster_ref: coverPreview?.poster.id ?? null,
+    fanart_ref: coverPreview?.fanart.id ?? null,
+    thumb_ref: coverPreview?.thumb.id ?? null,
+    selected_frame_ids: selectedFrameIds,
+    extra_backdrop_count: extraBackdropCount,
+  };
+}
+
+function initialBatchOutputItem(item: BatchDraftStatus): BatchOutputItem {
+  return {
+    path: item.path,
+    filename: item.filename,
+    draft: cloneDraft(item.draft),
+    coverSettings: item.coverSettings,
+    status: "pending",
+    logs: [],
+    frames: [],
+    selectedFrameIds: [],
+    coverPreview: null,
+    planPreview: null,
+    executeResult: null,
+    error: null,
+  };
+}
+
+function randomizedBatchCoverSettings(
+  videoPath: string,
+  settings: BatchCoverStyleSettings,
+): CoverEditorSettings {
+  const baseline = baselineBatchCoverSettings(settings);
+  if (!settings.randomTitleFormat) {
+    return baseline;
+  }
+
+  const seed = batchCoverSeed(videoPath, settings);
+  const baseAngle =
+    Math.abs(baseline.titleAngleDegrees) * stableRandomSign(seed, "angle-sign");
+  const titleColors = stableRandomTitleColors(seed);
+
+  return {
+    template: baseline.template,
+    titleFontId: stableRandomPosterFontId(seed, baseline.titleFontId),
+    titleFontSize: clampTitleFontSizeValue(
+      Math.round(
+        baseline.titleFontSize +
+          stableRandomDelta(
+            seed,
+            "font-size",
+            BATCH_TITLE_FONT_SIZE_JITTER_RANGE,
+          ),
+      ),
+    ),
+    titleFillColor: titleColors.fillColor,
+    titleStrokeColor: titleColors.strokeColor,
+    titleStrokeWidth: baseline.titleStrokeWidth,
+    titleEffect: baseline.titleEffect,
+    titleAngleDegrees: clampTitleAngleDegreesValue(
+      Math.round(
+        baseAngle +
+          stableRandomDelta(seed, "angle", BATCH_TITLE_ANGLE_JITTER_RANGE),
+      ),
+    ),
+    titleOffsetX: clampTitleOffsetValue(
+      Math.round(
+        baseline.titleOffsetX +
+          stableRandomDelta(seed, "offset-x", BATCH_TITLE_OFFSET_JITTER_RANGE),
+      ),
+    ),
+    titleOffsetY: clampTitleOffsetValue(
+      Math.round(
+        baseline.titleOffsetY +
+          stableRandomDelta(seed, "offset-y", BATCH_TITLE_OFFSET_JITTER_RANGE),
+      ),
+    ),
+  };
+}
+
+function baselineBatchCoverSettings(
+  settings: BatchCoverStyleSettings,
+): CoverEditorSettings {
+  return {
+    template: settings.template,
+    titleFontId: settings.titleFontId,
+    titleFontSize: clampTitleFontSizeValue(settings.titleFontSize),
+    titleFillColor: normalizeHexColor(
+      settings.titleFillColor,
+      DEFAULT_TITLE_STYLE_BY_TEMPLATE[settings.template].fillColor,
+    ),
+    titleStrokeColor: normalizeHexColor(
+      settings.titleStrokeColor,
+      DEFAULT_TITLE_STYLE_BY_TEMPLATE[settings.template].strokeColor,
+    ),
+    titleStrokeWidth: clampTitleStrokeWidthValue(settings.titleStrokeWidth),
+    titleEffect: settings.titleEffect,
+    titleAngleDegrees: clampTitleAngleDegreesValue(settings.titleAngleDegrees),
+    titleOffsetX: clampTitleOffsetValue(settings.titleOffsetX),
+    titleOffsetY: clampTitleOffsetValue(settings.titleOffsetY),
+  };
+}
+
+function batchCoverSeed(
+  videoPath: string,
+  settings: BatchCoverStyleSettings,
+): string {
+  return [
+    "xona-batch-cover-v2",
+    videoPath,
+    settings.template,
+    settings.titleFontId,
+    settings.titleFontSize,
+    settings.titleFillColor.toLowerCase(),
+    settings.titleStrokeColor.toLowerCase(),
+    settings.titleStrokeWidth,
+    settings.titleEffect,
+    settings.titleAngleDegrees,
+    settings.titleOffsetX,
+    settings.titleOffsetY,
+    settings.randomTitleFormat ? "random-title-format" : "fixed-title-format",
+  ].join("\u001f");
+}
+
+function stableRandomDelta(seed: string, salt: string, range: number): number {
+  if (range <= 0) {
+    return 0;
+  }
+  return (stableUnitRandom(`${seed}\u001f${salt}`) * 2 - 1) * range;
+}
+
+function stableRandomSign(seed: string, salt: string): 1 | -1 {
+  return stableUnitRandom(`${seed}\u001f${salt}`) < 0.5 ? -1 : 1;
+}
+
+function stableRandomPosterFontId(
+  seed: string,
+  baselineFontId: PosterFontId,
+): PosterFontId {
+  const alternatives = posterFonts
+    .map((font) => font.value)
+    .filter((fontId) => fontId !== baselineFontId);
+  const candidates = alternatives.length ? alternatives : [baselineFontId];
+  const index = Math.floor(stableUnitRandom(`${seed}\u001ffont-id`) * candidates.length);
+  return candidates[Math.min(index, candidates.length - 1)];
+}
+
+function stableUnitRandom(seed: string): number {
+  let hash = 2166136261;
+  for (let index = 0; index < seed.length; index += 1) {
+    hash ^= seed.charCodeAt(index);
+    hash = Math.imul(hash, 16777619);
+  }
+  return (hash >>> 0) / 0x100000000;
+}
+
+function parseHexColor(value: string): [number, number, number] | null {
+  const match = /^#([0-9a-fA-F]{6})$/.exec(value);
+  if (!match) {
+    return null;
+  }
+  const hex = match[1];
+  return [
+    Number.parseInt(hex.slice(0, 2), 16),
+    Number.parseInt(hex.slice(2, 4), 16),
+    Number.parseInt(hex.slice(4, 6), 16),
+  ];
+}
+
+function normalizeHexColor(value: string, fallback: string): string {
+  return parseHexColor(value) ? value.toLowerCase() : fallback;
+}
+
+function stableRandomTitleColors(seed: string): {
+  fillColor: string;
+  strokeColor: string;
+} {
+  const fillIsLight = stableUnitRandom(`${seed}\u001ffill-lightness`) >= 0.5;
+  const fillColor = randomVibrantColor(seed, "fill", fillIsLight);
+  const fill = parseHexColor(fillColor);
+  if (!fill) {
+    return { fillColor: "#ffffff", strokeColor: "#071018" };
+  }
+
+  for (let attempt = 0; attempt < 18; attempt += 1) {
+    const strokeColor = randomVibrantColor(
+      seed,
+      `stroke-${attempt}`,
+      !fillIsLight,
+    );
+    const stroke = parseHexColor(strokeColor);
+    if (stroke && hasStrongTitleContrast(fill, stroke)) {
+      return { fillColor, strokeColor };
+    }
+  }
+
+  const fallbackStrokeColor = randomExtremeContrastColor(
+    seed,
+    "stroke-fallback",
+    !fillIsLight,
+  );
+  const fallbackStroke = parseHexColor(fallbackStrokeColor);
+  if (fallbackStroke && hasStrongTitleContrast(fill, fallbackStroke)) {
+    return { fillColor, strokeColor: fallbackStrokeColor };
+  }
+
+  return {
+    fillColor,
+    strokeColor: relativeLuminance(fill) > 0.35 ? "#071018" : "#ffffff",
+  };
+}
+
+function randomVibrantColor(
+  seed: string,
+  salt: string,
+  light: boolean,
+): string {
+  const hue = Math.round(stableUnitRandom(`${seed}\u001f${salt}\u001fh`) * 359);
+  const saturation =
+    72 + Math.round(stableUnitRandom(`${seed}\u001f${salt}\u001fs`) * 24);
+  const lightness = light
+    ? 70 + Math.round(stableUnitRandom(`${seed}\u001f${salt}\u001fl`) * 16)
+    : 14 + Math.round(stableUnitRandom(`${seed}\u001f${salt}\u001fl`) * 14);
+  return rgbToHex(hslToRgb(hue, saturation, lightness));
+}
+
+function randomExtremeContrastColor(
+  seed: string,
+  salt: string,
+  light: boolean,
+): string {
+  const hue = Math.round(stableUnitRandom(`${seed}\u001f${salt}\u001fh`) * 359);
+  const saturation =
+    84 + Math.round(stableUnitRandom(`${seed}\u001f${salt}\u001fs`) * 16);
+  const lightness = light
+    ? 92 + Math.round(stableUnitRandom(`${seed}\u001f${salt}\u001fl`) * 6)
+    : 4 + Math.round(stableUnitRandom(`${seed}\u001f${salt}\u001fl`) * 8);
+  return rgbToHex(hslToRgb(hue, saturation, lightness));
+}
+
+function hslToRgb(
+  hue: number,
+  saturationPercent: number,
+  lightnessPercent: number,
+): [number, number, number] {
+  const saturation = saturationPercent / 100;
+  const lightness = lightnessPercent / 100;
+  const chroma = (1 - Math.abs(2 * lightness - 1)) * saturation;
+  const huePrime = hue / 60;
+  const x = chroma * (1 - Math.abs((huePrime % 2) - 1));
+  const [red1, green1, blue1] =
+    huePrime < 1
+      ? [chroma, x, 0]
+      : huePrime < 2
+        ? [x, chroma, 0]
+        : huePrime < 3
+          ? [0, chroma, x]
+          : huePrime < 4
+            ? [0, x, chroma]
+            : huePrime < 5
+              ? [x, 0, chroma]
+              : [chroma, 0, x];
+  const match = lightness - chroma / 2;
+  return [
+    Math.round((red1 + match) * 255),
+    Math.round((green1 + match) * 255),
+    Math.round((blue1 + match) * 255),
+  ];
+}
+
+function rgbToHex([red, green, blue]: [number, number, number]): string {
+  return `#${[red, green, blue]
+    .map((channel) => channel.toString(16).padStart(2, "0"))
+    .join("")}`;
+}
+
+function hasStrongTitleContrast(
+  fill: [number, number, number],
+  stroke: [number, number, number],
+): boolean {
+  return colorContrastRatio(fill, stroke) >= 4.5 && colorDistance(fill, stroke) >= 140;
+}
+
+function colorContrastRatio(
+  first: [number, number, number],
+  second: [number, number, number],
+): number {
+  const firstLuminance = relativeLuminance(first);
+  const secondLuminance = relativeLuminance(second);
+  const lighter = Math.max(firstLuminance, secondLuminance);
+  const darker = Math.min(firstLuminance, secondLuminance);
+  return (lighter + 0.05) / (darker + 0.05);
+}
+
+function colorDistance(
+  first: [number, number, number],
+  second: [number, number, number],
+): number {
+  return Math.hypot(
+    first[0] - second[0],
+    first[1] - second[1],
+    first[2] - second[2],
+  );
+}
+
+function relativeLuminance([red, green, blue]: [number, number, number]): number {
+  return 0.2126 * srgbToLinear(red) + 0.7152 * srgbToLinear(green) + 0.0722 * srgbToLinear(blue);
+}
+
+function srgbToLinear(channel: number): number {
+  const normalized = channel / 255;
+  return normalized <= 0.03928
+    ? normalized / 12.92
+    : ((normalized + 0.055) / 1.055) ** 2.4;
+}
+
+function coverSettingsSummary(settings: CoverEditorSettings): string {
+  return `${coverTemplateLabel(settings.template)} / ${posterFontLabel(
+    settings.titleFontId,
+  )} / ${settings.titleFontSize}px / ${settings.titleFillColor} -> ${
+    settings.titleStrokeColor
+  } / ${formatSignedNumber(
+    settings.titleAngleDegrees,
+  )} 度 / X ${formatSignedNumber(settings.titleOffsetX)} Y ${formatSignedNumber(
+    settings.titleOffsetY,
+  )}`;
+}
+
+function coverTemplateLabel(template: CoverTemplateName): string {
+  return coverTemplates.find((item) => item.value === template)?.label ?? template;
+}
+
+function posterFontLabel(fontId: PosterFontId): string {
+  return posterFonts.find((item) => item.value === fontId)?.label ?? fontId;
+}
+
+function formatSignedNumber(value: number): string {
+  const rounded = Number.isInteger(value) ? value : Number(value.toFixed(1));
+  return rounded > 0 ? `+${rounded}` : String(rounded);
 }
 
 function runtimeMinutes(durationSeconds: number | null): number | null {
@@ -2143,10 +3497,7 @@ function clampTitleAngleDegrees(value: string): number {
   if (!Number.isFinite(parsed)) {
     return 0;
   }
-  return Math.min(
-    MAX_TITLE_ANGLE_DEGREES,
-    Math.max(MIN_TITLE_ANGLE_DEGREES, parsed),
-  );
+  return clampTitleAngleDegreesValue(parsed);
 }
 
 function clampTitleOffset(value: string): number {
@@ -2154,7 +3505,7 @@ function clampTitleOffset(value: string): number {
   if (!Number.isFinite(parsed)) {
     return 0;
   }
-  return Math.round(Math.min(MAX_TITLE_OFFSET, Math.max(MIN_TITLE_OFFSET, parsed)));
+  return clampTitleOffsetValue(parsed);
 }
 
 function titlePositionPercentToOffset(percent: number): number {
@@ -2173,12 +3524,26 @@ function clampScreenshotCount(value: string): number {
   return Math.min(MAX_SCREENSHOT_COUNT, Math.max(MIN_SCREENSHOT_COUNT, parsed));
 }
 
+function clampBatchConcurrency(value: string): number {
+  const parsed = Number.parseInt(value, 10);
+  if (!Number.isFinite(parsed)) {
+    return DEFAULT_BATCH_CONCURRENCY;
+  }
+  return clampBatchConcurrencyValue(parsed);
+}
+
+function clampBatchConcurrencyValue(value: number): number {
+  return Math.round(
+    clampNumber(value, MIN_BATCH_CONCURRENCY, MAX_BATCH_CONCURRENCY),
+  );
+}
+
 function clampTitleFontSize(value: string): number {
   const parsed = Number.parseInt(value, 10);
   if (!Number.isFinite(parsed)) {
     return DEFAULT_TITLE_STYLE_BY_TEMPLATE.simple_poster.fontSize;
   }
-  return Math.min(180, Math.max(16, parsed));
+  return clampTitleFontSizeValue(parsed);
 }
 
 function clampTitleStrokeWidth(value: string): number {
@@ -2186,7 +3551,29 @@ function clampTitleStrokeWidth(value: string): number {
   if (!Number.isFinite(parsed)) {
     return 0;
   }
-  return Math.min(20, Math.max(0, parsed));
+  return clampTitleStrokeWidthValue(parsed);
+}
+
+function clampTitleAngleDegreesValue(value: number): number {
+  return clampNumber(value, MIN_TITLE_ANGLE_DEGREES, MAX_TITLE_ANGLE_DEGREES);
+}
+
+function clampTitleOffsetValue(value: number): number {
+  return Math.round(clampNumber(value, MIN_TITLE_OFFSET, MAX_TITLE_OFFSET));
+}
+
+function clampTitleFontSizeValue(value: number): number {
+  return Math.round(clampNumber(value, MIN_TITLE_FONT_SIZE, MAX_TITLE_FONT_SIZE));
+}
+
+function clampTitleStrokeWidthValue(value: number): number {
+  return Math.round(
+    clampNumber(value, MIN_TITLE_STROKE_WIDTH, MAX_TITLE_STROKE_WIDTH),
+  );
+}
+
+function clampNumber(value: number, min: number, max: number): number {
+  return Math.min(max, Math.max(min, value));
 }
 
 function selectedInitialFrameIds(frames: LocalCachedAsset[]): string[] {
@@ -2199,4 +3586,29 @@ function sameOrderedValues(left: string[], right: string[]): boolean {
 
 function organizationModeForPreview(mode: OrganizationMode): OrganizationMode {
   return mode === "in_place" ? "copy" : mode;
+}
+
+async function runLimitedConcurrency<T, R>(
+  items: T[],
+  concurrency: number,
+  task: (item: T) => Promise<R>,
+): Promise<R[]> {
+  const results = new Array<R>(items.length);
+  let nextIndex = 0;
+  const workerCount = Math.min(
+    clampBatchConcurrencyValue(concurrency),
+    items.length,
+  );
+
+  await Promise.all(
+    Array.from({ length: workerCount }, async () => {
+      while (nextIndex < items.length) {
+        const currentIndex = nextIndex;
+        nextIndex += 1;
+        results[currentIndex] = await task(items[currentIndex]);
+      }
+    }),
+  );
+
+  return results;
 }

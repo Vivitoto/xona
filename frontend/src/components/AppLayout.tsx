@@ -1,4 +1,18 @@
 import type { ReactNode } from "react";
+import {
+  FilePenLine,
+  History,
+  House,
+  ListChecks,
+  Moon,
+  Search,
+  ScrollText,
+  Settings,
+  Shield,
+  Sun,
+  UsersRound,
+  type LucideIcon,
+} from "lucide-react";
 
 import { APP_VERSION_LABEL } from "../appVersion";
 import { useImageSafetyMode } from "./ImageSafetyMode";
@@ -14,15 +28,19 @@ export type PageId =
   | "logs"
   | "settings";
 
-export const navigationItems: { id: PageId; label: string; icon: string }[] = [
-  { id: "dashboard", label: "仪表盘", icon: "⌘" },
-  { id: "localMetadata", label: "本地元数据生成", icon: "↳" },
-  { id: "xchinaSearch", label: "XChina 元数据搜索", icon: "⌕" },
-  { id: "tasks", label: "任务记录", icon: "☰" },
-  { id: "actors", label: "演员库", icon: "◎" },
-  { id: "history", label: "历史/回滚", icon: "↺" },
-  { id: "logs", label: "日志", icon: "≋" },
-  { id: "settings", label: "设置", icon: "⚙" },
+export const navigationItems: {
+  id: PageId;
+  label: string;
+  icon: LucideIcon;
+}[] = [
+  { id: "dashboard", label: "仪表盘", icon: House },
+  { id: "localMetadata", label: "本地元数据生成", icon: FilePenLine },
+  { id: "xchinaSearch", label: "XChina 元数据搜索", icon: Search },
+  { id: "tasks", label: "任务记录", icon: ListChecks },
+  { id: "actors", label: "演员库", icon: UsersRound },
+  { id: "history", label: "历史/回滚", icon: History },
+  { id: "logs", label: "日志", icon: ScrollText },
+  { id: "settings", label: "设置", icon: Settings },
 ];
 
 export function AppLayout({
@@ -45,7 +63,7 @@ export function AppLayout({
       <aside className="sidebar">
         <div className="brand">
           <span className="brand-mark" aria-hidden="true">
-            X
+            <img alt="" src="/favicon.svg" />
           </span>
           <div>
             <h1>Xona</h1>
@@ -53,20 +71,23 @@ export function AppLayout({
           </div>
         </div>
         <nav aria-label="主导航">
-          {navigationItems.map((item) => (
-            <button
-              key={item.id}
-              aria-current={item.id === activePage ? "page" : undefined}
-              className="nav-button"
-              type="button"
-              onClick={() => onNavigate(item.id)}
-            >
-              <span className="nav-icon" aria-hidden="true">
-                {item.icon}
-              </span>
-              <span>{item.label}</span>
-            </button>
-          ))}
+          {navigationItems.map((item) => {
+            const Icon = item.icon;
+            return (
+              <button
+                key={item.id}
+                aria-current={item.id === activePage ? "page" : undefined}
+                className="nav-button"
+                type="button"
+                onClick={() => onNavigate(item.id)}
+              >
+                <span className="nav-icon" aria-hidden="true">
+                  <Icon size={16} strokeWidth={2.2} />
+                </span>
+                <span>{item.label}</span>
+              </button>
+            );
+          })}
         </nav>
       </aside>
       <main className="content" tabIndex={-1}>
@@ -86,7 +107,11 @@ export function AppLayout({
               title={`切换到${themeToggleLabel}`}
               onClick={toggleThemeMode}
             >
-              <span aria-hidden="true">{themeMode === "dark" ? "☼" : "☾"}</span>
+              {themeMode === "dark" ? (
+                <Sun className="button-icon" aria-hidden="true" size={15} />
+              ) : (
+                <Moon className="button-icon" aria-hidden="true" size={15} />
+              )}
               <span>{themeToggleLabel}</span>
             </button>
             <label
@@ -101,6 +126,7 @@ export function AppLayout({
                   setImageSafetyModeEnabled(event.target.checked)
                 }
               />
+              <Shield aria-hidden="true" size={14} strokeWidth={2.2} />
               <span>安全模式：模糊图片</span>
             </label>
           </div>

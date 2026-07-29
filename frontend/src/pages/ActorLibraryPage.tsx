@@ -1,4 +1,5 @@
 import { ChangeEvent, useEffect, useState } from "react";
+import { UsersRound } from "lucide-react";
 
 import { apiFetch } from "../api/client";
 import type {
@@ -209,95 +210,97 @@ export function ActorLibraryPage() {
             {loading ? (
               <LoadingSkeleton rows={5} title="正在加载演员库" variant="table" />
             ) : actors.length ? (
-              <table>
-                <caption>演员</caption>
-                <thead>
-                  <tr>
-                    <th>头像</th>
-                    <th>名称</th>
-                    <th>别名</th>
-                    <th>关联作品</th>
-                    <th>Emby</th>
-                    <th>操作</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {actors.map((actor) => (
-                    <tr key={actor.id}>
-                      <td>
-                        <ActorPortrait actor={actor} />
-                      </td>
-                      <td>
-                        <strong>{actor.canonical_name}</strong>
-                        <p className="muted">
-                          {actor.profile_url ?? actor.source}
-                        </p>
-                      </td>
-                      <td>
-                        <textarea
-                          aria-label={`${actor.canonical_name} 的别名`}
-                          value={aliasDrafts[actor.id] ?? ""}
-                          onChange={(event) =>
-                            setAliasDrafts((current) => ({
-                              ...current,
-                              [actor.id]: event.target.value,
-                            }))
-                          }
-                        />
-                      </td>
-                      <td>
-                        <button type="button" onClick={() => loadWorks(actor)}>
-                          关联作品
-                        </button>
-                        <ul className="dense-list">
-                          {(works[actor.id] ?? actor.linked_works ?? []).map(
-                            (work, index) => (
-                              <li key={index}>{workTitle(work)}</li>
-                            ),
-                          )}
-                        </ul>
-                      </td>
-                      <td>{actor.emby_person_id ?? "未关联"}</td>
-                      <td>
-                        <div className="button-column">
-                          <button
-                            type="button"
-                            onClick={() => saveAliases(actor)}
-                          >
-                            保存别名
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => setMergeActor(actor)}
-                          >
-                            合并
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => replacePortrait(actor)}
-                          >
-                            替换图片
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => refreshActor(actor)}
-                          >
-                            刷新
-                          </button>
-                          <button type="button" onClick={() => syncEmby(actor)}>
-                            同步 Emby
-                          </button>
-                        </div>
-                      </td>
+              <div className="table-wrap actor-table-wrap">
+                <table>
+                  <caption>演员</caption>
+                  <thead>
+                    <tr>
+                      <th>头像</th>
+                      <th>名称</th>
+                      <th>别名</th>
+                      <th>关联作品</th>
+                      <th>Emby</th>
+                      <th>操作</th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
+                  </thead>
+                  <tbody>
+                    {actors.map((actor) => (
+                      <tr key={actor.id}>
+                        <td>
+                          <ActorPortrait actor={actor} />
+                        </td>
+                        <td>
+                          <strong>{actor.canonical_name}</strong>
+                          <p className="muted">
+                            {actor.profile_url ?? actor.source}
+                          </p>
+                        </td>
+                        <td>
+                          <textarea
+                            aria-label={`${actor.canonical_name} 的别名`}
+                            value={aliasDrafts[actor.id] ?? ""}
+                            onChange={(event) =>
+                              setAliasDrafts((current) => ({
+                                ...current,
+                                [actor.id]: event.target.value,
+                              }))
+                            }
+                          />
+                        </td>
+                        <td>
+                          <button type="button" onClick={() => loadWorks(actor)}>
+                            关联作品
+                          </button>
+                          <ul className="dense-list">
+                            {(works[actor.id] ?? actor.linked_works ?? []).map(
+                              (work, index) => (
+                                <li key={index}>{workTitle(work)}</li>
+                              ),
+                            )}
+                          </ul>
+                        </td>
+                        <td>{actor.emby_person_id ?? "未关联"}</td>
+                        <td>
+                          <div className="button-column">
+                            <button
+                              type="button"
+                              onClick={() => saveAliases(actor)}
+                            >
+                              保存别名
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setMergeActor(actor)}
+                            >
+                              合并
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => replacePortrait(actor)}
+                            >
+                              替换图片
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => refreshActor(actor)}
+                            >
+                              刷新
+                            </button>
+                            <button type="button" onClick={() => syncEmby(actor)}>
+                              同步 Emby
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
             ) : (
               <EmptyState
                 actions={[{ label: "刷新演员", onClick: loadActors }]}
                 description="暂无本地演员缓存。"
-                icon="◎"
+                icon={UsersRound}
                 title="未找到演员"
               />
             )}
@@ -315,51 +318,53 @@ export function ActorLibraryPage() {
             {loading ? (
               <LoadingSkeleton rows={4} title="正在加载同步列表" variant="table" />
             ) : actors.length ? (
-              <table>
-                <caption>演员 Emby 同步</caption>
-                <thead>
-                  <tr>
-                    <th>头像</th>
-                    <th>名称</th>
-                    <th>Emby</th>
-                    <th>操作</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {actors.map((actor) => (
-                    <tr key={actor.id}>
-                      <td>
-                        <ActorPortrait actor={actor} />
-                      </td>
-                      <td>
-                        <strong>{actor.canonical_name}</strong>
-                        <p className="muted">
-                          {actor.profile_url ?? actor.source}
-                        </p>
-                      </td>
-                      <td>{actor.emby_person_id ?? "未关联"}</td>
-                      <td>
-                        <div className="button-row">
-                          <button
-                            type="button"
-                            onClick={() => refreshActor(actor)}
-                          >
-                            刷新
-                          </button>
-                          <button type="button" onClick={() => syncEmby(actor)}>
-                            同步 Emby
-                          </button>
-                        </div>
-                      </td>
+              <div className="table-wrap actor-table-wrap">
+                <table>
+                  <caption>演员 Emby 同步</caption>
+                  <thead>
+                    <tr>
+                      <th>头像</th>
+                      <th>名称</th>
+                      <th>Emby</th>
+                      <th>操作</th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
+                  </thead>
+                  <tbody>
+                    {actors.map((actor) => (
+                      <tr key={actor.id}>
+                        <td>
+                          <ActorPortrait actor={actor} />
+                        </td>
+                        <td>
+                          <strong>{actor.canonical_name}</strong>
+                          <p className="muted">
+                            {actor.profile_url ?? actor.source}
+                          </p>
+                        </td>
+                        <td>{actor.emby_person_id ?? "未关联"}</td>
+                        <td>
+                          <div className="button-row">
+                            <button
+                              type="button"
+                              onClick={() => refreshActor(actor)}
+                            >
+                              刷新
+                            </button>
+                            <button type="button" onClick={() => syncEmby(actor)}>
+                              同步 Emby
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
             ) : (
               <EmptyState
                 actions={[{ label: "刷新演员列表", onClick: loadActors }]}
                 description="没有可同步的演员。完成一次元数据匹配或刷新演员缓存后，再回到这里同步 Emby 人物信息。"
-                icon="◎"
+                icon={UsersRound}
                 title="没有可同步演员"
               />
             )}

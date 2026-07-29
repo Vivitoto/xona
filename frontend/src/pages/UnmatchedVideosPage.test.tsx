@@ -393,6 +393,680 @@ describe("UnmatchedVideosPage", () => {
     });
   });
 
+  it("applies default batch random title format to loaded cover previews", async () => {
+    const selectedFrameIds = Array.from(
+      { length: 9 },
+      (_, index) => `frames/beta-${index + 1}.jpg`,
+    );
+    const { calls } = installFetchMock([
+      { path: "/api/settings", response: settingsFixture() },
+      {
+        method: "POST",
+        path: "/api/local-metadata/scan",
+        response: {
+          scanned_count: 2,
+          videos: [
+            scannedVideoFixture({
+              path: "/media/incoming/Alpha.Scene.mp4",
+              filename: "Alpha.Scene.mp4",
+              cleaned_title: "Alpha Scene",
+              default_organize_filename: "Alpha Scene",
+              size_bytes: 2048,
+            }),
+            scannedVideoFixture({
+              path: "/media/incoming/Beta.Scene.mkv",
+              filename: "Beta.Scene.mkv",
+              cleaned_title: "Beta Scene",
+              default_organize_filename: "Beta Scene",
+              size_bytes: 4096,
+            }),
+          ],
+        },
+      },
+      {
+        method: "POST",
+        path: "/api/local-metadata/analyze",
+        response: {
+          video_path: "/media/incoming/Beta.Scene.mkv",
+          cleaned_title: "Beta Scene",
+          default_organize_filename: "Beta Scene",
+          default_plot: "Local metadata generated for Beta.Scene.mkv.",
+          default_tags: ["local-generated", "unmatched"],
+          technical: {
+            path: "/media/incoming/Beta.Scene.mkv",
+            size_bytes: 4096,
+            duration_seconds: 180,
+            width: 1920,
+            height: 1080,
+            video_codec: "h264",
+            audio_codec: "aac",
+            format_name: "matroska",
+            bit_rate: 6000000,
+            fps: 29.97,
+          },
+          warnings: [],
+        },
+      },
+      {
+        method: "POST",
+        path: "/api/local-metadata/frames",
+        response: {
+          video_path: "/media/incoming/Beta.Scene.mkv",
+          frames: selectedFrameIds.map((id, index) =>
+            cachedAssetFixture({
+              id,
+              url: `/api/local-metadata/cache/${id}`,
+              time_seconds: (index + 1) * 15,
+            }),
+          ),
+          warnings: [],
+        },
+      },
+      {
+        method: "POST",
+        path: "/api/local-metadata/cover-preview",
+        response: {
+          poster: cachedAssetFixture({
+            id: "covers/beta-poster.jpg",
+            kind: "poster",
+            url: "/api/local-metadata/cache/covers/beta-poster.jpg",
+            width: 900,
+            height: 1350,
+          }),
+          fanart: cachedAssetFixture({
+            id: "covers/beta-fanart.jpg",
+            kind: "fanart",
+            url: "/api/local-metadata/cache/covers/beta-fanart.jpg",
+            width: 1600,
+            height: 900,
+          }),
+          thumb: cachedAssetFixture({
+            id: "covers/beta-thumb.jpg",
+            kind: "thumb",
+            url: "/api/local-metadata/cache/covers/beta-thumb.jpg",
+            width: 1600,
+            height: 900,
+          }),
+          template: "tangxin_vlog",
+          title_font_id: "lxgw_wenkai",
+          selected_frame_ids: selectedFrameIds,
+          warnings: [],
+        },
+      },
+    ]);
+
+    render(<UnmatchedVideosPage />);
+
+    await waitFor(() =>
+      expect(screen.getByLabelText("目标目录")).toHaveValue("/media/organized"),
+    );
+
+    const singleTab = screen.getByRole("tab", { name: "单个整理" });
+    const batchTab = screen.getByRole("tab", { name: "批量整理" });
+    fireEvent.click(batchTab);
+
+    const batchSection = screen
+      .getByRole("heading", { name: "批量整理列表" })
+      .closest("section");
+    expect(batchSection).toBeTruthy();
+    const batch = within(batchSection as HTMLElement);
+
+    expect(batch.getByRole("heading", { name: "批量封面风格" })).toBeTruthy();
+    expect(batch.getByText(/字号\s+\+\/-10px/)).toBeTruthy();
+    expect(batch.getByText(/角度\s+\+\/-5 度/)).toBeTruthy();
+    expect(batch.getByText(/位置\s+\+\/-10/)).toBeTruthy();
+    expect(batch.getByLabelText("随机标题格式")).toBeChecked();
+    expect(batch.getByLabelText("批量模板")).toBeTruthy();
+    expect(batch.getByLabelText("批量标题字体")).toBeTruthy();
+    expect(batch.getByLabelText("基础字号")).toBeTruthy();
+    expect(batch.getByLabelText("基础填充色")).toBeTruthy();
+    expect(batch.getByLabelText("基础描边色")).toBeTruthy();
+    expect(batch.getByLabelText("基础描边宽度")).toBeTruthy();
+    expect(batch.getByLabelText("批量文字效果")).toBeTruthy();
+    expect(batch.getByLabelText("基础倾斜角度")).toBeTruthy();
+    expect(batch.getByLabelText("基础横向偏移")).toBeTruthy();
+    expect(batch.getByLabelText("基础纵向偏移")).toBeTruthy();
+    expect(batch.queryByLabelText("字号随机范围 +/-")).toBeNull();
+    expect(batch.queryByLabelText("角度随机范围 +/-")).toBeNull();
+    expect(batch.queryByLabelText("横向偏移随机范围 +/-")).toBeNull();
+    expect(batch.queryByLabelText("纵向偏移随机范围 +/-")).toBeNull();
+    expect(
+      batch.queryByRole("checkbox", { name: "镜像倾斜方向" }),
+    ).toBeNull();
+    expect(batch.getByLabelText("批量并发数")).toBeTruthy();
+
+    fireEvent.change(batch.getByLabelText("目录路径"), {
+      target: { value: "/media/incoming" },
+    });
+    fireEvent.click(batch.getByRole("button", { name: "扫描目录" }));
+    await waitFor(() => expect(batch.getByText("Beta.Scene.mkv")).toBeTruthy());
+
+    fireEvent.change(batch.getByLabelText("批量模板"), {
+      target: { value: "tangxin_vlog" },
+    });
+    expect(batch.getByLabelText("批量标题字体")).toHaveValue("smiley_sans");
+    fireEvent.change(batch.getByLabelText("批量标题字体"), {
+      target: { value: "lxgw_wenkai" },
+    });
+    fireEvent.change(batch.getByLabelText("基础字号"), {
+      target: { value: "80" },
+    });
+    fireEvent.change(batch.getByLabelText("基础填充色"), {
+      target: { value: "#808080" },
+    });
+    fireEvent.change(batch.getByLabelText("基础描边色"), {
+      target: { value: "#808080" },
+    });
+    fireEvent.change(batch.getByLabelText("基础描边宽度"), {
+      target: { value: "3" },
+    });
+    fireEvent.change(batch.getByLabelText("批量文字效果"), {
+      target: { value: "glow" },
+    });
+    fireEvent.change(batch.getByLabelText("基础倾斜角度"), {
+      target: { value: "10" },
+    });
+    fireEvent.change(batch.getByLabelText("基础横向偏移"), {
+      target: { value: "4" },
+    });
+    fireEvent.change(batch.getByLabelText("基础纵向偏移"), {
+      target: { value: "-6" },
+    });
+
+    fireEvent.click(batch.getByRole("button", { name: "为已选视频生成整理信息" }));
+    await waitFor(() => expect(batch.getByText("已生成的整理信息")).toBeTruthy());
+    expect(batch.getAllByText(/TangXin Vlog/).length).toBeGreaterThan(1);
+
+    fireEvent.click(
+      batch.getByRole("button", { name: "载入整理信息 Beta.Scene.mkv" }),
+    );
+    fireEvent.click(singleTab);
+
+    let editorSection = screen
+      .getByRole("heading", { name: "元数据草稿" })
+      .closest("section");
+    expect(editorSection).toBeTruthy();
+    let editor = within(editorSection as HTMLElement);
+    await waitFor(() => expect(editor.getByLabelText("模板")).toHaveValue("tangxin_vlog"));
+    const computedSettings = readCoverSettings(editorSection as HTMLElement);
+    expect(computedSettings.titleFontId).not.toBe("lxgw_wenkai");
+    expect(computedSettings.titleFontId).toMatch(
+      /^(source_han_sans|noto_sans_jp|dela_gothic_one|bebas_neue|anton|smiley_sans|zcool_qingke_huangyou|lxgw_wenkai)$/,
+    );
+    expect(computedSettings.titleFontSize).toBeGreaterThanOrEqual(70);
+    expect(computedSettings.titleFontSize).toBeLessThanOrEqual(90);
+    expect(Math.abs(computedSettings.titleAngleDegrees)).toBeGreaterThanOrEqual(5);
+    expect(Math.abs(computedSettings.titleAngleDegrees)).toBeLessThanOrEqual(15);
+    expect(computedSettings.titleOffsetX).toBeGreaterThanOrEqual(-6);
+    expect(computedSettings.titleOffsetX).toBeLessThanOrEqual(14);
+    expect(computedSettings.titleOffsetY).toBeGreaterThanOrEqual(-16);
+    expect(computedSettings.titleOffsetY).toBeLessThanOrEqual(4);
+    expect(computedSettings.titleFillColor).not.toBe("#808080");
+    expect(computedSettings.titleStrokeColor).not.toBe("#808080");
+    expect(computedSettings.titleFillColor).not.toBe(computedSettings.titleStrokeColor);
+    expect(
+      colorContrastRatio(
+        computedSettings.titleFillColor,
+        computedSettings.titleStrokeColor,
+      ),
+    ).toBeGreaterThanOrEqual(4.5);
+
+    fireEvent.click(batchTab);
+    const regeneratedBatchSection = screen
+      .getByRole("heading", { name: "批量整理列表" })
+      .closest("section");
+    expect(regeneratedBatchSection).toBeTruthy();
+    const regeneratedBatch = within(regeneratedBatchSection as HTMLElement);
+    fireEvent.click(
+      regeneratedBatch.getByRole("button", { name: "为已选视频生成整理信息" }),
+    );
+    fireEvent.click(singleTab);
+    editorSection = screen
+      .getByRole("heading", { name: "元数据草稿" })
+      .closest("section");
+    expect(editorSection).toBeTruthy();
+    editor = within(editorSection as HTMLElement);
+    await waitFor(() =>
+      expect(readCoverSettings(editorSection as HTMLElement)).toEqual(computedSettings),
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "分析并生成截图" }));
+    await screen.findByRole("button", { name: /截图 0:15/ });
+    expect(readCoverSettings(editorSection as HTMLElement)).toEqual(computedSettings);
+
+    fireEvent.click(screen.getByRole("button", { name: "生成封面预览" }));
+    await screen.findByRole("img", { name: "Poster preview" });
+    const coverCall = calls.find(
+      (call) =>
+        call.method === "POST" && call.url === "/api/local-metadata/cover-preview",
+    );
+    expect(coverCall?.body).toMatchObject({
+      video_path: "/media/incoming/Beta.Scene.mkv",
+      template: computedSettings.template,
+      title_font_id: computedSettings.titleFontId,
+      title_font_size: computedSettings.titleFontSize,
+      title_fill_color: computedSettings.titleFillColor,
+      title_stroke_color: computedSettings.titleStrokeColor,
+      title_stroke_width: computedSettings.titleStrokeWidth,
+      title_effect: computedSettings.titleEffect,
+      title_angle_degrees: computedSettings.titleAngleDegrees,
+      title_position_x_percent: computedSettings.titleOffsetX + 50,
+      title_position_y_percent: computedSettings.titleOffsetY + 50,
+      selected_frame_ids: selectedFrameIds,
+    });
+
+    fireEvent.change(editor.getByLabelText("封面字号"), {
+      target: { value: "91" },
+    });
+    fireEvent.click(batchTab);
+    const updatedBatchSection = screen
+      .getByRole("heading", { name: "批量整理列表" })
+      .closest("section");
+    expect(updatedBatchSection).toBeTruthy();
+    const updatedBatch = within(updatedBatchSection as HTMLElement);
+    fireEvent.click(
+      updatedBatch.getByRole("button", { name: "保存当前草稿到 Beta.Scene.mkv" }),
+    );
+    expect(updatedBatch.getByText(/91px/)).toBeTruthy();
+    fireEvent.click(
+      updatedBatch.getByRole("button", { name: "载入整理信息 Beta.Scene.mkv" }),
+    );
+    fireEvent.click(singleTab);
+    editorSection = screen
+      .getByRole("heading", { name: "元数据草稿" })
+      .closest("section");
+    expect(editorSection).toBeTruthy();
+    editor = within(editorSection as HTMLElement);
+    await waitFor(() => expect(editor.getByLabelText("封面字号")).toHaveValue(91));
+  });
+
+  it("keeps batch cover baseline stable when random title format is disabled", async () => {
+    installFetchMock([
+      { path: "/api/settings", response: settingsFixture() },
+      {
+        method: "POST",
+        path: "/api/local-metadata/scan",
+        response: {
+          scanned_count: 2,
+          videos: [
+            scannedVideoFixture({
+              path: "/media/incoming/Alpha.Scene.mp4",
+              filename: "Alpha.Scene.mp4",
+              cleaned_title: "Alpha Scene",
+              default_organize_filename: "Alpha Scene",
+              size_bytes: 2048,
+            }),
+            scannedVideoFixture({
+              path: "/media/incoming/Beta.Scene.mkv",
+              filename: "Beta.Scene.mkv",
+              cleaned_title: "Beta Scene",
+              default_organize_filename: "Beta Scene",
+              size_bytes: 4096,
+            }),
+          ],
+        },
+      },
+    ]);
+
+    render(<UnmatchedVideosPage />);
+
+    await waitFor(() =>
+      expect(screen.getByLabelText("目标目录")).toHaveValue("/media/organized"),
+    );
+
+    const singleTab = screen.getByRole("tab", { name: "单个整理" });
+    const batchTab = screen.getByRole("tab", { name: "批量整理" });
+    fireEvent.click(batchTab);
+
+    const batchSection = screen
+      .getByRole("heading", { name: "批量整理列表" })
+      .closest("section");
+    expect(batchSection).toBeTruthy();
+    const batch = within(batchSection as HTMLElement);
+
+    fireEvent.change(batch.getByLabelText("目录路径"), {
+      target: { value: "/media/incoming" },
+    });
+    fireEvent.click(batch.getByRole("button", { name: "扫描目录" }));
+    await waitFor(() => expect(batch.getByText("Beta.Scene.mkv")).toBeTruthy());
+
+    expect(batch.getByLabelText("随机标题格式")).toBeChecked();
+    fireEvent.click(batch.getByLabelText("随机标题格式"));
+    expect(batch.getByLabelText("随机标题格式")).not.toBeChecked();
+    fireEvent.change(batch.getByLabelText("批量模板"), {
+      target: { value: "tangxin_vlog" },
+    });
+    fireEvent.change(batch.getByLabelText("批量标题字体"), {
+      target: { value: "lxgw_wenkai" },
+    });
+    fireEvent.change(batch.getByLabelText("基础字号"), {
+      target: { value: "80" },
+    });
+    fireEvent.change(batch.getByLabelText("基础填充色"), {
+      target: { value: "#808080" },
+    });
+    fireEvent.change(batch.getByLabelText("基础描边色"), {
+      target: { value: "#808080" },
+    });
+    fireEvent.change(batch.getByLabelText("基础描边宽度"), {
+      target: { value: "3" },
+    });
+    fireEvent.change(batch.getByLabelText("批量文字效果"), {
+      target: { value: "glow" },
+    });
+    fireEvent.change(batch.getByLabelText("基础倾斜角度"), {
+      target: { value: "10" },
+    });
+    fireEvent.change(batch.getByLabelText("基础横向偏移"), {
+      target: { value: "4" },
+    });
+    fireEvent.change(batch.getByLabelText("基础纵向偏移"), {
+      target: { value: "-6" },
+    });
+
+    fireEvent.click(batch.getByRole("button", { name: "为已选视频生成整理信息" }));
+    await waitFor(() => expect(batch.getByText("已生成的整理信息")).toBeTruthy());
+    fireEvent.click(
+      batch.getByRole("button", { name: "载入整理信息 Beta.Scene.mkv" }),
+    );
+    fireEvent.click(singleTab);
+
+    let editorSection = screen
+      .getByRole("heading", { name: "元数据草稿" })
+      .closest("section");
+    expect(editorSection).toBeTruthy();
+    await waitFor(() =>
+      expect(readCoverSettings(editorSection as HTMLElement)).toEqual({
+        template: "tangxin_vlog",
+        titleFontId: "lxgw_wenkai",
+        titleFontSize: 80,
+        titleFillColor: "#808080",
+        titleStrokeColor: "#808080",
+        titleStrokeWidth: 3,
+        titleEffect: "glow",
+        titleAngleDegrees: 10,
+        titleOffsetX: 4,
+        titleOffsetY: -6,
+      }),
+    );
+
+    fireEvent.click(batchTab);
+    const regeneratedBatchSection = screen
+      .getByRole("heading", { name: "批量整理列表" })
+      .closest("section");
+    expect(regeneratedBatchSection).toBeTruthy();
+    const regeneratedBatch = within(regeneratedBatchSection as HTMLElement);
+    fireEvent.click(
+      regeneratedBatch.getByRole("button", { name: "为已选视频生成整理信息" }),
+    );
+    fireEvent.click(singleTab);
+    editorSection = screen
+      .getByRole("heading", { name: "元数据草稿" })
+      .closest("section");
+    expect(editorSection).toBeTruthy();
+    await waitFor(() =>
+      expect(readCoverSettings(editorSection as HTMLElement)).toEqual({
+        template: "tangxin_vlog",
+        titleFontId: "lxgw_wenkai",
+        titleFontSize: 80,
+        titleFillColor: "#808080",
+        titleStrokeColor: "#808080",
+        titleStrokeWidth: 3,
+        titleEffect: "glow",
+        titleAngleDegrees: 10,
+        titleOffsetX: 4,
+        titleOffsetY: -6,
+      }),
+    );
+  });
+
+  it("generates batch NFO cover and plans with logs while continuing after one item fails", async () => {
+    const { calls } = installFetchMock([
+      { path: "/api/settings", response: settingsFixture() },
+      {
+        method: "POST",
+        path: "/api/local-metadata/scan",
+        response: {
+          scanned_count: 3,
+          videos: [
+            scannedVideoFixture({
+              path: "/media/incoming/Alpha.Scene.mp4",
+              filename: "Alpha.Scene.mp4",
+              cleaned_title: "Alpha Scene",
+              default_organize_filename: "Alpha Scene",
+              size_bytes: 2048,
+            }),
+            scannedVideoFixture({
+              path: "/media/incoming/Beta.Scene.mkv",
+              filename: "Beta.Scene.mkv",
+              cleaned_title: "Beta Scene",
+              default_organize_filename: "Beta Scene",
+              size_bytes: 4096,
+            }),
+            scannedVideoFixture({
+              path: "/media/incoming/Gamma.Scene.mp4",
+              filename: "Gamma.Scene.mp4",
+              cleaned_title: "Gamma Scene",
+              default_organize_filename: "Gamma Scene",
+              size_bytes: 8192,
+            }),
+          ],
+        },
+      },
+      {
+        method: "POST",
+        path: "/api/local-metadata/analyze",
+        response: (call) => {
+          const videoPath = requestVideoPath(call.body);
+          return analyzeResponseFixture(videoPath);
+        },
+      },
+      {
+        method: "POST",
+        path: "/api/local-metadata/frames",
+        response: (call) => {
+          const videoPath = requestVideoPath(call.body);
+          if (videoPath.includes("Beta.Scene")) {
+            throw new Error("Beta screenshots failed");
+          }
+          const stem = slugFromPath(videoPath);
+          return {
+            video_path: videoPath,
+            frames: Array.from({ length: 9 }, (_, index) =>
+              cachedAssetFixture({
+                id: `frames/${stem}-${index + 1}.jpg`,
+                url: `/api/local-metadata/cache/frames/${stem}-${index + 1}.jpg`,
+                time_seconds: (index + 1) * 20,
+              }),
+            ),
+            warnings: [],
+          };
+        },
+      },
+      {
+        method: "POST",
+        path: "/api/local-metadata/cover-preview",
+        response: (call) => {
+          const videoPath = requestVideoPath(call.body);
+          const stem = slugFromPath(videoPath);
+          return {
+            poster: cachedAssetFixture({
+              id: `covers/${stem}-poster.jpg`,
+              kind: "poster",
+              url: `/api/local-metadata/cache/covers/${stem}-poster.jpg`,
+              width: 900,
+              height: 1350,
+            }),
+            fanart: cachedAssetFixture({
+              id: `covers/${stem}-fanart.jpg`,
+              kind: "fanart",
+              url: `/api/local-metadata/cache/covers/${stem}-fanart.jpg`,
+              width: 1600,
+              height: 900,
+            }),
+            thumb: cachedAssetFixture({
+              id: `covers/${stem}-thumb.jpg`,
+              kind: "thumb",
+              url: `/api/local-metadata/cache/covers/${stem}-thumb.jpg`,
+              width: 1600,
+              height: 900,
+            }),
+            template: "simple_poster",
+            title_font_id: "source_han_sans",
+            selected_frame_ids: Array.from(
+              { length: 9 },
+              (_, index) => `frames/${stem}-${index + 1}.jpg`,
+            ),
+            warnings: [],
+          };
+        },
+      },
+      {
+        method: "POST",
+        path: "/api/local-metadata/preview-plan",
+        response: (call) => {
+          const videoPath = requestPlanVideoPath(call.body);
+          const stem = slugFromPath(videoPath);
+          return {
+            plan_id: `plan-${stem}`,
+            metadata: { title: requestPlanTitle(call.body) },
+            materialized_assets: [],
+            nfo_xml: `<movie><title>${requestPlanTitle(call.body)}</title></movie>`,
+            plan: operationPlanFixture({
+              plan_id: `plan-${stem}`,
+              mode: "copy",
+            }),
+          };
+        },
+      },
+      {
+        method: "POST",
+        path: /\/api\/local-metadata\/plans\/plan-(alpha-scene|gamma-scene)\/execute/,
+        response: (call) => ({
+          plan_id: call.url.includes("alpha-scene")
+            ? "plan-alpha-scene"
+            : "plan-gamma-scene",
+          job_id: null,
+          state: "completed",
+        }),
+      },
+      {
+        method: "POST",
+        path: /\/api\/local-metadata\/plans\/plan-(alpha-scene|gamma-scene)\/cleanup-cache/,
+        response: (call) => ({
+          plan_id: call.url.includes("alpha-scene")
+            ? "plan-alpha-scene"
+            : "plan-gamma-scene",
+          deleted_directories: 1,
+          deleted_files: 12,
+          cache_dirs: ["/config/cache/local_metadata/ab/abcdef"],
+          warnings: [],
+        }),
+      },
+    ]);
+
+    render(<UnmatchedVideosPage />);
+
+    await waitFor(() =>
+      expect(screen.getByLabelText("目标目录")).toHaveValue("/media/organized"),
+    );
+
+    fireEvent.click(screen.getByRole("tab", { name: "批量整理" }));
+    const batchSection = screen
+      .getByRole("heading", { name: "批量整理列表" })
+      .closest("section");
+    expect(batchSection).toBeTruthy();
+    const batch = within(batchSection as HTMLElement);
+
+    fireEvent.change(batch.getByLabelText("目录路径"), {
+      target: { value: "/media/incoming" },
+    });
+    fireEvent.click(batch.getByRole("button", { name: "扫描目录" }));
+    await waitFor(() => expect(batch.getByText("Gamma.Scene.mp4")).toBeTruthy());
+
+    fireEvent.change(screen.getByLabelText("模式"), {
+      target: { value: "copy" },
+    });
+    fireEvent.change(batch.getByLabelText("批量并发数"), {
+      target: { value: "2" },
+    });
+    fireEvent.click(batch.getByRole("button", { name: "为已选视频生成整理信息" }));
+    await waitFor(() => expect(batch.getByText("已生成的整理信息")).toBeTruthy());
+
+    const generateButton = batch.getByRole("button", {
+      name: "生成批量 NFO/封面/整理预览",
+    });
+    fireEvent.click(generateButton);
+
+    await waitFor(() =>
+      expect(
+        screen.getByRole("status", { name: "批量生成摘要" }),
+      ).toHaveTextContent("成功 2 个，失败 1 个"),
+    );
+    expect(screen.getByText("失败：Beta screenshots failed")).toBeTruthy();
+    expect(screen.getByText("计划 plan-alpha-scene")).toBeTruthy();
+    expect(screen.getByText("计划 plan-gamma-scene")).toBeTruthy();
+    expect(screen.queryByText("计划 plan-beta-scene")).toBeNull();
+    expect(screen.getAllByText("已生成").length).toBeGreaterThanOrEqual(2);
+    expect(screen.getByText("生成失败")).toBeTruthy();
+
+    expect(
+      calls.some((call) => call.url.includes("/execute")),
+    ).toBe(false);
+    expect(
+      calls.some((call) => call.url.includes("/cleanup-cache")),
+    ).toBe(false);
+    expect(
+      calls.filter(
+        (call) =>
+          call.method === "POST" && call.url === "/api/local-metadata/analyze",
+      ),
+    ).toHaveLength(3);
+    expect(
+      calls.filter(
+        (call) =>
+          call.method === "POST" && call.url === "/api/local-metadata/frames",
+      ),
+    ).toHaveLength(3);
+    expect(
+      calls.filter(
+        (call) =>
+          call.method === "POST" &&
+          call.url === "/api/local-metadata/cover-preview",
+      ),
+    ).toHaveLength(2);
+    expect(
+      calls.filter(
+        (call) =>
+          call.method === "POST" &&
+          call.url === "/api/local-metadata/preview-plan",
+      ),
+    ).toHaveLength(2);
+
+    fireEvent.click(
+      batch.getByRole("button", {
+        name: "执行已生成的批量整理计划",
+      }),
+    );
+    await waitFor(() =>
+      expect(screen.getAllByText("已执行")).toHaveLength(2),
+    );
+    await waitFor(() =>
+      expect(screen.getAllByText(/本地元数据缓存已清理：1 个目录，12 个文件/)).toHaveLength(2),
+    );
+    expect(
+      calls.filter((call) => call.url.includes("/execute")),
+    ).toHaveLength(2);
+    const cleanupCalls = calls.filter((call) => call.url.includes("/cleanup-cache"));
+    expect(cleanupCalls).toHaveLength(2);
+    cleanupCalls.forEach((call) => {
+      expect(call.body).toMatchObject({ plan_version: 1 });
+    });
+    expect(
+      calls.some((call) => call.url.includes("plan-beta-scene/execute")),
+    ).toBe(false);
+  });
+
   it("requires selected frames for cover preview and clears stale cover and plan previews", async () => {
     const selectedFrameIds = Array.from(
       { length: 9 },
@@ -842,6 +1516,85 @@ function settingsFixture(): AppSettings {
   };
 }
 
+function analyzeResponseFixture(videoPath: string) {
+  const title = titleFromPathFixture(videoPath);
+  const filename = videoPath.split("/").pop() ?? videoPath;
+  return {
+    video_path: videoPath,
+    cleaned_title: title,
+    default_organize_filename: title,
+    default_plot: `Local metadata generated for ${filename}.`,
+    default_tags: ["local-generated", "unmatched"],
+    technical: {
+      path: videoPath,
+      size_bytes: 4096,
+      duration_seconds: 180,
+      width: 1920,
+      height: 1080,
+      video_codec: "h264",
+      audio_codec: "aac",
+      format_name: "mp4",
+      bit_rate: 6000000,
+      fps: 29.97,
+    },
+    warnings: [],
+  };
+}
+
+function requestVideoPath(body: unknown): string {
+  if (
+    body &&
+    typeof body === "object" &&
+    "video_path" in body &&
+    typeof body.video_path === "string"
+  ) {
+    return body.video_path;
+  }
+  throw new Error("Expected request body with video_path");
+}
+
+function requestPlanVideoPath(body: unknown): string {
+  const metadata = requestPlanMetadata(body);
+  if (typeof metadata.video_path === "string") {
+    return metadata.video_path;
+  }
+  throw new Error("Expected plan request metadata with video_path");
+}
+
+function requestPlanTitle(body: unknown): string {
+  const metadata = requestPlanMetadata(body);
+  if (typeof metadata.title === "string") {
+    return metadata.title;
+  }
+  throw new Error("Expected plan request metadata with title");
+}
+
+function requestPlanMetadata(body: unknown): Record<string, unknown> {
+  if (
+    body &&
+    typeof body === "object" &&
+    "metadata" in body &&
+    body.metadata &&
+    typeof body.metadata === "object"
+  ) {
+    return body.metadata as Record<string, unknown>;
+  }
+  throw new Error("Expected plan request body with metadata");
+}
+
+function slugFromPath(path: string): string {
+  return titleFromPathFixture(path).toLowerCase().replace(/\s+/g, "-");
+}
+
+function titleFromPathFixture(path: string): string {
+  const filename = path.split(/[\\/]/).pop() ?? path;
+  return filename
+    .replace(/\.[^.]+$/, "")
+    .replace(/[._-]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
 function operationPlanFixture(
   overrides: Partial<{ plan_id: string; mode: string }> = {},
 ) {
@@ -909,5 +1662,74 @@ function cachedAssetFixture(
     height: 720,
     time_seconds: null,
     ...overrides,
+  };
+}
+
+function colorContrastRatio(firstColor: string, secondColor: string): number {
+  const first = parseHexColor(firstColor);
+  const second = parseHexColor(secondColor);
+  if (!first || !second) {
+    return 0;
+  }
+  const firstLuminance = relativeLuminance(first);
+  const secondLuminance = relativeLuminance(second);
+  const lighter = Math.max(firstLuminance, secondLuminance);
+  const darker = Math.min(firstLuminance, secondLuminance);
+  return (lighter + 0.05) / (darker + 0.05);
+}
+
+function parseHexColor(value: string): [number, number, number] | null {
+  const match = /^#([0-9a-f]{6})$/.exec(value);
+  if (!match) {
+    return null;
+  }
+  const hex = match[1];
+  return [
+    Number.parseInt(hex.slice(0, 2), 16),
+    Number.parseInt(hex.slice(2, 4), 16),
+    Number.parseInt(hex.slice(4, 6), 16),
+  ];
+}
+
+function relativeLuminance([red, green, blue]: [number, number, number]): number {
+  return (
+    0.2126 * srgbToLinear(red) +
+    0.7152 * srgbToLinear(green) +
+    0.0722 * srgbToLinear(blue)
+  );
+}
+
+function srgbToLinear(channel: number): number {
+  const normalized = channel / 255;
+  return normalized <= 0.03928
+    ? normalized / 12.92
+    : ((normalized + 0.055) / 1.055) ** 2.4;
+}
+
+function readCoverSettings(container: HTMLElement) {
+  const controls = within(container);
+  return {
+    template: (controls.getByLabelText("模板") as HTMLSelectElement).value,
+    titleFontId: (controls.getByLabelText("封面字体") as HTMLSelectElement).value,
+    titleFontSize: Number(
+      (controls.getByLabelText("封面字号") as HTMLInputElement).value,
+    ),
+    titleFillColor: (controls.getByLabelText("文字填充色") as HTMLInputElement)
+      .value,
+    titleStrokeColor: (controls.getByLabelText("描边颜色") as HTMLInputElement)
+      .value,
+    titleStrokeWidth: Number(
+      (controls.getByLabelText("描边宽度") as HTMLInputElement).value,
+    ),
+    titleEffect: (controls.getByLabelText("文字效果") as HTMLSelectElement).value,
+    titleAngleDegrees: Number(
+      (controls.getByLabelText("文字倾斜角度") as HTMLInputElement).value,
+    ),
+    titleOffsetX: Number(
+      (controls.getByLabelText("文字横向偏移") as HTMLInputElement).value,
+    ),
+    titleOffsetY: Number(
+      (controls.getByLabelText("文字纵向偏移") as HTMLInputElement).value,
+    ),
   };
 }

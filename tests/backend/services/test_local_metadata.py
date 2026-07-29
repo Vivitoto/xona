@@ -27,6 +27,7 @@ from backend.app.services.local_metadata import (
     clean_organize_filename,
     local_metadata_record,
     _percentage_times,
+    _video_cache_dir_for_asset_path,
 )
 
 
@@ -505,6 +506,123 @@ def test_local_execute_plan_runs_current_non_preview_plan(tmp_path: Path) -> Non
             assert exc_info.value.code == "plan_not_executable:preview_mode"
     finally:
         engine.dispose()
+
+
+def test_local_plan_cache_cleanup_requires_completed_plan_and_removes_video_cache_dir(
+    tmp_path: Path,
+) -> None:
+    root = tmp_path / "media"
+    incoming = root / "incoming"
+    destination = root / "organized"
+    incoming.mkdir(parents=True)
+    destination.mkdir()
+    video = incoming / "Cache.Cleanup.Work.mp4"
+    video.write_bytes(b"synthetic-video")
+    settings = Settings(
+        config_dir=tmp_path / "config",
+        storage_roots=(root,),
+        auth_enabled=False,
+    )
+    run_migrations(settings=settings)
+    engine = create_engine_for_settings(settings)
+    try:
+        with get_sessionmaker(engine)() as session:
+            service = LocalMetadataService(settings, session)
+            cache_dir = service._cache_dir_for_video(video)
+            poster = _synthetic_frame(
+                cache_dir / "covers" / "poster.jpg",
+                (40, 84, 126),
+                size=(1000, 1500),
+            )
+            fanart = _synthetic_frame(
+                cache_dir / "covers" / "fanart.jpg",
+                (48, 112, 76),
+                size=(1920, 1080),
+            )
+            thumb = _synthetic_frame(
+                cache_dir / "covers" / "thumb.jpg",
+                (98, 88, 156),
+                size=(1920, 1080),
+            )
+            frame = _synthetic_frame(cache_dir / "frames" / "frame-1.jpg", (126, 72, 52))
+            cache_root = settings.config_dir / "cache" / "local_metadata"
+            preview = service.preview_plan(
+                LocalPlanPreviewRequest(
+                    metadata=LocalMetadataDraft(
+                        video_path=video,
+                        title="Cache Cleanup Work",
+                        plot="Local draft.",
+                        tags=["local-generated", "unmatched"],
+                    ),
+                    destination_root=destination,
+                    mode="copy",
+                    folder_templates=["Local", "{title}"],
+                    filename_template="{title}",
+                    poster_ref=str(poster.relative_to(cache_root)),
+                    fanart_ref=str(fanart.relative_to(cache_root)),
+                    thumb_ref=str(thumb.relative_to(cache_root)),
+                    selected_frame_ids=[str(frame.relative_to(cache_root))],
+                    extra_backdrop_count=1,
+                )
+            )
+
+            with pytest.raises(LocalMetadataError) as exc_info:
+                service.cleanup_plan_cache(
+                    preview.plan_id,
+                    plan_version=preview.plan["version"],
+                )
+
+            assert exc_info.value.code == "plan_not_completed"
+            assert cache_dir.is_dir()
+
+            service.execute_plan(
+                preview.plan_id,
+                approved=True,
+                plan_version=preview.plan["version"],
+            )
+            result = service.cleanup_plan_cache(
+                preview.plan_id,
+                plan_version=preview.plan["version"],
+            )
+
+            assert result.deleted_directories == 1
+            assert result.deleted_files == 4
+            assert result.cache_dirs == [cache_dir]
+            assert result.warnings == []
+            assert not cache_dir.exists()
+            assert (settings.config_dir / "cache" / "local_metadata").is_dir()
+            assert (
+                destination / "Local" / "Cache Cleanup Work" / "poster.jpg"
+            ).is_file()
+            assert (
+                destination / "Local" / "Cache Cleanup Work" / "backdrop.jpg"
+            ).is_file()
+    finally:
+        engine.dispose()
+
+
+def test_local_metadata_cache_dir_resolution_only_accepts_video_cache_shape(
+    tmp_path: Path,
+) -> None:
+    cache_root = tmp_path / "cache" / "local_metadata"
+    key = "ab" + ("0" * 62)
+
+    assert _video_cache_dir_for_asset_path(
+        cache_root / "ab" / key / "covers" / "poster.jpg",
+        root=cache_root,
+    ) == cache_root / "ab" / key
+    assert _video_cache_dir_for_asset_path(
+        cache_root / "manual" / "poster.jpg",
+        root=cache_root,
+    ) is None
+    assert _video_cache_dir_for_asset_path(
+        cache_root / "ab" / key,
+        root=cache_root,
+    ) is None
+    assert _video_cache_dir_for_asset_path(
+        tmp_path / "outside" / "ab" / key / "covers" / "poster.jpg",
+        root=cache_root,
+    ) is None
 
 
 def _synthetic_frame(

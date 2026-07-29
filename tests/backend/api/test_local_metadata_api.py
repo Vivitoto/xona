@@ -8,7 +8,11 @@ from PIL import Image, ImageDraw
 
 from backend.app.core.settings import Settings
 from backend.app.main import create_app
-from backend.app.schemas.local_metadata import LocalVideoTechnicalInfo
+from backend.app.schemas.local_metadata import (
+    LocalMetadataDraft,
+    LocalPlanPreviewRequest,
+    LocalVideoTechnicalInfo,
+)
 from backend.app.services import local_metadata as local_metadata_service
 
 
@@ -189,3 +193,120 @@ def test_local_metadata_api_cover_preview_title_position_contract(
     assert responses["too_few"].json()["detail"]["reasons"] == [
         "nine_distinct_frames_required:4"
     ]
+
+
+def test_local_metadata_api_cleans_completed_plan_local_cache(tmp_path: Path) -> None:
+    root = tmp_path / "media"
+    incoming = root / "incoming"
+    destination = root / "organized"
+    incoming.mkdir(parents=True)
+    destination.mkdir()
+    video = incoming / "Api.Cache.Work.mp4"
+    video.write_bytes(b"synthetic-video")
+    settings = Settings(
+        config_dir=tmp_path / "config",
+        storage_roots=(root,),
+        auth_enabled=False,
+    )
+
+    async def run() -> dict[str, object]:
+        app = create_app(settings)
+        async with app.router.lifespan_context(app):
+            with app.state.sessionmaker() as session:
+                service = local_metadata_service.LocalMetadataService(settings, session)
+                cache_dir = service._cache_dir_for_video(video)
+                cache_root = settings.config_dir / "cache" / "local_metadata"
+                poster = _api_synthetic_image(
+                    cache_dir / "covers" / "poster.jpg",
+                    (40, 84, 126),
+                    size=(1000, 1500),
+                )
+                fanart = _api_synthetic_image(
+                    cache_dir / "covers" / "fanart.jpg",
+                    (48, 112, 76),
+                    size=(1920, 1080),
+                )
+                thumb = _api_synthetic_image(
+                    cache_dir / "covers" / "thumb.jpg",
+                    (98, 88, 156),
+                    size=(1920, 1080),
+                )
+                preview = service.preview_plan(
+                    LocalPlanPreviewRequest(
+                        metadata=LocalMetadataDraft(
+                            video_path=video,
+                            title="Api Cache Work",
+                            plot="Local draft.",
+                            tags=["local-generated", "unmatched"],
+                        ),
+                        destination_root=destination,
+                        mode="copy",
+                        folder_templates=["Local", "{title}"],
+                        filename_template="{title}",
+                        poster_ref=str(poster.relative_to(cache_root)),
+                        fanart_ref=str(fanart.relative_to(cache_root)),
+                        thumb_ref=str(thumb.relative_to(cache_root)),
+                    )
+                )
+                session.commit()
+
+            async with httpx.AsyncClient(
+                transport=httpx.ASGITransport(app=app),
+                base_url=ORIGIN,
+            ) as client:
+                before_execute = await client.post(
+                    f"/api/local-metadata/plans/{preview.plan_id}/cleanup-cache",
+                    json={"plan_version": preview.plan["version"]},
+                    headers={"Origin": ORIGIN},
+                )
+                execute = await client.post(
+                    f"/api/local-metadata/plans/{preview.plan_id}/execute",
+                    json={"approved": True, "plan_version": preview.plan["version"]},
+                    headers={"Origin": ORIGIN},
+                )
+                cleanup = await client.post(
+                    f"/api/local-metadata/plans/{preview.plan_id}/cleanup-cache",
+                    json={"plan_version": preview.plan["version"]},
+                    headers={"Origin": ORIGIN},
+                )
+                return {
+                    "before_execute": before_execute,
+                    "execute": execute,
+                    "cleanup": cleanup,
+                    "cache_dir": cache_dir,
+                }
+
+    result = asyncio.run(run())
+    before_execute = result["before_execute"]
+    execute = result["execute"]
+    cleanup = result["cleanup"]
+    cache_dir = result["cache_dir"]
+    assert isinstance(before_execute, httpx.Response)
+    assert isinstance(execute, httpx.Response)
+    assert isinstance(cleanup, httpx.Response)
+    assert isinstance(cache_dir, Path)
+
+    assert before_execute.status_code == 409
+    assert before_execute.json()["detail"]["error"] == "plan_not_completed"
+    assert execute.status_code == 200, execute.text
+    assert cleanup.status_code == 200, cleanup.text
+    payload = cleanup.json()
+    assert payload["deleted_directories"] == 1
+    assert payload["deleted_files"] == 3
+    assert payload["warnings"] == []
+    assert not cache_dir.exists()
+    assert (destination / "Local" / "Api Cache Work" / "poster.jpg").is_file()
+
+
+def _api_synthetic_image(
+    path: Path,
+    color: tuple[int, int, int],
+    *,
+    size: tuple[int, int] = (1280, 720),
+) -> Path:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    image = Image.new("RGB", size, color)
+    draw = ImageDraw.Draw(image)
+    draw.rectangle((40, 40, size[0] - 40, size[1] - 40), outline=(255, 255, 255), width=8)
+    image.save(path, "JPEG")
+    return path

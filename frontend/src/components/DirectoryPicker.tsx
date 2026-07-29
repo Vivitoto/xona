@@ -1,4 +1,14 @@
 import { useId, useState } from "react";
+import {
+  Check,
+  CornerUpLeft,
+  File,
+  Folder,
+  FolderOpen,
+  HardDrive,
+  RefreshCw,
+  X,
+} from "lucide-react";
 
 import { apiFetch } from "../api/client";
 import type { BrowseResponse, StorageRootList, StorageRootRead } from "../api/types";
@@ -28,8 +38,9 @@ export function DirectoryPicker({
     setLoading(true);
     try {
       const response = await apiFetch<StorageRootList>("/api/storage-roots");
-      setRoots(response.roots);
-      const root = findRootForPath(response.roots, path) ?? response.roots[0] ?? null;
+      const roots = Array.isArray(response.roots) ? response.roots : [];
+      setRoots(roots);
+      const root = findRootForPath(roots, path) ?? roots[0] ?? null;
       setSelectedRoot(root);
       if (root) {
         await browse(root, toRelativePath(path, root.path));
@@ -105,7 +116,8 @@ export function DirectoryPicker({
   return (
     <>
       <button className="secondary directory-picker-trigger" type="button" onClick={openPicker}>
-        {buttonLabel}
+        <FolderOpen className="button-icon" aria-hidden="true" size={15} />
+        <span>{buttonLabel}</span>
       </button>
       {open ? (
         <div
@@ -121,7 +133,8 @@ export function DirectoryPicker({
                 <p className="muted">选择一个媒体目录，然后点击目录逐层进入。</p>
               </div>
               <button className="secondary" type="button" onClick={() => setOpen(false)}>
-                关闭
+                <X className="button-icon" aria-hidden="true" size={15} />
+                <span>关闭</span>
               </button>
             </div>
 
@@ -135,6 +148,7 @@ export function DirectoryPicker({
                     type="button"
                     onClick={() => switchRoot(root)}
                   >
+                    <HardDrive className="button-icon" aria-hidden="true" size={15} />
                     <span className="root-name">{root.path}</span>
                     <span className="badge">{root.source === "user" ? "用户" : "容器挂载"}</span>
                   </button>
@@ -144,7 +158,8 @@ export function DirectoryPicker({
 
             <div className="directory-toolbar">
               <button disabled={loading || !selectedRoot} type="button" onClick={() => void browse()}>
-                刷新
+                <RefreshCw className="button-icon" aria-hidden="true" size={15} />
+                <span>刷新</span>
               </button>
               <button
                 className="secondary"
@@ -152,7 +167,8 @@ export function DirectoryPicker({
                 type="button"
                 onClick={goUp}
               >
-                上一层
+                <CornerUpLeft className="button-icon" aria-hidden="true" size={15} />
+                <span>上一层</span>
               </button>
               <button
                 className="secondary"
@@ -160,7 +176,8 @@ export function DirectoryPicker({
                 type="button"
                 onClick={selectCurrentDirectory}
               >
-                选择当前目录
+                <Check className="button-icon" aria-hidden="true" size={15} />
+                <span>选择当前目录</span>
               </button>
             </div>
 
@@ -181,7 +198,11 @@ export function DirectoryPicker({
                           onClick={() => enterDirectory(entry.path)}
                         >
                           <span className="directory-icon" aria-hidden="true">
-                            {entry.is_dir ? "📁" : "📄"}
+                            {entry.is_dir ? (
+                              <Folder size={18} strokeWidth={2.1} />
+                            ) : (
+                              <File size={18} strokeWidth={2.1} />
+                            )}
                           </span>
                           <span className="directory-main">
                             <strong>{entry.name}</strong>

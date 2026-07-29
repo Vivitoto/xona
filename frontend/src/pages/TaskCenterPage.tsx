@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { FileSearch } from "lucide-react";
 
 import { apiFetch } from "../api/client";
 import type {
@@ -158,6 +159,9 @@ export function TaskCenterPage() {
           </dl>
         ) : (
           <div className="empty-state">
+            <span className="empty-state-icon" aria-hidden="true">
+              <FileSearch size={20} strokeWidth={2.2} />
+            </span>
             <strong>还没有加载任务</strong>
             <span>输入任务 ID 后加载详情、进度记录和可用操作。</span>
           </div>

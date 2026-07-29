@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { ScrollText } from "lucide-react";
 
 import { apiFetch } from "../api/client";
 import type { LogEntryRead, LogListResponse } from "../api/types";
@@ -150,7 +151,7 @@ export function LogsPage() {
           <EmptyState
             actions={[{ label: "刷新日志", onClick: loadRecent }]}
             description="暂无应用日志。"
-            icon="≋"
+            icon={ScrollText}
             title="暂无日志"
           />
         )}
