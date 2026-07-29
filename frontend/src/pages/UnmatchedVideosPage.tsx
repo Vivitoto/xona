@@ -10,6 +10,7 @@ import type {
   LocalCoverPreviewRequest,
   LocalCoverPreviewResponse,
   LocalExecutePlanResponse,
+  LocalFrameRequest,
   LocalFrameResponse,
   LocalMetadataDraft,
   LocalNfoPreviewResponse,
@@ -19,6 +20,7 @@ import type {
   LocalScannedVideo,
   OrganizationMode,
   PosterFontId,
+  PosterTextEffect,
   StorageRootList,
   StorageRootRead,
 } from "../api/types";
@@ -51,8 +53,11 @@ const DEFAULT_TITLE_FONT_BY_TEMPLATE: Record<CoverTemplateName, PosterFontId> = 
 const DEFAULT_TITLE_ANGLE_DEGREES = -8;
 const MIN_TITLE_ANGLE_DEGREES = -20;
 const MAX_TITLE_ANGLE_DEGREES = 20;
-const MIN_TITLE_POSITION_PERCENT = 0;
-const MAX_TITLE_POSITION_PERCENT = 100;
+const MIN_TITLE_OFFSET = -50;
+const MAX_TITLE_OFFSET = 50;
+const DEFAULT_SCREENSHOT_COUNT = 9;
+const MIN_SCREENSHOT_COUNT = 1;
+const MAX_SCREENSHOT_COUNT = 36;
 const DEFAULT_TITLE_POSITION_BY_TEMPLATE: Record<
   CoverTemplateName,
   { x: number; y: number }
@@ -61,10 +66,46 @@ const DEFAULT_TITLE_POSITION_BY_TEMPLATE: Record<
   jav_classic_left_strip: { x: 87.79069767441861, y: 96.84921230307577 },
   tangxin_vlog: { x: 50, y: 90.14522821576763 },
 };
+const DEFAULT_TITLE_STYLE_BY_TEMPLATE: Record<
+  CoverTemplateName,
+  {
+    fontSize: number;
+    fillColor: string;
+    strokeColor: string;
+    strokeWidth: number;
+    effect: PosterTextEffect;
+  }
+> = {
+  simple_poster: {
+    fontSize: 74,
+    fillColor: "#ffffff",
+    strokeColor: "#0c1114",
+    strokeWidth: 4,
+    effect: "shadow",
+  },
+  jav_classic_left_strip: {
+    fontSize: 62,
+    fillColor: "#121b22",
+    strokeColor: "#ffffff",
+    strokeWidth: 1,
+    effect: "shadow",
+  },
+  tangxin_vlog: {
+    fontSize: 86,
+    fillColor: "#ffffff",
+    strokeColor: "#0e1518",
+    strokeWidth: 6,
+    effect: "glow",
+  },
+};
+const titleEffects: { value: PosterTextEffect; label: string }[] = [
+  { value: "shadow", label: "阴影" },
+  { value: "glow", label: "发光" },
+  { value: "none", label: "无" },
+];
 
 type BusyAction =
-  | "analyze"
-  | "frames"
+  | "analyze_frames"
   | "cover"
   | "nfo"
   | "plan"
@@ -100,12 +141,13 @@ export function UnmatchedVideosPage() {
   const [titleAngleDegrees, setTitleAngleDegrees] = useState(
     DEFAULT_TITLE_ANGLE_DEGREES,
   );
-  const [titlePositionXPercent, setTitlePositionXPercent] = useState(
-    DEFAULT_TITLE_POSITION_BY_TEMPLATE.simple_poster.x,
+  const [titleOffsetX, setTitleOffsetX] = useState(
+    titlePositionPercentToOffset(DEFAULT_TITLE_POSITION_BY_TEMPLATE.simple_poster.x),
   );
-  const [titlePositionYPercent, setTitlePositionYPercent] = useState(
-    DEFAULT_TITLE_POSITION_BY_TEMPLATE.simple_poster.y,
+  const [titleOffsetY, setTitleOffsetY] = useState(
+    titlePositionPercentToOffset(DEFAULT_TITLE_POSITION_BY_TEMPLATE.simple_poster.y),
   );
+  const [screenshotCount, setScreenshotCount] = useState(DEFAULT_SCREENSHOT_COUNT);
   const [technical, setTechnical] = useState<LocalAnalyzeResponse["technical"] | null>(
     null,
   );
@@ -114,6 +156,21 @@ export function UnmatchedVideosPage() {
   const [template, setTemplate] = useState<CoverTemplateName>("simple_poster");
   const [titleFontId, setTitleFontId] = useState<PosterFontId>(
     DEFAULT_TITLE_FONT_BY_TEMPLATE.simple_poster,
+  );
+  const [titleFontSize, setTitleFontSize] = useState(
+    DEFAULT_TITLE_STYLE_BY_TEMPLATE.simple_poster.fontSize,
+  );
+  const [titleFillColor, setTitleFillColor] = useState(
+    DEFAULT_TITLE_STYLE_BY_TEMPLATE.simple_poster.fillColor,
+  );
+  const [titleStrokeColor, setTitleStrokeColor] = useState(
+    DEFAULT_TITLE_STYLE_BY_TEMPLATE.simple_poster.strokeColor,
+  );
+  const [titleStrokeWidth, setTitleStrokeWidth] = useState(
+    DEFAULT_TITLE_STYLE_BY_TEMPLATE.simple_poster.strokeWidth,
+  );
+  const [titleEffect, setTitleEffect] = useState<PosterTextEffect>(
+    DEFAULT_TITLE_STYLE_BY_TEMPLATE.simple_poster.effect,
   );
   const [coverPreview, setCoverPreview] =
     useState<LocalCoverPreviewResponse | null>(null);
@@ -133,6 +190,7 @@ export function UnmatchedVideosPage() {
   const [batchFilenameSuffix, setBatchFilenameSuffix] = useState("");
   const [batchStudio, setBatchStudio] = useState("");
   const [batchSeries, setBatchSeries] = useState("");
+  const [batchActors, setBatchActors] = useState("");
   const [batchTags, setBatchTags] = useState(() => defaultLocalTags().join("\n"));
   const [batchGenres, setBatchGenres] = useState("");
   const [batchPlot, setBatchPlot] = useState("");
@@ -192,15 +250,15 @@ export function UnmatchedVideosPage() {
     };
   }, []);
 
-  async function analyze(event?: FormEvent) {
+  async function analyzeAndGenerateFrames(event?: FormEvent) {
     event?.preventDefault();
     if (!videoPath.trim()) {
       setError("请输入视频路径。");
       return;
     }
-    setBusy("analyze");
+    setBusy("analyze_frames");
     setError("");
-    setStatus("正在分析视频");
+    setStatus("正在分析视频并生成截图");
     clearGeneratedPreviews();
     try {
       const response = await apiFetch<LocalAnalyzeResponse>(
@@ -222,9 +280,13 @@ export function UnmatchedVideosPage() {
       };
       setDraft(nextDraft);
       resetPosterTitle(nextDraft.title);
-      setStatus("分析完成");
+      setStatus("正在生成截图");
+      const frameResponse = await requestFrames(response.video_path);
+      setFrames(frameResponse.frames);
+      setSelectedFrameIds(selectedInitialFrameIds(frameResponse.frames));
+      setStatus(`分析完成，已生成 ${frameResponse.frames.length} 张截图`);
     } catch (exc) {
-      const message = exc instanceof Error ? exc.message : "分析失败";
+      const message = exc instanceof Error ? exc.message : "分析或截图生成失败";
       setTechnical(null);
       const fallbackTitle = titleFromPath(videoPath);
       setDraft((current) => ({
@@ -243,32 +305,15 @@ export function UnmatchedVideosPage() {
     }
   }
 
-  async function generateFrames() {
-    if (!draft.video_path.trim()) {
-      setError("请先输入或分析视频路径。");
-      return;
-    }
-    setBusy("frames");
-    setError("");
-    setStatus("正在生成截图");
-    setFrames([]);
-    setSelectedFrameIds([]);
-    setCoverPreview(null);
-    clearPlanPreview();
-    try {
-      const response = await apiFetch<LocalFrameResponse>("/api/local-metadata/frames", {
-        method: "POST",
-        body: { video_path: draft.video_path },
-      });
-      setFrames(response.frames);
-      setSelectedFrameIds(response.frames.slice(0, 3).map((frame) => frame.id));
-      setStatus(`已生成 ${response.frames.length} 张截图`);
-    } catch (exc) {
-      setError(exc instanceof Error ? exc.message : "截图生成失败");
-      setStatus("");
-    } finally {
-      setBusy(null);
-    }
+  async function requestFrames(sourceVideoPath: string): Promise<LocalFrameResponse> {
+    const body: LocalFrameRequest = {
+      video_path: sourceVideoPath,
+      frame_count: screenshotCount,
+    };
+    return apiFetch<LocalFrameResponse>("/api/local-metadata/frames", {
+      method: "POST",
+      body,
+    });
   }
 
   async function generateCoverPreview() {
@@ -289,10 +334,15 @@ export function UnmatchedVideosPage() {
         video_path: draft.video_path,
         title,
         title_angle_degrees: titleAngleDegrees,
-        title_position_x_percent: titlePositionXPercent,
-        title_position_y_percent: titlePositionYPercent,
+        title_position_x_percent: titleOffsetToTitlePositionPercent(titleOffsetX),
+        title_position_y_percent: titleOffsetToTitlePositionPercent(titleOffsetY),
         template,
         title_font_id: titleFontId,
+        title_font_size: titleFontSize,
+        title_fill_color: titleFillColor,
+        title_stroke_color: titleStrokeColor,
+        title_stroke_width: titleStrokeWidth,
+        title_effect: titleEffect,
         selected_frame_ids: selectedFrameIds,
       };
       const response = await apiFetch<LocalCoverPreviewResponse>(
@@ -501,6 +551,7 @@ export function UnmatchedVideosPage() {
       organize_filename: organizeFilename,
       studio: batchStudio,
       series: batchSeries,
+      actors: listFromText(batchActors),
       plot: batchPlot.trim() || `Local metadata generated for ${video.filename}.`,
       tags: tags.length ? tags : defaultLocalTags(),
       genres: listFromText(batchGenres),
@@ -589,9 +640,15 @@ export function UnmatchedVideosPage() {
 
   function updateTemplate(nextTemplate: CoverTemplateName) {
     const defaultPosition = DEFAULT_TITLE_POSITION_BY_TEMPLATE[nextTemplate];
+    const defaultStyle = DEFAULT_TITLE_STYLE_BY_TEMPLATE[nextTemplate];
     setTemplate(nextTemplate);
-    setTitlePositionXPercent(defaultPosition.x);
-    setTitlePositionYPercent(defaultPosition.y);
+    setTitleOffsetX(titlePositionPercentToOffset(defaultPosition.x));
+    setTitleOffsetY(titlePositionPercentToOffset(defaultPosition.y));
+    setTitleFontSize(defaultStyle.fontSize);
+    setTitleFillColor(defaultStyle.fillColor);
+    setTitleStrokeColor(defaultStyle.strokeColor);
+    setTitleStrokeWidth(defaultStyle.strokeWidth);
+    setTitleEffect(defaultStyle.effect);
     if (!titleFontTouched.current) {
       setTitleFontId(DEFAULT_TITLE_FONT_BY_TEMPLATE[nextTemplate]);
     }
@@ -621,13 +678,38 @@ export function UnmatchedVideosPage() {
     clearPosterDependentPreviews();
   }
 
-  function updateTitlePositionX(value: string) {
-    setTitlePositionXPercent(clampTitlePositionPercent(value));
+  function updateTitleOffsetX(value: string) {
+    setTitleOffsetX(clampTitleOffset(value));
     clearPosterDependentPreviews();
   }
 
-  function updateTitlePositionY(value: string) {
-    setTitlePositionYPercent(clampTitlePositionPercent(value));
+  function updateTitleOffsetY(value: string) {
+    setTitleOffsetY(clampTitleOffset(value));
+    clearPosterDependentPreviews();
+  }
+
+  function updateTitleFontSize(value: string) {
+    setTitleFontSize(clampTitleFontSize(value));
+    clearPosterDependentPreviews();
+  }
+
+  function updateTitleFillColor(value: string) {
+    setTitleFillColor(value);
+    clearPosterDependentPreviews();
+  }
+
+  function updateTitleStrokeColor(value: string) {
+    setTitleStrokeColor(value);
+    clearPosterDependentPreviews();
+  }
+
+  function updateTitleStrokeWidth(value: string) {
+    setTitleStrokeWidth(clampTitleStrokeWidth(value));
+    clearPosterDependentPreviews();
+  }
+
+  function updateTitleEffect(value: PosterTextEffect) {
+    setTitleEffect(value);
     clearPosterDependentPreviews();
   }
 
@@ -811,7 +893,7 @@ export function UnmatchedVideosPage() {
                 先分析单个文件或从批量扫描载入草稿，再生成截图并选择封面帧，最后预览
                 NFO 与整理计划。
               </p>
-              <form className="unmatched-source-grid" onSubmit={analyze}>
+              <form className="unmatched-source-grid" onSubmit={analyzeAndGenerateFrames}>
                 <div className="path-field">
                   <FormField label="视频路径">
                     <input
@@ -827,22 +909,29 @@ export function UnmatchedVideosPage() {
                     title="选择视频文件"
                   />
                 </div>
+                <FormField
+                  label="截图数量"
+                  description="用于截图候选和 Fanart 拼图；默认 9 张。"
+                >
+                  <input
+                    max={MAX_SCREENSHOT_COUNT}
+                    min={MIN_SCREENSHOT_COUNT}
+                    step={1}
+                    type="number"
+                    value={screenshotCount}
+                    onChange={(event) =>
+                      setScreenshotCount(clampScreenshotCount(event.target.value))
+                    }
+                  />
+                </FormField>
                 <div className="field-action">
                   <button
-                    disabled={busy === "analyze" || !videoPath.trim()}
+                    disabled={busy === "analyze_frames" || !videoPath.trim()}
                     type="submit"
                   >
-                    {busy === "analyze" ? "分析中..." : "分析"}
-                  </button>
-                </div>
-                <div className="field-action">
-                  <button
-                    className="secondary"
-                    disabled={busy === "frames" || !draft.video_path.trim()}
-                    type="button"
-                    onClick={generateFrames}
-                  >
-                    {busy === "frames" ? "生成中..." : "生成截图"}
+                    {busy === "analyze_frames"
+                      ? "分析并生成中..."
+                      : "分析并生成截图"}
                   </button>
                 </div>
               </form>
@@ -911,6 +1000,56 @@ export function UnmatchedVideosPage() {
                   </FormField>
                 </div>
                 <div className="grid three">
+                  <FormField label="封面字号">
+                    <input
+                      max={180}
+                      min={16}
+                      step={1}
+                      type="number"
+                      value={titleFontSize}
+                      onChange={(event) => updateTitleFontSize(event.target.value)}
+                    />
+                  </FormField>
+                  <FormField label="文字填充色">
+                    <input
+                      type="color"
+                      value={titleFillColor}
+                      onChange={(event) => updateTitleFillColor(event.target.value)}
+                    />
+                  </FormField>
+                  <FormField label="文字效果">
+                    <select
+                      value={titleEffect}
+                      onChange={(event) =>
+                        updateTitleEffect(event.target.value as PosterTextEffect)
+                      }
+                    >
+                      {titleEffects.map((item) => (
+                        <option key={item.value} value={item.value}>
+                          {item.label}
+                        </option>
+                      ))}
+                    </select>
+                  </FormField>
+                </div>
+                <div className="grid three">
+                  <FormField label="描边颜色">
+                    <input
+                      type="color"
+                      value={titleStrokeColor}
+                      onChange={(event) => updateTitleStrokeColor(event.target.value)}
+                    />
+                  </FormField>
+                  <FormField label="描边宽度">
+                    <input
+                      max={20}
+                      min={0}
+                      step={1}
+                      type="number"
+                      value={titleStrokeWidth}
+                      onChange={(event) => updateTitleStrokeWidth(event.target.value)}
+                    />
+                  </FormField>
                   <FormField label="文字倾斜角度">
                     <input
                       max={MAX_TITLE_ANGLE_DEGREES}
@@ -921,24 +1060,29 @@ export function UnmatchedVideosPage() {
                       onChange={(event) => updateTitleAngle(event.target.value)}
                     />
                   </FormField>
-                  <FormField label="文字横向位置">
+                </div>
+                <div className="grid two">
+                  <FormField
+                    label="文字横向偏移"
+                    description="0 表示居中；负数向左/上移动，正数向右/下移动。"
+                  >
                     <input
-                      max={MAX_TITLE_POSITION_PERCENT}
-                      min={MIN_TITLE_POSITION_PERCENT}
+                      max={MAX_TITLE_OFFSET}
+                      min={MIN_TITLE_OFFSET}
                       step={1}
-                      type="range"
-                      value={titlePositionXPercent}
-                      onChange={(event) => updateTitlePositionX(event.target.value)}
+                      type="number"
+                      value={titleOffsetX}
+                      onChange={(event) => updateTitleOffsetX(event.target.value)}
                     />
                   </FormField>
-                  <FormField label="文字纵向位置">
+                  <FormField label="文字纵向偏移">
                     <input
-                      max={MAX_TITLE_POSITION_PERCENT}
-                      min={MIN_TITLE_POSITION_PERCENT}
+                      max={MAX_TITLE_OFFSET}
+                      min={MIN_TITLE_OFFSET}
                       step={1}
-                      type="range"
-                      value={titlePositionYPercent}
-                      onChange={(event) => updateTitlePositionY(event.target.value)}
+                      type="number"
+                      value={titleOffsetY}
+                      onChange={(event) => updateTitleOffsetY(event.target.value)}
                     />
                   </FormField>
                 </div>
@@ -960,6 +1104,17 @@ export function UnmatchedVideosPage() {
                     />
                   </FormField>
                 </div>
+                <FormField
+                  label="演员"
+                  description="每行一位演员；会写入 NFO 并可用于 {actors} 与 {first_actor} 模板。"
+                >
+                  <textarea
+                    value={listToLines(draft.actors)}
+                    onChange={(event) =>
+                      updateDraft("actors", listFromText(event.target.value))
+                    }
+                  />
+                </FormField>
                 <FormField label="简介">
                   <textarea
                     value={draft.plot ?? ""}
@@ -1015,25 +1170,27 @@ export function UnmatchedVideosPage() {
                     <p className="frame-selection-status">
                       已选择 {selectedFrameIds.length} 张截图用于封面和背景图。
                     </p>
-                    <div className="frame-grid" aria-label="截图候选">
-                      {frames.map((frame) => {
-                        const selected = selectedFrameIds.includes(frame.id);
-                        return (
-                          <button
-                            aria-pressed={selected}
-                            className={`frame-thumb${selected ? " is-selected" : ""}`}
-                            key={frame.id}
-                            type="button"
-                            onClick={() => toggleSelectedFrame(frame.id)}
-                          >
-                            <img
-                              alt={`截图 ${formatTime(frame.time_seconds)}`}
-                              src={frame.url}
-                            />
-                            <span>{formatTime(frame.time_seconds)}</span>
-                          </button>
-                        );
-                      })}
+                    <div className="frame-strip">
+                      <div className="frame-grid" aria-label="截图候选">
+                        {frames.map((frame) => {
+                          const selected = selectedFrameIds.includes(frame.id);
+                          return (
+                            <button
+                              aria-pressed={selected}
+                              className={`frame-thumb${selected ? " is-selected" : ""}`}
+                              key={frame.id}
+                              type="button"
+                              onClick={() => toggleSelectedFrame(frame.id)}
+                            >
+                              <img
+                                alt={`截图 ${formatTime(frame.time_seconds)}`}
+                                src={frame.url}
+                              />
+                              <span>{formatTime(frame.time_seconds)}</span>
+                            </button>
+                          );
+                        })}
+                      </div>
                     </div>
                   </>
                 ) : (
@@ -1179,6 +1336,12 @@ export function UnmatchedVideosPage() {
                   <input
                     value={batchSeries}
                     onChange={(event) => setBatchSeries(event.target.value)}
+                  />
+                </FormField>
+                <FormField label="演员">
+                  <textarea
+                    value={batchActors}
+                    onChange={(event) => setBatchActors(event.target.value)}
                   />
                 </FormField>
                 <FormField label="标签">
@@ -1672,6 +1835,7 @@ function blankDraft(videoPath: string): LocalMetadataDraft {
     release_date: null,
     runtime_minutes: null,
     genres: [],
+    actors: [],
   };
 }
 
@@ -1680,6 +1844,7 @@ function cloneDraft(draft: LocalMetadataDraft): LocalMetadataDraft {
     ...draft,
     tags: [...draft.tags],
     genres: [...draft.genres],
+    actors: [...(draft.actors ?? [])],
   };
 }
 
@@ -1695,6 +1860,7 @@ function cleanedDraft(draft: LocalMetadataDraft): LocalMetadataDraft {
     release_date: draft.release_date?.trim() || null,
     tags: unique(draft.tags.map((tag) => tag.trim()).filter(Boolean)),
     genres: unique(draft.genres.map((genre) => genre.trim()).filter(Boolean)),
+    actors: unique((draft.actors ?? []).map((actor) => actor.trim()).filter(Boolean)),
   };
 }
 
@@ -1953,15 +2119,48 @@ function clampTitleAngleDegrees(value: string): number {
   );
 }
 
-function clampTitlePositionPercent(value: string): number {
+function clampTitleOffset(value: string): number {
   const parsed = Number.parseFloat(value);
   if (!Number.isFinite(parsed)) {
-    return MIN_TITLE_POSITION_PERCENT;
+    return 0;
   }
-  return Math.min(
-    MAX_TITLE_POSITION_PERCENT,
-    Math.max(MIN_TITLE_POSITION_PERCENT, parsed),
-  );
+  return Math.round(Math.min(MAX_TITLE_OFFSET, Math.max(MIN_TITLE_OFFSET, parsed)));
+}
+
+function titlePositionPercentToOffset(percent: number): number {
+  return clampTitleOffset(String(percent - 50));
+}
+
+function titleOffsetToTitlePositionPercent(offset: number): number {
+  return Math.min(100, Math.max(0, offset + 50));
+}
+
+function clampScreenshotCount(value: string): number {
+  const parsed = Number.parseInt(value, 10);
+  if (!Number.isFinite(parsed)) {
+    return DEFAULT_SCREENSHOT_COUNT;
+  }
+  return Math.min(MAX_SCREENSHOT_COUNT, Math.max(MIN_SCREENSHOT_COUNT, parsed));
+}
+
+function clampTitleFontSize(value: string): number {
+  const parsed = Number.parseInt(value, 10);
+  if (!Number.isFinite(parsed)) {
+    return DEFAULT_TITLE_STYLE_BY_TEMPLATE.simple_poster.fontSize;
+  }
+  return Math.min(180, Math.max(16, parsed));
+}
+
+function clampTitleStrokeWidth(value: string): number {
+  const parsed = Number.parseInt(value, 10);
+  if (!Number.isFinite(parsed)) {
+    return 0;
+  }
+  return Math.min(20, Math.max(0, parsed));
+}
+
+function selectedInitialFrameIds(frames: LocalCachedAsset[]): string[] {
+  return unique(frames.map((frame) => frame.id)).slice(0, 9);
 }
 
 function organizationModeForPreview(mode: OrganizationMode): OrganizationMode {

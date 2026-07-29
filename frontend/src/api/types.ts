@@ -342,6 +342,8 @@ export type PosterFontId =
   | "zcool_qingke_huangyou"
   | "lxgw_wenkai";
 
+export type PosterTextEffect = "none" | "shadow" | "glow";
+
 export interface LocalVideoTechnicalInfo {
   path: string;
   size_bytes: number;
@@ -366,6 +368,7 @@ export interface LocalMetadataDraft {
   release_date: string | null;
   runtime_minutes: number | null;
   genres: string[];
+  actors: string[];
 }
 
 export interface LocalAnalyzeResponse {
@@ -397,6 +400,13 @@ export interface LocalFrameResponse {
   warnings: string[];
 }
 
+export interface LocalFrameRequest extends Record<string, unknown> {
+  video_path: string;
+  percentages?: number[];
+  time_points_seconds?: number[];
+  frame_count?: number;
+}
+
 export interface LocalCoverPreviewRequest extends Record<string, unknown> {
   video_path: string;
   title: string;
@@ -405,6 +415,11 @@ export interface LocalCoverPreviewRequest extends Record<string, unknown> {
   title_position_y_percent: number;
   template: CoverTemplateName;
   title_font_id: PosterFontId;
+  title_font_size: number;
+  title_fill_color: string;
+  title_stroke_color: string;
+  title_stroke_width: number;
+  title_effect: PosterTextEffect;
   selected_frame_ids: string[];
 }
 

@@ -13,6 +13,7 @@ CoverTemplateName = Literal[
     "jav_classic_left_strip",
     "tangxin_vlog",
 ]
+PosterTextEffect = Literal["none", "shadow", "glow"]
 
 PosterFontId = Literal[
     "source_han_sans",
@@ -50,6 +51,7 @@ class LocalMetadataDraft(BaseModel):
     release_date: str | None = None
     runtime_minutes: int | None = None
     genres: list[str] = Field(default_factory=list)
+    actors: list[str] = Field(default_factory=list)
 
 
 class LocalAnalyzeRequest(BaseModel):
@@ -68,8 +70,9 @@ class LocalAnalyzeResponse(BaseModel):
 
 class LocalFrameRequest(BaseModel):
     video_path: Path
-    percentages: list[float] = Field(default_factory=lambda: [10.0, 25.0, 50.0, 75.0, 90.0])
+    percentages: list[float] = Field(default_factory=list)
     time_points_seconds: list[float] = Field(default_factory=list)
+    frame_count: int = Field(default=9, ge=1, le=36)
 
 
 class LocalCachedAsset(BaseModel):
@@ -99,6 +102,11 @@ class LocalCoverPreviewRequest(BaseModel):
     title_position_y_percent: float | None = Field(default=None, ge=0.0, le=100.0)
     template: CoverTemplateName = "simple_poster"
     title_font_id: PosterFontId | None = None
+    title_font_size: int | None = Field(default=None, ge=16, le=180)
+    title_fill_color: str | None = Field(default=None, pattern=r"^#[0-9A-Fa-f]{6}$")
+    title_stroke_color: str | None = Field(default=None, pattern=r"^#[0-9A-Fa-f]{6}$")
+    title_stroke_width: int | None = Field(default=None, ge=0, le=20)
+    title_effect: PosterTextEffect | None = None
     selected_frame_ids: list[str] = Field(default_factory=list)
 
 

@@ -39,6 +39,15 @@ describe("UnmatchedVideosPage", () => {
       },
       {
         method: "POST",
+        path: "/api/local-metadata/frames",
+        response: {
+          video_path: "/media/incoming/Raw.Local.Work.mp4",
+          frames: [],
+          warnings: [],
+        },
+      },
+      {
+        method: "POST",
         path: "/api/local-metadata/preview-plan",
         response: {
           plan_id: "plan-local",
@@ -61,7 +70,7 @@ describe("UnmatchedVideosPage", () => {
     fireEvent.change(screen.getByLabelText("视频路径"), {
       target: { value: "/media/incoming/Raw.Local.Work.mp4" },
     });
-    fireEvent.click(screen.getByRole("button", { name: "分析" }));
+    fireEvent.click(screen.getByRole("button", { name: "分析并生成截图" }));
 
     const organizeInput = screen.getByLabelText("整理文件名") as HTMLInputElement;
     await waitFor(() => expect(organizeInput).toHaveValue("Cleaned Local Work"));
@@ -267,6 +276,9 @@ describe("UnmatchedVideosPage", () => {
     fireEvent.change(batch.getByLabelText("系列"), {
       target: { value: "Batch Series" },
     });
+    fireEvent.change(batch.getByLabelText("演员"), {
+      target: { value: "Actor One\nActor Two" },
+    });
     fireEvent.change(batch.getByLabelText("标签"), {
       target: { value: "batch-tag\nlocal-generated" },
     });
@@ -305,6 +317,7 @@ describe("UnmatchedVideosPage", () => {
     expect(editor.getByLabelText("整理文件名")).toHaveValue("OF_Beta Custom_OUT");
     expect(editor.getByLabelText("制作方")).toHaveValue("Batch Studio");
     expect(editor.getByLabelText("系列")).toHaveValue("Batch Series");
+    expect(editor.getByLabelText("演员")).toHaveValue("Actor One\nActor Two");
     expect(editor.getByLabelText("简介")).toHaveValue("Batch plot text.");
     expect(editor.getByLabelText("标签")).toHaveValue("batch-tag\nlocal-generated");
     expect(editor.getByLabelText("类型")).toHaveValue("Drama\nLocal");
@@ -360,6 +373,7 @@ describe("UnmatchedVideosPage", () => {
         organize_filename: "OF_Beta Custom_OUT",
         studio: "Batch Studio",
         series: "Batch Series",
+        actors: ["Actor One", "Actor Two"],
         plot: "Batch plot text.",
         tags: ["batch-tag", "local-generated"],
         genres: ["Drama", "Local"],
@@ -463,26 +477,39 @@ describe("UnmatchedVideosPage", () => {
     expect(screen.getByText("分析文件或扫描目录")).toBeTruthy();
     expect(screen.getByText(/封面预览需要先生成截图/)).toBeTruthy();
     expect(screen.getByText(/优先使用已选截图/)).toBeTruthy();
+    expect(screen.getByText(/0 表示居中/)).toBeTruthy();
+    expect(screen.getByRole("button", { name: "分析并生成截图" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "分析" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "生成截图" })).toBeNull();
 
     fireEvent.change(screen.getByLabelText("视频路径"), {
       target: { value: "/media/incoming/Frame.Source.mp4" },
     });
-    fireEvent.click(screen.getByRole("button", { name: "分析" }));
+    fireEvent.click(screen.getByRole("button", { name: "分析并生成截图" }));
     await waitFor(() =>
       expect(screen.getByLabelText("标题")).toHaveValue("Frame Source"),
     );
     expect(screen.getByLabelText("封面文字")).toHaveValue("Frame Source");
     expect(screen.getByLabelText("封面字体")).toHaveValue("source_han_sans");
+    expect(screen.getByLabelText("封面字号")).toHaveValue(74);
+    expect(screen.getByLabelText("文字填充色")).toHaveValue("#ffffff");
+    expect(screen.getByLabelText("描边颜色")).toHaveValue("#0c1114");
+    expect(screen.getByLabelText("描边宽度")).toHaveValue(4);
+    expect(screen.getByLabelText("文字效果")).toHaveValue("shadow");
     expect(screen.getByLabelText("文字倾斜角度")).toHaveValue(-8);
-    expect(screen.getByLabelText("文字横向位置")).toBeTruthy();
-    expect(screen.getByLabelText("文字纵向位置")).toBeTruthy();
+    expect(screen.getByLabelText("文字横向偏移")).toHaveValue(0);
+    expect(screen.getByLabelText("文字纵向偏移")).toHaveValue(43);
 
     const coverButton = screen.getByRole("button", { name: "生成封面预览" });
-    expect(coverButton).toBeDisabled();
-    fireEvent.click(screen.getByRole("button", { name: "生成截图" }));
-
     const firstFrame = await screen.findByRole("button", { name: /截图 0:12/ });
     const secondFrame = screen.getByRole("button", { name: /截图 1:00/ });
+    const framesCall = calls.find(
+      (call) => call.method === "POST" && call.url === "/api/local-metadata/frames",
+    );
+    expect(framesCall?.body).toMatchObject({
+      video_path: "/media/incoming/Frame.Source.mp4",
+      frame_count: 9,
+    });
     expect(screen.getByText("已选择 2 张截图用于封面和背景图。")).toBeTruthy();
     expect(coverButton).not.toBeDisabled();
 
@@ -499,11 +526,26 @@ describe("UnmatchedVideosPage", () => {
     fireEvent.change(screen.getByLabelText("文字倾斜角度"), {
       target: { value: "-12" },
     });
-    fireEvent.change(screen.getByLabelText("文字横向位置"), {
-      target: { value: "20" },
+    fireEvent.change(screen.getByLabelText("文字横向偏移"), {
+      target: { value: "-30" },
     });
-    fireEvent.change(screen.getByLabelText("文字纵向位置"), {
-      target: { value: "35" },
+    fireEvent.change(screen.getByLabelText("文字纵向偏移"), {
+      target: { value: "-15" },
+    });
+    fireEvent.change(screen.getByLabelText("封面字号"), {
+      target: { value: "52" },
+    });
+    fireEvent.change(screen.getByLabelText("文字填充色"), {
+      target: { value: "#f8fafc" },
+    });
+    fireEvent.change(screen.getByLabelText("描边颜色"), {
+      target: { value: "#e11d48" },
+    });
+    fireEvent.change(screen.getByLabelText("描边宽度"), {
+      target: { value: "0" },
+    });
+    fireEvent.change(screen.getByLabelText("文字效果"), {
+      target: { value: "none" },
     });
     fireEvent.click(coverButton);
 
@@ -522,6 +564,11 @@ describe("UnmatchedVideosPage", () => {
       title_position_y_percent: 35,
       template: "simple_poster",
       title_font_id: "source_han_sans",
+      title_font_size: 52,
+      title_fill_color: "#f8fafc",
+      title_stroke_color: "#e11d48",
+      title_stroke_width: 0,
+      title_effect: "none",
       selected_frame_ids: ["frames/frame-a.jpg"],
     });
 
@@ -540,8 +587,8 @@ describe("UnmatchedVideosPage", () => {
     });
     await screen.findByText("<movie><title>Frame Source</title></movie>");
 
-    fireEvent.change(screen.getByLabelText("文字横向位置"), {
-      target: { value: "55" },
+    fireEvent.change(screen.getByLabelText("文字横向偏移"), {
+      target: { value: "5" },
     });
     expect(screen.queryByRole("img", { name: "Poster preview" })).toBeNull();
     expect(screen.queryByText("计划 plan-local")).toBeNull();
@@ -564,6 +611,11 @@ describe("UnmatchedVideosPage", () => {
       target: { value: "jav_classic_left_strip" },
     });
     expect(screen.getByLabelText("封面字体")).toHaveValue("dela_gothic_one");
+    expect(screen.getByLabelText("封面字号")).toHaveValue(62);
+    expect(screen.getByLabelText("文字填充色")).toHaveValue("#121b22");
+    expect(screen.getByLabelText("描边颜色")).toHaveValue("#ffffff");
+    expect(screen.getByLabelText("描边宽度")).toHaveValue(1);
+    expect(screen.getByLabelText("文字效果")).toHaveValue("shadow");
     expect(screen.queryByRole("img", { name: "Poster preview" })).toBeNull();
     expect(screen.queryByText("计划 plan-local")).toBeNull();
 
@@ -645,12 +697,83 @@ describe("UnmatchedVideosPage", () => {
     );
     expect(executeCall?.body).toMatchObject({ approved: true, plan_version: 1 });
 
-    fireEvent.change(screen.getByLabelText("文字纵向位置"), {
-      target: { value: "45" },
+    fireEvent.change(screen.getByLabelText("文字纵向偏移"), {
+      target: { value: "-5" },
     });
     expect(screen.queryByText("计划 plan-copy")).toBeNull();
     expect(screen.queryByText(/整理完成/)).toBeNull();
     expect(executeButton).toBeDisabled();
+  });
+
+  it("makes screenshot count configurable and keeps many thumbnails in a bounded scroller", async () => {
+    const frameAssets = Array.from({ length: 12 }, (_, index) =>
+      cachedAssetFixture({
+        id: `frames/frame-${index + 1}.jpg`,
+        url: `/api/local-metadata/cache/frames/frame-${index + 1}.jpg`,
+        time_seconds: (index + 1) * 10,
+      }),
+    );
+    const { calls } = installFetchMock([
+      { path: "/api/settings", response: settingsFixture() },
+      {
+        method: "POST",
+        path: "/api/local-metadata/analyze",
+        response: {
+          video_path: "/media/incoming/Many.Frames.mp4",
+          cleaned_title: "Many Frames",
+          default_organize_filename: "Many Frames",
+          default_plot: "Local metadata generated for Many.Frames.mp4.",
+          default_tags: ["local-generated", "unmatched"],
+          technical: {
+            path: "/media/incoming/Many.Frames.mp4",
+            size_bytes: 4,
+            duration_seconds: 360,
+            width: 1920,
+            height: 1080,
+            video_codec: "h264",
+            audio_codec: "aac",
+            format_name: "mp4",
+            bit_rate: 5000000,
+            fps: 29.97,
+          },
+          warnings: [],
+        },
+      },
+      {
+        method: "POST",
+        path: "/api/local-metadata/frames",
+        response: {
+          video_path: "/media/incoming/Many.Frames.mp4",
+          frames: frameAssets,
+          warnings: [],
+        },
+      },
+    ]);
+
+    render(<UnmatchedVideosPage />);
+
+    await waitFor(() =>
+      expect(screen.getByLabelText("目标目录")).toHaveValue("/media/organized"),
+    );
+    fireEvent.change(screen.getByLabelText("视频路径"), {
+      target: { value: "/media/incoming/Many.Frames.mp4" },
+    });
+    fireEvent.change(screen.getByLabelText("截图数量"), {
+      target: { value: "12" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "分析并生成截图" }));
+
+    await screen.findByRole("button", { name: /截图 0:10/ });
+    expect(screen.getByText("已选择 9 张截图用于封面和背景图。")).toBeTruthy();
+    expect(screen.getByLabelText("截图候选").closest(".frame-strip")).toBeTruthy();
+    expect(screen.getAllByRole("button", { name: /截图 / })).toHaveLength(12);
+    const framesCall = calls.find(
+      (call) => call.method === "POST" && call.url === "/api/local-metadata/frames",
+    );
+    expect(framesCall?.body).toMatchObject({
+      video_path: "/media/incoming/Many.Frames.mp4",
+      frame_count: 12,
+    });
   });
 });
 

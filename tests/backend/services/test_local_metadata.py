@@ -8,13 +8,19 @@ from PIL import Image, ImageDraw
 from backend.app.core.settings import Settings
 from backend.app.db.migrations import run_migrations
 from backend.app.db.session import create_engine_for_settings, get_sessionmaker
-from backend.app.schemas.local_metadata import LocalMetadataDraft, LocalPlanPreviewRequest
+from backend.app.schemas.local_metadata import (
+    LocalFrameRequest,
+    LocalMetadataDraft,
+    LocalPlanPreviewRequest,
+)
 from backend.app.services.cover_templates import FANART_SIZE, POSTER_SIZE, generate_cover_previews
 from backend.app.services.local_metadata import (
     LocalMetadataError,
     LocalMetadataService,
     clean_local_title,
     clean_organize_filename,
+    local_metadata_record,
+    _percentage_times,
 )
 
 
@@ -58,11 +64,19 @@ def test_cover_templates_generate_poster_and_fanart_smoke(tmp_path: Path) -> Non
             assert fanart.size == FANART_SIZE
 
 
-def test_cover_templates_render_fanart_as_three_by_three_collage(tmp_path: Path) -> None:
+def test_cover_templates_render_fanart_as_three_by_three_collage_from_nine_frames(
+    tmp_path: Path,
+) -> None:
     colors = [
         (226, 32, 44),
         (30, 198, 82),
         (36, 78, 224),
+        (235, 180, 40),
+        (165, 78, 224),
+        (32, 178, 190),
+        (242, 92, 148),
+        (70, 150, 68),
+        (55, 55, 62),
     ]
     frame_paths = [
         _solid_frame(tmp_path / f"solid-{index}.jpg", color)
@@ -90,8 +104,109 @@ def test_cover_templates_render_fanart_as_three_by_three_collage(tmp_path: Path)
             for index in range(9)
         ]
 
-    expected = [colors[index % len(colors)] for index in range(9)]
-    assert all(_near_color(pixel, color) for pixel, color in zip(sampled, expected))
+    assert all(_near_color(pixel, color) for pixel, color in zip(sampled, colors))
+
+
+def test_cover_templates_do_not_repeat_available_frames_when_fanart_has_fewer_than_nine(
+    tmp_path: Path,
+) -> None:
+    colors = [
+        (226, 32, 44),
+        (30, 198, 82),
+        (36, 78, 224),
+        (235, 180, 40),
+    ]
+    frame_paths = [
+        _solid_frame(tmp_path / f"solid-{index}.jpg", color)
+        for index, color in enumerate(colors, start=1)
+    ]
+
+    generated = generate_cover_previews(
+        title="Local Work Title",
+        template="simple_poster",
+        frame_paths=frame_paths,
+        output_dir=tmp_path / "collage",
+    )
+
+    with Image.open(generated.fanart_path) as fanart:
+        assert fanart.size == FANART_SIZE
+        sampled = [
+            fanart.getpixel((FANART_SIZE[0] // 4, FANART_SIZE[1] // 4)),
+            fanart.getpixel((FANART_SIZE[0] * 3 // 4, FANART_SIZE[1] // 4)),
+            fanart.getpixel((FANART_SIZE[0] // 4, FANART_SIZE[1] * 3 // 4)),
+            fanart.getpixel((FANART_SIZE[0] * 3 // 4, FANART_SIZE[1] * 3 // 4)),
+        ]
+
+    assert all(_near_color(pixel, color) for pixel, color in zip(sampled, colors))
+
+
+def test_local_frame_request_defaults_to_nine_evenly_spaced_screenshots() -> None:
+    request = LocalFrameRequest(video_path=Path("/media/source.mp4"))
+
+    assert request.frame_count == 9
+    assert request.percentages == []
+    assert _percentage_times(request.percentages, 100.0, frame_count=request.frame_count) == [
+        10.0,
+        20.0,
+        30.0,
+        40.0,
+        50.0,
+        60.0,
+        70.0,
+        80.0,
+        90.0,
+    ]
+
+
+def test_local_metadata_record_maps_draft_actors_to_nfo_and_template_context(
+    tmp_path: Path,
+) -> None:
+    root = tmp_path / "media"
+    incoming = root / "incoming"
+    destination = root / "organized"
+    incoming.mkdir(parents=True)
+    destination.mkdir()
+    video = incoming / "Actor.Work.mp4"
+    video.write_bytes(b"synthetic-video")
+    draft = LocalMetadataDraft(
+        video_path=video,
+        title="Actor Work",
+        plot="Local draft.",
+        actors=[" Actor One ", "Actor Two", "Actor One", ""],
+        tags=["local-generated", "unmatched"],
+    )
+
+    record = local_metadata_record(draft)
+
+    assert [actor.name for actor in record.actors] == ["Actor One", "Actor Two"]
+
+    settings = Settings(
+        config_dir=tmp_path / "config",
+        storage_roots=(root,),
+        auth_enabled=False,
+    )
+    run_migrations(settings=settings)
+    engine = create_engine_for_settings(settings)
+    try:
+        with get_sessionmaker(engine)() as session:
+            response = LocalMetadataService(settings, session).preview_plan(
+                LocalPlanPreviewRequest(
+                    metadata=draft,
+                    destination_root=destination,
+                    mode="preview",
+                    folder_templates=["{first_actor}", "{actors}", "{title}"],
+                    filename_template="{first_actor} - {title}",
+                )
+            )
+
+            assert response.plan["target_directory"].endswith(
+                "Actor One/Actor One, Actor Two/Actor Work"
+            )
+            assert "<name>Actor One</name>" in response.nfo_xml
+            assert "<name>Actor Two</name>" in response.nfo_xml
+            assert response.metadata["actors"][0]["name"] == "Actor One"
+    finally:
+        engine.dispose()
 
 
 def test_local_plan_preview_includes_nfo_and_cached_generated_images(

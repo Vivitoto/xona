@@ -1322,9 +1322,18 @@ nav {
   align-self: start;
 }
 
+.frame-strip {
+  max-width: 100%;
+  overflow-x: auto;
+  padding-bottom: 0.2rem;
+}
+
 .frame-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(138px, 1fr));
+  grid-auto-columns: minmax(138px, 170px);
+  grid-auto-flow: column;
+  grid-template-rows: repeat(2, minmax(96px, auto));
+  width: max-content;
   gap: 0.5rem;
 }
 

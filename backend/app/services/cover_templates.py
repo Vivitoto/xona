@@ -7,7 +7,11 @@ from typing import Any, cast
 
 from PIL import Image, ImageDraw, ImageFont, ImageOps
 
-from backend.app.schemas.local_metadata import CoverTemplateName, PosterFontId
+from backend.app.schemas.local_metadata import (
+    CoverTemplateName,
+    PosterFontId,
+    PosterTextEffect,
+)
 
 
 POSTER_SIZE = (1000, 1500)
@@ -48,6 +52,17 @@ class PosterFont:
     id: PosterFontId
     display_name: str
     candidate_paths: tuple[str, ...]
+
+
+@dataclass(frozen=True)
+class TemplateTitleStyle:
+    max_font_size: int
+    min_font_size: int
+    fill: tuple[int, int, int, int]
+    stroke_width: int
+    stroke_fill: tuple[int, int, int, int]
+    effect: PosterTextEffect
+    shadow: tuple[int, int]
 
 
 POSTER_FONTS: dict[PosterFontId, PosterFont] = {
@@ -122,6 +137,36 @@ POSTER_FONTS: dict[PosterFontId, PosterFont] = {
     ),
 }
 
+DEFAULT_TITLE_STYLE_BY_TEMPLATE: dict[CoverTemplateName, TemplateTitleStyle] = {
+    "simple_poster": TemplateTitleStyle(
+        max_font_size=74,
+        min_font_size=34,
+        fill=(255, 255, 255, 255),
+        stroke_width=4,
+        stroke_fill=(12, 17, 20, 235),
+        effect="shadow",
+        shadow=(4, 5),
+    ),
+    "jav_classic_left_strip": TemplateTitleStyle(
+        max_font_size=62,
+        min_font_size=28,
+        fill=(18, 27, 34, 255),
+        stroke_width=1,
+        stroke_fill=(255, 255, 255, 210),
+        effect="shadow",
+        shadow=(2, 2),
+    ),
+    "tangxin_vlog": TemplateTitleStyle(
+        max_font_size=86,
+        min_font_size=34,
+        fill=(255, 255, 255, 255),
+        stroke_width=6,
+        stroke_fill=(14, 21, 24, 245),
+        effect="glow",
+        shadow=(0, 0),
+    ),
+}
+
 
 def generate_cover_previews(
     *,
@@ -131,17 +176,31 @@ def generate_cover_previews(
     title_position_y_percent: float | None = None,
     template: CoverTemplateName,
     title_font_id: PosterFontId | None = None,
+    title_font_size: int | None = None,
+    title_fill_color: str | None = None,
+    title_stroke_color: str | None = None,
+    title_stroke_width: int | None = None,
+    title_effect: PosterTextEffect | None = None,
     frame_paths: list[Path],
     output_dir: Path,
 ) -> GeneratedCoverSet:
     if not frame_paths:
         raise CoverTemplateError("at_least_one_frame_required")
 
+    frame_paths = _distinct_frame_paths(frame_paths)
     frames = [_open_frame(path) for path in frame_paths]
     title_angle_degrees = _bounded_title_angle(title_angle_degrees)
     title_position_x_percent = _bounded_title_position(title_position_x_percent)
     title_position_y_percent = _bounded_title_position(title_position_y_percent)
     resolved_title_font_id = _resolve_title_font_id(template, title_font_id)
+    title_style = _resolve_title_style(
+        template=template,
+        title_font_size=title_font_size,
+        title_fill_color=title_fill_color,
+        title_stroke_color=title_stroke_color,
+        title_stroke_width=title_stroke_width,
+        title_effect=title_effect,
+    )
     output_dir.mkdir(parents=True, exist_ok=True)
     poster_key = _cover_key(
         title=title,
@@ -150,9 +209,10 @@ def generate_cover_previews(
         title_position_y_percent=title_position_y_percent,
         template=template,
         title_font_id=resolved_title_font_id,
+        title_style=title_style,
         frame_paths=frame_paths,
     )
-    fanart_key = _frame_key(frame_paths=frame_paths)
+    fanart_key = _frame_key(frame_paths=frame_paths[:9])
     poster_path = output_dir / f"poster-{template}-{resolved_title_font_id}-{poster_key}.jpg"
     fanart_path = output_dir / f"fanart-{fanart_key}.jpg"
 
@@ -163,9 +223,10 @@ def generate_cover_previews(
         title_position_y_percent=title_position_y_percent,
         template=template,
         title_font_id=resolved_title_font_id,
+        title_style=title_style,
         frames=frames,
     )
-    fanart = _render_fanart(frames)
+    fanart = _render_fanart(frames[:9])
     poster.save(poster_path, "JPEG", quality=92, optimize=True)
     fanart.save(fanart_path, "JPEG", quality=90, optimize=True)
     return GeneratedCoverSet(
@@ -184,6 +245,18 @@ def _open_frame(path: Path) -> Image.Image:
         raise CoverTemplateError(f"frame_unreadable:{path}") from exc
 
 
+def _distinct_frame_paths(frame_paths: list[Path]) -> list[Path]:
+    distinct: list[Path] = []
+    seen: set[str] = set()
+    for path in frame_paths:
+        key = path.resolve().as_posix()
+        if key in seen:
+            continue
+        distinct.append(path)
+        seen.add(key)
+    return distinct
+
+
 def _render_poster(
     *,
     title: str,
@@ -192,6 +265,7 @@ def _render_poster(
     title_position_y_percent: float | None,
     template: CoverTemplateName,
     title_font_id: PosterFontId,
+    title_style: TemplateTitleStyle,
     frames: list[Image.Image],
 ) -> Image.Image:
     if template == "jav_classic_left_strip":
@@ -202,6 +276,7 @@ def _render_poster(
             title_position_x_percent,
             title_position_y_percent,
             title_font_id,
+            title_style,
         )
     if template == "tangxin_vlog":
         return _tangxin_vlog(
@@ -211,6 +286,7 @@ def _render_poster(
             title_position_x_percent,
             title_position_y_percent,
             title_font_id,
+            title_style,
         )
     return _simple_poster(
         title,
@@ -219,6 +295,7 @@ def _render_poster(
         title_position_x_percent,
         title_position_y_percent,
         title_font_id,
+        title_style,
     )
 
 
@@ -229,6 +306,7 @@ def _simple_poster(
     title_position_x_percent: float | None,
     title_position_y_percent: float | None,
     title_font_id: PosterFontId,
+    title_style: TemplateTitleStyle,
 ) -> Image.Image:
     canvas = _cover(frame, POSTER_SIZE)
     overlay = Image.new("RGBA", POSTER_SIZE, (0, 0, 0, 0))
@@ -247,12 +325,13 @@ def _simple_poster(
             title_position_y_percent=title_position_y_percent,
         ),
         max_lines=3,
-        max_font_size=74,
-        min_font_size=34,
-        fill=(255, 255, 255, 255),
-        stroke_width=4,
-        stroke_fill=(12, 17, 20, 235),
-        shadow=(4, 5),
+        max_font_size=title_style.max_font_size,
+        min_font_size=title_style.min_font_size,
+        fill=title_style.fill,
+        stroke_width=title_style.stroke_width,
+        stroke_fill=title_style.stroke_fill,
+        shadow=title_style.shadow if title_style.effect == "shadow" else (0, 0),
+        glow=title_style.effect == "glow",
         title_font_id=title_font_id,
         title_angle_degrees=title_angle_degrees,
     )
@@ -266,6 +345,7 @@ def _jav_classic_left_strip(
     title_position_x_percent: float | None,
     title_position_y_percent: float | None,
     title_font_id: PosterFontId,
+    title_style: TemplateTitleStyle,
 ) -> Image.Image:
     canvas = Image.new("RGB", POSTER_SIZE, (247, 249, 250))
     draw = ImageDraw.Draw(canvas)
@@ -309,12 +389,13 @@ def _jav_classic_left_strip(
             title_position_y_percent=title_position_y_percent,
         ),
         max_lines=3,
-        max_font_size=62,
-        min_font_size=28,
-        fill=(18, 27, 34, 255),
-        stroke_width=1,
-        stroke_fill=(255, 255, 255, 210),
-        shadow=(2, 2),
+        max_font_size=title_style.max_font_size,
+        min_font_size=title_style.min_font_size,
+        fill=title_style.fill,
+        stroke_width=title_style.stroke_width,
+        stroke_fill=title_style.stroke_fill,
+        shadow=title_style.shadow if title_style.effect == "shadow" else (0, 0),
+        glow=title_style.effect == "glow",
         title_font_id=title_font_id,
         title_angle_degrees=title_angle_degrees,
     )
@@ -328,6 +409,7 @@ def _tangxin_vlog(
     title_position_x_percent: float | None,
     title_position_y_percent: float | None,
     title_font_id: PosterFontId,
+    title_style: TemplateTitleStyle,
 ) -> Image.Image:
     canvas = _cover(frame, POSTER_SIZE).convert("RGBA")
     overlay = Image.new("RGBA", POSTER_SIZE, (0, 0, 0, 0))
@@ -346,13 +428,13 @@ def _tangxin_vlog(
             title_position_y_percent=title_position_y_percent,
         ),
         max_lines=3,
-        max_font_size=86,
-        min_font_size=34,
-        fill=(255, 255, 255, 255),
-        stroke_width=6,
-        stroke_fill=(14, 21, 24, 245),
-        shadow=(0, 0),
-        glow=True,
+        max_font_size=title_style.max_font_size,
+        min_font_size=title_style.min_font_size,
+        fill=title_style.fill,
+        stroke_width=title_style.stroke_width,
+        stroke_fill=title_style.stroke_fill,
+        shadow=title_style.shadow if title_style.effect == "shadow" else (0, 0),
+        glow=title_style.effect == "glow",
         title_font_id=title_font_id,
         title_angle_degrees=title_angle_degrees,
     )
@@ -364,14 +446,29 @@ def _render_fanart(frames: list[Image.Image]) -> Image.Image:
         raise CoverTemplateError("at_least_one_frame_required")
 
     canvas = Image.new("RGB", FANART_SIZE, (0, 0, 0))
-    tile_size = (FANART_SIZE[0] // 3, FANART_SIZE[1] // 3)
-    for index in range(9):
-        frame = frames[index % len(frames)]
+    frames = frames[:9]
+    columns, rows = _fanart_grid_dimensions(len(frames))
+    tile_size = (FANART_SIZE[0] // columns, FANART_SIZE[1] // rows)
+    for index, frame in enumerate(frames):
         tile = _cover(frame, tile_size)
-        x = (index % 3) * tile_size[0]
-        y = (index // 3) * tile_size[1]
+        x = (index % columns) * tile_size[0]
+        y = (index // columns) * tile_size[1]
         canvas.paste(tile, (x, y))
     return canvas
+
+
+def _fanart_grid_dimensions(frame_count: int) -> tuple[int, int]:
+    if frame_count >= 9:
+        return 3, 3
+    if frame_count >= 7:
+        return 3, 3
+    if frame_count >= 5:
+        return 3, 2
+    if frame_count >= 3:
+        return 2, 2
+    if frame_count == 2:
+        return 2, 1
+    return 1, 1
 
 
 def _cover(image: Image.Image, size: tuple[int, int]) -> Image.Image:
@@ -706,6 +803,48 @@ def _resolve_title_font_id(
     return resolved
 
 
+def _resolve_title_style(
+    *,
+    template: CoverTemplateName,
+    title_font_size: int | None,
+    title_fill_color: str | None,
+    title_stroke_color: str | None,
+    title_stroke_width: int | None,
+    title_effect: PosterTextEffect | None,
+) -> TemplateTitleStyle:
+    defaults = DEFAULT_TITLE_STYLE_BY_TEMPLATE[template]
+    max_font_size = defaults.max_font_size if title_font_size is None else title_font_size
+    stroke_width = defaults.stroke_width if title_stroke_width is None else title_stroke_width
+    effect = title_effect or defaults.effect
+    return TemplateTitleStyle(
+        max_font_size=max_font_size,
+        min_font_size=min(defaults.min_font_size, max_font_size),
+        fill=_hex_to_rgba(title_fill_color, defaults.fill),
+        stroke_width=stroke_width,
+        stroke_fill=_hex_to_rgba(title_stroke_color, defaults.stroke_fill),
+        effect=effect,
+        shadow=defaults.shadow,
+    )
+
+
+def _hex_to_rgba(
+    value: str | None,
+    default: tuple[int, int, int, int],
+) -> tuple[int, int, int, int]:
+    if value is None:
+        return default
+    normalized = value.strip()
+    if len(normalized) != 7 or not normalized.startswith("#"):
+        raise CoverTemplateError(f"invalid_title_color:{value}")
+    try:
+        red = int(normalized[1:3], 16)
+        green = int(normalized[3:5], 16)
+        blue = int(normalized[5:7], 16)
+    except ValueError as exc:
+        raise CoverTemplateError(f"invalid_title_color:{value}") from exc
+    return red, green, blue, default[3]
+
+
 def _cover_key(
     *,
     title: str,
@@ -714,6 +853,7 @@ def _cover_key(
     title_position_y_percent: float | None,
     template: CoverTemplateName,
     title_font_id: PosterFontId,
+    title_style: TemplateTitleStyle,
     frame_paths: list[Path],
 ) -> str:
     normalized_x_percent, normalized_y_percent = _title_position_key_values(
@@ -728,6 +868,11 @@ def _cover_key(
     digest.update(f"{normalized_y_percent:.4f}".encode("ascii"))
     digest.update(template.encode("utf-8"))
     digest.update(title_font_id.encode("utf-8"))
+    digest.update(str(title_style.max_font_size).encode("ascii"))
+    digest.update(",".join(str(channel) for channel in title_style.fill).encode("ascii"))
+    digest.update(str(title_style.stroke_width).encode("ascii"))
+    digest.update(",".join(str(channel) for channel in title_style.stroke_fill).encode("ascii"))
+    digest.update(title_style.effect.encode("ascii"))
     _update_frame_digest(digest, frame_paths)
     return digest.hexdigest()[:16]
 

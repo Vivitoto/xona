@@ -28,15 +28,30 @@ def test_cover_preview_request_accepts_bounded_title_controls_defaults() -> None
         title_angle_degrees=-15,
         title_position_x_percent=25,
         title_position_y_percent=80,
+        title_font_size=92,
+        title_fill_color="#f8fafc",
+        title_stroke_color="#111827",
+        title_stroke_width=5,
+        title_effect="glow",
     )
 
     assert default_request.title_angle_degrees == 0.0
     assert default_request.title_position_x_percent is None
     assert default_request.title_position_y_percent is None
     assert default_request.title_font_id is None
+    assert default_request.title_font_size is None
+    assert default_request.title_fill_color is None
+    assert default_request.title_stroke_color is None
+    assert default_request.title_stroke_width is None
+    assert default_request.title_effect is None
     assert customized_request.title_angle_degrees == -15
     assert customized_request.title_position_x_percent == 25
     assert customized_request.title_position_y_percent == 80
+    assert customized_request.title_font_size == 92
+    assert customized_request.title_fill_color == "#f8fafc"
+    assert customized_request.title_stroke_color == "#111827"
+    assert customized_request.title_stroke_width == 5
+    assert customized_request.title_effect == "glow"
     assert LocalCoverPreviewRequest(
         video_path=Path("/media/source.mp4"),
         title="Poster Title",
@@ -65,6 +80,36 @@ def test_cover_preview_request_accepts_bounded_title_controls_defaults() -> None
             video_path=Path("/media/source.mp4"),
             title="Poster Title",
             title_font_id="unknown_font",
+        )
+    with pytest.raises(ValidationError):
+        LocalCoverPreviewRequest(
+            video_path=Path("/media/source.mp4"),
+            title="Poster Title",
+            title_font_size=8,
+        )
+    with pytest.raises(ValidationError):
+        LocalCoverPreviewRequest(
+            video_path=Path("/media/source.mp4"),
+            title="Poster Title",
+            title_fill_color="white",
+        )
+    with pytest.raises(ValidationError):
+        LocalCoverPreviewRequest(
+            video_path=Path("/media/source.mp4"),
+            title="Poster Title",
+            title_stroke_color="#12345g",
+        )
+    with pytest.raises(ValidationError):
+        LocalCoverPreviewRequest(
+            video_path=Path("/media/source.mp4"),
+            title="Poster Title",
+            title_stroke_width=32,
+        )
+    with pytest.raises(ValidationError):
+        LocalCoverPreviewRequest(
+            video_path=Path("/media/source.mp4"),
+            title="Poster Title",
+            title_effect="outline",
         )
 
 
@@ -186,3 +231,36 @@ def test_title_font_changes_poster_cache_key_but_not_fanart(tmp_path: Path) -> N
     assert "tangxin_vlog-lxgw_wenkai" in override_font.poster_path.name
     assert default_font.poster_path != override_font.poster_path
     assert default_font.fanart_path == override_font.fanart_path
+
+
+def test_title_style_controls_change_poster_cache_key_and_render_only(
+    tmp_path: Path,
+) -> None:
+    frame_path = tmp_path / "frame.jpg"
+    Image.new("RGB", (640, 360), (120, 84, 48)).save(frame_path)
+
+    default_style = generate_cover_previews(
+        title="Manual\nPoster Title",
+        template="simple_poster",
+        frame_paths=[frame_path],
+        output_dir=tmp_path / "covers",
+    )
+    default_poster = default_style.poster_path.read_bytes()
+    default_fanart = default_style.fanart_path.read_bytes()
+
+    custom_style = generate_cover_previews(
+        title="Manual\nPoster Title",
+        template="simple_poster",
+        title_font_size=52,
+        title_fill_color="#f8fafc",
+        title_stroke_color="#e11d48",
+        title_stroke_width=0,
+        title_effect="none",
+        frame_paths=[frame_path],
+        output_dir=tmp_path / "covers",
+    )
+
+    assert default_style.poster_path != custom_style.poster_path
+    assert default_style.fanart_path == custom_style.fanart_path
+    assert default_poster != custom_style.poster_path.read_bytes()
+    assert default_fanart == custom_style.fanart_path.read_bytes()

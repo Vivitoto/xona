@@ -30,7 +30,7 @@ from backend.app.schemas.local_metadata import (
     LocalScannedVideo,
 )
 from backend.app.schemas.media import MediaScanItem
-from backend.app.schemas.metadata import MetadataAssets, MetadataRecordData
+from backend.app.schemas.metadata import MetadataActor, MetadataAssets, MetadataRecordData
 from backend.app.schemas.operations import GeneratedArtifact, OperationPlan
 from backend.app.schemas.templates import TemplateContext
 from backend.app.services import scanner
@@ -139,9 +139,13 @@ class LocalMetadataService:
                 technical = probe_video(path)
                 if technical.duration_seconds is None:
                     warnings.append("duration_unavailable")
-                    times = [1.0, 3.0, 5.0]
+                    times = _fallback_times(payload.frame_count)
                 else:
-                    times = _percentage_times(payload.percentages, technical.duration_seconds)
+                    times = _percentage_times(
+                        payload.percentages,
+                        technical.duration_seconds,
+                        frame_count=payload.frame_count,
+                    )
             frame_dir = self._cache_dir_for_video(path) / "frames"
             generated = extract_video_frames(path, output_dir=frame_dir, times_seconds=times)
         except (MediaToolUnavailableError, MediaToolExecutionError) as exc:
@@ -175,6 +179,11 @@ class LocalMetadataService:
                 title_position_y_percent=payload.title_position_y_percent,
                 template=payload.template,
                 title_font_id=payload.title_font_id,
+                title_font_size=payload.title_font_size,
+                title_fill_color=payload.title_fill_color,
+                title_stroke_color=payload.title_stroke_color,
+                title_stroke_width=payload.title_stroke_width,
+                title_effect=payload.title_effect,
                 frame_paths=frame_paths,
                 output_dir=self._cache_dir_for_video(payload.video_path) / "covers",
             )
@@ -504,7 +513,7 @@ def local_metadata_record(draft: LocalMetadataDraft) -> MetadataRecordData:
         runtime_minutes=draft.runtime_minutes,
         studio=_clean_text(draft.studio),
         series=_clean_text(draft.series),
-        actors=[],
+        actors=[MetadataActor(name=name) for name in _clean_list(draft.actors)],
         genres=_clean_list(draft.genres),
         tags=tags,
         assets=MetadataAssets(),
@@ -525,17 +534,40 @@ def _requested_times(payload: LocalFrameRequest) -> list[float]:
     return [float(value) for value in payload.time_points_seconds if value >= 0]
 
 
-def _percentage_times(percentages: list[float], duration_seconds: float) -> list[float]:
+def _percentage_times(
+    percentages: list[float],
+    duration_seconds: float,
+    *,
+    frame_count: int = 9,
+) -> list[float]:
     if duration_seconds <= 0:
         return [0.0]
+    source_percentages = percentages or _evenly_spaced_percentages(frame_count)
     times: list[float] = []
-    for percentage in percentages:
+    for percentage in source_percentages:
         clamped = min(95.0, max(1.0, float(percentage)))
         if duration_seconds <= 0.5:
             times.append(0.0)
         else:
             times.append(max(0.1, min(duration_seconds - 0.25, duration_seconds * clamped / 100)))
     return times or [max(0.0, duration_seconds / 2)]
+
+
+def _evenly_spaced_percentages(frame_count: int) -> list[float]:
+    count = min(36, max(1, int(frame_count)))
+    if count == 1:
+        return [50.0]
+    if count == 9:
+        return [10.0, 20.0, 30.0, 40.0, 50.0, 60.0, 70.0, 80.0, 90.0]
+    start = 10.0
+    stop = 90.0
+    step = (stop - start) / (count - 1)
+    return [start + step * index for index in range(count)]
+
+
+def _fallback_times(frame_count: int) -> list[float]:
+    count = min(36, max(1, int(frame_count)))
+    return [float(index) for index in range(1, count + 1)]
 
 
 def _media_item_for_path(path: Path) -> MediaScanItem:
