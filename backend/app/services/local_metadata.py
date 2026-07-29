@@ -464,7 +464,10 @@ class LocalMetadataService:
 
 
 def clean_local_title(video_path: Path | str) -> str:
-    normalized = normalize_filename_for_search(Path(video_path).name)
+    normalized = normalize_filename_for_search(
+        Path(video_path).name,
+        preserve_underscores=True,
+    )
     if normalized.search_text:
         return normalized.search_text
     stem = Path(video_path).stem.replace("_", " ").replace(".", " ").replace("-", " ")

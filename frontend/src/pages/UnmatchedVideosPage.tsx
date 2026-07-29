@@ -1,8 +1,9 @@
-import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
+import { FormEvent, useEffect, useId, useMemo, useRef, useState } from "react";
 
 import { apiFetch } from "../api/client";
 import type {
   AppSettings,
+  BrowseResponse,
   CoverTemplateName,
   LocalAnalyzeResponse,
   LocalCachedAsset,
@@ -18,10 +19,13 @@ import type {
   LocalScannedVideo,
   OrganizationMode,
   PosterFontId,
+  StorageRootList,
+  StorageRootRead,
 } from "../api/types";
 import { DirectoryPicker } from "../components/DirectoryPicker";
 import { CheckboxField, FormField, Section } from "../components/FormField";
 import { OperationPlanView } from "../components/OperationPlanView";
+import { Tabs, type TabItem } from "../components/Tabs";
 import { linesToList, listToLines, normalizeSettings } from "./settings/settingsForm";
 
 const coverTemplates: { value: CoverTemplateName; label: string }[] = [
@@ -76,8 +80,16 @@ interface BatchDraftStatus {
 }
 
 type BatchDraftState = "drafted" | "loaded" | "updated";
+type LocalMetadataWorkflowTab = "single" | "batch";
+
+const localMetadataWorkflowTabs: readonly TabItem<LocalMetadataWorkflowTab>[] = [
+  { id: "single", label: "单个整理" },
+  { id: "batch", label: "批量整理" },
+];
 
 export function UnmatchedVideosPage() {
+  const [activeWorkflowTab, setActiveWorkflowTab] =
+    useState<LocalMetadataWorkflowTab>("single");
   const [videoPath, setVideoPath] = useState("");
   const [directory, setDirectory] = useState("");
   const [recursive, setRecursive] = useState(true);
@@ -472,7 +484,7 @@ export function UnmatchedVideosPage() {
     if (draftToLoad) {
       loadDraftIntoEditor(draftToLoad.draft);
     }
-    setStatus(`已生成 ${statuses.length} 个本地草稿`);
+    setStatus(`已为 ${statuses.length} 个视频生成整理信息`);
   }
 
   function buildBatchDraft(video: LocalScannedVideo): LocalMetadataDraft {
@@ -505,6 +517,23 @@ export function UnmatchedVideosPage() {
     setError("");
   }
 
+  function updateVideoPath(nextPath: string) {
+    setVideoPath(nextPath);
+    setTechnical(null);
+    clearGeneratedPreviews();
+    const nextDraft = draftWithUpdatedVideoPath(draft, nextPath);
+    setDraft(nextDraft);
+    if (!posterTitleTouched.current || posterTitle === draft.title) {
+      setPosterTitle(nextDraft.title);
+    }
+  }
+
+  function selectVideoPath(path: string) {
+    updateVideoPath(path);
+    setError("");
+    setStatus(`已选择视频路径：${path}`);
+  }
+
   function loadBatchDraft(item: BatchDraftStatus) {
     loadDraftIntoEditor(item.draft);
     setBatchStatuses((current) =>
@@ -512,7 +541,7 @@ export function UnmatchedVideosPage() {
         entry.path === item.path ? { ...entry, status: "loaded" } : entry,
       ),
     );
-    setStatus(`已载入批量草稿：${item.filename}`);
+    setStatus(`已载入整理信息：${item.filename}`);
   }
 
   function saveCurrentDraftToBatch(item: BatchDraftStatus) {
@@ -632,260 +661,17 @@ export function UnmatchedVideosPage() {
     clearPlanPreview();
   }
 
-  return (
-    <div className="page-stack unmatched-workbench">
-      <WorkflowProgress
-        hasLocalSource={hasLocalSource}
-        hasSelectedFrames={hasSelectedFrames}
-        hasPlanPreview={Boolean(planPreview)}
-      />
-
-      <Section title="单个视频">
-        <p className="section-lead">
-          先分析单个文件或从批量扫描载入草稿，再生成截图并选择封面帧，最后预览
-          NFO 与整理计划。
-        </p>
-        <form className="unmatched-source-grid" onSubmit={analyze}>
-          <FormField label="视频路径">
-            <input
-              placeholder="/media/incoming/video.mp4"
-              value={videoPath}
-              onChange={(event) => {
-                const nextPath = event.target.value;
-                setVideoPath(nextPath);
-                setTechnical(null);
-                clearGeneratedPreviews();
-                const nextDraft = draftWithUpdatedVideoPath(draft, nextPath);
-                setDraft(nextDraft);
-                if (
-                  !posterTitleTouched.current ||
-                  posterTitle === draft.title
-                ) {
-                  setPosterTitle(nextDraft.title);
-                }
-              }}
-            />
-          </FormField>
-          <div className="field-action">
-            <button disabled={busy === "analyze" || !videoPath.trim()} type="submit">
-              {busy === "analyze" ? "分析中..." : "分析"}
-            </button>
-          </div>
-          <div className="field-action">
-            <button
-              className="secondary"
-              disabled={busy === "frames" || !draft.video_path.trim()}
-              type="button"
-              onClick={generateFrames}
-            >
-              {busy === "frames" ? "生成中..." : "生成截图"}
-            </button>
-          </div>
-        </form>
-
-        {technical ? <TechnicalSummary technical={technical} /> : null}
-      </Section>
-
-      <div className="unmatched-editor-layout">
-        <Section title="元数据草稿">
-          <div className="grid two">
-            <FormField label="标题">
-              <input
-                value={draft.title}
-                onChange={(event) => updateDraft("title", event.target.value)}
-              />
-            </FormField>
-            <FormField
-              label="整理文件名"
-              description="标题写入 NFO 元数据；整理文件名用于输出视频和同名 NFO 文件。留空时使用文件名模板。"
-            >
-              <input
-                value={draft.organize_filename ?? ""}
-                onChange={(event) =>
-                  updateDraft("organize_filename", event.target.value || null)
-                }
-              />
-            </FormField>
-          </div>
-          <div className="grid two">
-            <FormField label="封面文字">
-              <textarea
-                value={posterTitle}
-                onChange={(event) => updatePosterTitle(event.target.value)}
-              />
-            </FormField>
-            <FormField label="模板">
-              <select
-                value={template}
-                onChange={(event) =>
-                  updateTemplate(event.target.value as CoverTemplateName)
-                }
-              >
-                {coverTemplates.map((item) => (
-                  <option key={item.value} value={item.value}>
-                    {item.label}
-                  </option>
-                ))}
-              </select>
-            </FormField>
-            <FormField
-              label="封面字体"
-              description="模板只提供默认字体；这里可以覆盖为任意内置字体。"
-            >
-              <select
-                value={titleFontId}
-                onChange={(event) =>
-                  updateTitleFont(event.target.value as PosterFontId)
-                }
-              >
-                {posterFonts.map((item) => (
-                  <option key={item.value} value={item.value}>
-                    {item.label}
-                  </option>
-                ))}
-              </select>
-            </FormField>
-          </div>
-          <div className="grid three">
-            <FormField label="文字倾斜角度">
-              <input
-                max={MAX_TITLE_ANGLE_DEGREES}
-                min={MIN_TITLE_ANGLE_DEGREES}
-                step={1}
-                type="number"
-                value={titleAngleDegrees}
-                onChange={(event) => updateTitleAngle(event.target.value)}
-              />
-            </FormField>
-            <FormField label="文字横向位置">
-              <input
-                max={MAX_TITLE_POSITION_PERCENT}
-                min={MIN_TITLE_POSITION_PERCENT}
-                step={1}
-                type="range"
-                value={titlePositionXPercent}
-                onChange={(event) => updateTitlePositionX(event.target.value)}
-              />
-            </FormField>
-            <FormField label="文字纵向位置">
-              <input
-                max={MAX_TITLE_POSITION_PERCENT}
-                min={MIN_TITLE_POSITION_PERCENT}
-                step={1}
-                type="range"
-                value={titlePositionYPercent}
-                onChange={(event) => updateTitlePositionY(event.target.value)}
-              />
-            </FormField>
-          </div>
-          <div className="grid two">
-            <FormField label="制作方">
-              <input
-                value={draft.studio ?? ""}
-                onChange={(event) => updateDraft("studio", event.target.value || null)}
-              />
-            </FormField>
-            <FormField label="系列">
-              <input
-                value={draft.series ?? ""}
-                onChange={(event) => updateDraft("series", event.target.value || null)}
-              />
-            </FormField>
-          </div>
-          <FormField label="简介">
-            <textarea
-              value={draft.plot ?? ""}
-              onChange={(event) => updateDraft("plot", event.target.value || null)}
-            />
-          </FormField>
-          <div className="grid two">
-            <FormField label="标签">
-              <textarea
-                value={listToLines(draft.tags)}
-                onChange={(event) => updateDraft("tags", listFromText(event.target.value))}
-              />
-            </FormField>
-            <FormField label="类型">
-              <textarea
-                value={listToLines(draft.genres)}
-                onChange={(event) => updateDraft("genres", listFromText(event.target.value))}
-              />
-            </FormField>
-          </div>
-          <div className="button-row">
-            <button
-              disabled={!canGenerateCover}
-              type="button"
-              onClick={generateCoverPreview}
-            >
-              {busy === "cover" ? "生成中..." : "生成封面预览"}
-            </button>
-            <button
-              className="secondary"
-              disabled={!canPreviewNfo}
-              type="button"
-              onClick={previewNfo}
-            >
-              {busy === "nfo" ? "生成中..." : "生成 NFO 预览"}
-            </button>
-          </div>
-        </Section>
-
-        <Section title="截图与预览">
-          <p className="section-lead">
-            封面预览需要先生成截图，并至少选中一张截图作为 Poster/Fanart
-            的素材。
-          </p>
-          {frames.length ? (
-            <>
-              <p className="frame-selection-status">
-                已选择 {selectedFrameIds.length} 张截图用于封面和背景图。
-              </p>
-              <div className="frame-grid" aria-label="截图候选">
-                {frames.map((frame) => {
-                  const selected = selectedFrameIds.includes(frame.id);
-                  return (
-                    <button
-                      aria-pressed={selected}
-                      className={`frame-thumb${selected ? " is-selected" : ""}`}
-                      key={frame.id}
-                      type="button"
-                      onClick={() => toggleSelectedFrame(frame.id)}
-                    >
-                      <img
-                        alt={`截图 ${formatTime(frame.time_seconds)}`}
-                        src={frame.url}
-                      />
-                      <span>{formatTime(frame.time_seconds)}</span>
-                    </button>
-                  );
-                })}
-              </div>
-            </>
-          ) : (
-            <div className="empty-state">
-              <strong>暂无截图</strong>
-              <span>输入视频路径后生成截图，再选择至少一张用于封面。</span>
-            </div>
-          )}
-
-          {coverPreview ? (
-            <div className="cover-preview-grid">
-              <PreviewImage asset={coverPreview.poster} label="Poster" />
-              <PreviewImage asset={coverPreview.fanart} label="Fanart" />
-            </div>
-          ) : null}
-
-          {nfoPreview ? (
-            <div className="nfo-preview">
-              <h3>NFO</h3>
-              <pre>{nfoPreview.xml_text}</pre>
-            </div>
-          ) : null}
-        </Section>
-      </div>
-
+  function renderOrganizePreviewSection(workflow: LocalMetadataWorkflowTab) {
+    return (
       <Section title="整理预览">
+        <OrganizeProgressSummary
+          busy={busy}
+          destinationRoot={destinationRoot}
+          draftVideoPath={draft.video_path}
+          executeResult={executeResult}
+          planPreview={planPreview}
+          workflow={workflow}
+        />
         <div className="grid four organize-preview-grid">
           <div className="path-field">
             <FormField label="目标目录">
@@ -956,11 +742,7 @@ export function UnmatchedVideosPage() {
           </FormField>
         </div>
         <div className="button-row organize-actions-row">
-          <button
-            disabled={!canPreviewPlan}
-            type="button"
-            onClick={previewPlan}
-          >
+          <button disabled={!canPreviewPlan} type="button" onClick={previewPlan}>
             {busy === "plan" ? "预览中..." : "生成整理预览"}
           </button>
           <button
@@ -1003,211 +785,782 @@ export function UnmatchedVideosPage() {
           }
         />
       </Section>
+    );
+  }
 
-      <Section title="批量草稿">
-        <form className="unmatched-batch-scan" onSubmit={scanDirectory}>
-          <div className="path-field">
-            <FormField label="目录路径">
-              <input
-                placeholder="/media/incoming"
-                value={directory}
-                onChange={(event) => setDirectory(event.target.value)}
-              />
-            </FormField>
-            <DirectoryPicker
-              initialPath={directory}
-              onSelect={setDirectory}
-              title="选择目录"
-            />
-          </div>
-          <CheckboxField checked={recursive} label="递归扫描" onChange={setRecursive} />
-          <div className="field-action">
-            <button disabled={!directory.trim() || busy === "scan"} type="submit">
-              {busy === "scan" ? "扫描中..." : "扫描目录"}
-            </button>
-          </div>
-        </form>
+  return (
+    <div className="page-stack unmatched-workbench">
+      <WorkflowProgress
+        hasLocalSource={hasLocalSource}
+        hasSelectedFrames={hasSelectedFrames}
+        hasPlanPreview={Boolean(planPreview)}
+      />
 
-        {scannedVideos.length ? (
-          <div className="table-wrap">
-            <table>
-              <caption>本地视频批量列表</caption>
-              <thead>
-                <tr>
-                  <th>选择</th>
-                  <th>文件</th>
-                  <th>默认标题</th>
-                  <th>大小</th>
-                  <th>操作</th>
-                </tr>
-              </thead>
-              <tbody>
-                {scannedVideos.map((video) => (
-                  <tr key={video.path}>
-                    <td>
-                      <input
-                        aria-label={`选择 ${video.filename}`}
-                        checked={selectedBatchPaths.includes(video.path)}
-                        type="checkbox"
-                        onChange={(event) =>
-                          toggleBatchSelection(video.path, event.target.checked)
-                        }
-                      />
-                    </td>
-                    <td>{video.filename}</td>
-                    <td>{video.cleaned_title}</td>
-                    <td>{formatBytes(video.size_bytes)}</td>
-                    <td>
-                      <button
-                        className="secondary"
-                        type="button"
-                        onClick={() => selectVideo(video)}
-                      >
-                        编辑
-                      </button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        ) : (
-          <div className="empty-state">
-            <strong>暂无批量条目</strong>
-            <span>扫描目录后显示视频列表。</span>
-          </div>
-        )}
+      <Tabs
+        activeTab={activeWorkflowTab}
+        ariaLabel="本地元数据整理方式"
+        tabs={localMetadataWorkflowTabs}
+        onChange={setActiveWorkflowTab}
+      />
 
-        <div className="grid three batch-draft-grid">
-          <FormField label="标题前缀">
-            <input
-              value={batchPrefix}
-              onChange={(event) => setBatchPrefix(event.target.value)}
-            />
-          </FormField>
-          <FormField label="标题后缀">
-            <input
-              value={batchSuffix}
-              onChange={(event) => setBatchSuffix(event.target.value)}
-            />
-          </FormField>
-          <FormField label="整理文件名前缀">
-            <input
-              value={batchFilenamePrefix}
-              onChange={(event) => setBatchFilenamePrefix(event.target.value)}
-            />
-          </FormField>
-          <FormField label="整理文件名后缀">
-            <input
-              value={batchFilenameSuffix}
-              onChange={(event) => setBatchFilenameSuffix(event.target.value)}
-            />
-          </FormField>
-          <FormField label="制作方">
-            <input
-              value={batchStudio}
-              onChange={(event) => setBatchStudio(event.target.value)}
-            />
-          </FormField>
-          <FormField label="系列">
-            <input
-              value={batchSeries}
-              onChange={(event) => setBatchSeries(event.target.value)}
-            />
-          </FormField>
-          <FormField label="标签">
-            <textarea
-              value={batchTags}
-              onChange={(event) => setBatchTags(event.target.value)}
-            />
-          </FormField>
-          <FormField label="类型">
-            <textarea
-              value={batchGenres}
-              onChange={(event) => setBatchGenres(event.target.value)}
-            />
-          </FormField>
-          <FormField label="简介">
-            <textarea
-              value={batchPlot}
-              onChange={(event) => setBatchPlot(event.target.value)}
-            />
-          </FormField>
-        </div>
-        <div className="button-row batch-actions-row">
-          <button
-            disabled={!selectedBatchPaths.length}
-            type="button"
-            onClick={applyBatchFields}
-          >
-            生成批量草稿
-          </button>
-        </div>
+      <div className="tab-panel" role="tabpanel">
+        {activeWorkflowTab === "single" ? (
+          <>
+            <Section title="单个视频">
+              <p className="section-lead">
+                先分析单个文件或从批量扫描载入草稿，再生成截图并选择封面帧，最后预览
+                NFO 与整理计划。
+              </p>
+              <form className="unmatched-source-grid" onSubmit={analyze}>
+                <div className="path-field">
+                  <FormField label="视频路径">
+                    <input
+                      placeholder="/media/incoming/video.mp4"
+                      value={videoPath}
+                      onChange={(event) => updateVideoPath(event.target.value)}
+                    />
+                  </FormField>
+                  <VideoPathPicker
+                    buttonLabel="选择视频"
+                    initialPath={videoPath}
+                    onSelect={selectVideoPath}
+                    title="选择视频文件"
+                  />
+                </div>
+                <div className="field-action">
+                  <button
+                    disabled={busy === "analyze" || !videoPath.trim()}
+                    type="submit"
+                  >
+                    {busy === "analyze" ? "分析中..." : "分析"}
+                  </button>
+                </div>
+                <div className="field-action">
+                  <button
+                    className="secondary"
+                    disabled={busy === "frames" || !draft.video_path.trim()}
+                    type="button"
+                    onClick={generateFrames}
+                  >
+                    {busy === "frames" ? "生成中..." : "生成截图"}
+                  </button>
+                </div>
+              </form>
 
-        {batchStatuses.length ? (
-          <div className="table-wrap">
-            <table>
-              <caption>本地草稿状态</caption>
-              <thead>
-                <tr>
-                  <th>视频</th>
-                  <th>标题</th>
-                  <th>整理文件名</th>
-                  <th>状态</th>
-                  <th>操作</th>
-                </tr>
-              </thead>
-              <tbody>
-                {batchStatuses.map((item) => {
-                  const isLoadedDraft = draft.video_path === item.path;
-                  return (
-                    <tr
-                      className={isLoadedDraft ? "is-selected-row" : undefined}
-                      key={item.path}
+              {technical ? <TechnicalSummary technical={technical} /> : null}
+            </Section>
+
+            <div className="unmatched-editor-layout">
+              <Section title="元数据草稿">
+                <div className="grid two">
+                  <FormField label="标题">
+                    <input
+                      value={draft.title}
+                      onChange={(event) => updateDraft("title", event.target.value)}
+                    />
+                  </FormField>
+                  <FormField
+                    label="整理文件名"
+                    description="标题写入 NFO 元数据；整理文件名用于输出视频和同名 NFO 文件。留空时使用文件名模板。"
+                  >
+                    <input
+                      value={draft.organize_filename ?? ""}
+                      onChange={(event) =>
+                        updateDraft("organize_filename", event.target.value || null)
+                      }
+                    />
+                  </FormField>
+                </div>
+                <div className="grid two">
+                  <FormField label="封面文字">
+                    <textarea
+                      value={posterTitle}
+                      onChange={(event) => updatePosterTitle(event.target.value)}
+                    />
+                  </FormField>
+                  <FormField label="模板">
+                    <select
+                      value={template}
+                      onChange={(event) =>
+                        updateTemplate(event.target.value as CoverTemplateName)
+                      }
                     >
-                      <td>{item.path}</td>
-                      <td>{item.draft.title}</td>
-                      <td>{item.draft.organize_filename || "使用文件名模板"}</td>
-                      <td>
-                        <span
-                          className={`status-pill ${batchStatusClass(item.status)}`}
-                        >
-                          {batchStatusLabel(item.status)}
-                        </span>
-                      </td>
-                      <td>
-                        <div className="button-row">
+                      {coverTemplates.map((item) => (
+                        <option key={item.value} value={item.value}>
+                          {item.label}
+                        </option>
+                      ))}
+                    </select>
+                  </FormField>
+                  <FormField
+                    label="封面字体"
+                    description="模板只提供默认字体；这里可以覆盖为任意内置字体。"
+                  >
+                    <select
+                      value={titleFontId}
+                      onChange={(event) =>
+                        updateTitleFont(event.target.value as PosterFontId)
+                      }
+                    >
+                      {posterFonts.map((item) => (
+                        <option key={item.value} value={item.value}>
+                          {item.label}
+                        </option>
+                      ))}
+                    </select>
+                  </FormField>
+                </div>
+                <div className="grid three">
+                  <FormField label="文字倾斜角度">
+                    <input
+                      max={MAX_TITLE_ANGLE_DEGREES}
+                      min={MIN_TITLE_ANGLE_DEGREES}
+                      step={1}
+                      type="number"
+                      value={titleAngleDegrees}
+                      onChange={(event) => updateTitleAngle(event.target.value)}
+                    />
+                  </FormField>
+                  <FormField label="文字横向位置">
+                    <input
+                      max={MAX_TITLE_POSITION_PERCENT}
+                      min={MIN_TITLE_POSITION_PERCENT}
+                      step={1}
+                      type="range"
+                      value={titlePositionXPercent}
+                      onChange={(event) => updateTitlePositionX(event.target.value)}
+                    />
+                  </FormField>
+                  <FormField label="文字纵向位置">
+                    <input
+                      max={MAX_TITLE_POSITION_PERCENT}
+                      min={MIN_TITLE_POSITION_PERCENT}
+                      step={1}
+                      type="range"
+                      value={titlePositionYPercent}
+                      onChange={(event) => updateTitlePositionY(event.target.value)}
+                    />
+                  </FormField>
+                </div>
+                <div className="grid two">
+                  <FormField label="制作方">
+                    <input
+                      value={draft.studio ?? ""}
+                      onChange={(event) =>
+                        updateDraft("studio", event.target.value || null)
+                      }
+                    />
+                  </FormField>
+                  <FormField label="系列">
+                    <input
+                      value={draft.series ?? ""}
+                      onChange={(event) =>
+                        updateDraft("series", event.target.value || null)
+                      }
+                    />
+                  </FormField>
+                </div>
+                <FormField label="简介">
+                  <textarea
+                    value={draft.plot ?? ""}
+                    onChange={(event) =>
+                      updateDraft("plot", event.target.value || null)
+                    }
+                  />
+                </FormField>
+                <div className="grid two">
+                  <FormField label="标签">
+                    <textarea
+                      value={listToLines(draft.tags)}
+                      onChange={(event) =>
+                        updateDraft("tags", listFromText(event.target.value))
+                      }
+                    />
+                  </FormField>
+                  <FormField label="类型">
+                    <textarea
+                      value={listToLines(draft.genres)}
+                      onChange={(event) =>
+                        updateDraft("genres", listFromText(event.target.value))
+                      }
+                    />
+                  </FormField>
+                </div>
+                <div className="button-row">
+                  <button
+                    disabled={!canGenerateCover}
+                    type="button"
+                    onClick={generateCoverPreview}
+                  >
+                    {busy === "cover" ? "生成中..." : "生成封面预览"}
+                  </button>
+                  <button
+                    className="secondary"
+                    disabled={!canPreviewNfo}
+                    type="button"
+                    onClick={previewNfo}
+                  >
+                    {busy === "nfo" ? "生成中..." : "生成 NFO 预览"}
+                  </button>
+                </div>
+              </Section>
+
+              <Section title="截图与预览">
+                <p className="section-lead">
+                  封面预览需要先生成截图，并至少选中一张截图作为 Poster/Fanart
+                  的素材。
+                </p>
+                {frames.length ? (
+                  <>
+                    <p className="frame-selection-status">
+                      已选择 {selectedFrameIds.length} 张截图用于封面和背景图。
+                    </p>
+                    <div className="frame-grid" aria-label="截图候选">
+                      {frames.map((frame) => {
+                        const selected = selectedFrameIds.includes(frame.id);
+                        return (
                           <button
-                            className="secondary"
+                            aria-pressed={selected}
+                            className={`frame-thumb${selected ? " is-selected" : ""}`}
+                            key={frame.id}
                             type="button"
-                            aria-label={`载入批量草稿 ${item.filename}`}
-                            onClick={() => loadBatchDraft(item)}
+                            onClick={() => toggleSelectedFrame(frame.id)}
                           >
-                            载入
+                            <img
+                              alt={`截图 ${formatTime(frame.time_seconds)}`}
+                              src={frame.url}
+                            />
+                            <span>{formatTime(frame.time_seconds)}</span>
                           </button>
-                          <button
-                            className="secondary"
-                            disabled={!isLoadedDraft}
-                            type="button"
-                            aria-label={`保存当前草稿到 ${item.filename}`}
-                            onClick={() => saveCurrentDraftToBatch(item)}
+                        );
+                      })}
+                    </div>
+                  </>
+                ) : (
+                  <div className="empty-state">
+                    <strong>暂无截图</strong>
+                    <span>输入视频路径后生成截图，再选择至少一张用于封面。</span>
+                  </div>
+                )}
+
+                {coverPreview ? (
+                  <div className="cover-preview-grid">
+                    <PreviewImage asset={coverPreview.poster} label="Poster" />
+                    <PreviewImage asset={coverPreview.fanart} label="Fanart" />
+                  </div>
+                ) : null}
+
+                {nfoPreview ? (
+                  <div className="nfo-preview">
+                    <h3>NFO</h3>
+                    <pre>{nfoPreview.xml_text}</pre>
+                  </div>
+                ) : null}
+              </Section>
+            </div>
+
+            {renderOrganizePreviewSection("single")}
+          </>
+        ) : (
+          <>
+            <Section title="批量整理列表">
+              <form className="unmatched-batch-scan" onSubmit={scanDirectory}>
+                <div className="path-field">
+                  <FormField label="目录路径">
+                    <input
+                      placeholder="/media/incoming"
+                      value={directory}
+                      onChange={(event) => setDirectory(event.target.value)}
+                    />
+                  </FormField>
+                  <DirectoryPicker
+                    initialPath={directory}
+                    onSelect={setDirectory}
+                    title="选择目录"
+                  />
+                </div>
+                <CheckboxField checked={recursive} label="递归扫描" onChange={setRecursive} />
+                <div className="field-action">
+                  <button disabled={!directory.trim() || busy === "scan"} type="submit">
+                    {busy === "scan" ? "扫描中..." : "扫描目录"}
+                  </button>
+                </div>
+              </form>
+
+              <BatchDraftProgress
+                batchStatuses={batchStatuses}
+                busy={busy}
+                scannedCount={scannedVideos.length}
+                selectedCount={selectedBatchPaths.length}
+              />
+
+              {scannedVideos.length ? (
+                <div className="table-wrap">
+                  <table>
+                    <caption>本地视频批量列表</caption>
+                    <thead>
+                      <tr>
+                        <th>选择</th>
+                        <th>文件</th>
+                        <th>默认标题</th>
+                        <th>大小</th>
+                        <th>操作</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {scannedVideos.map((video) => (
+                        <tr key={video.path}>
+                          <td>
+                            <input
+                              aria-label={`选择 ${video.filename}`}
+                              checked={selectedBatchPaths.includes(video.path)}
+                              type="checkbox"
+                              onChange={(event) =>
+                                toggleBatchSelection(video.path, event.target.checked)
+                              }
+                            />
+                          </td>
+                          <td>{video.filename}</td>
+                          <td>{video.cleaned_title}</td>
+                          <td>{formatBytes(video.size_bytes)}</td>
+                          <td>
+                            <button
+                              className="secondary"
+                              type="button"
+                              onClick={() => selectVideo(video)}
+                            >
+                              编辑
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              ) : (
+                <div className="empty-state">
+                  <strong>暂无批量条目</strong>
+                  <span>扫描目录后显示视频列表。</span>
+                </div>
+              )}
+
+              <div className="grid three batch-draft-grid">
+                <FormField label="标题前缀">
+                  <input
+                    value={batchPrefix}
+                    onChange={(event) => setBatchPrefix(event.target.value)}
+                  />
+                </FormField>
+                <FormField label="标题后缀">
+                  <input
+                    value={batchSuffix}
+                    onChange={(event) => setBatchSuffix(event.target.value)}
+                  />
+                </FormField>
+                <FormField label="整理文件名前缀">
+                  <input
+                    value={batchFilenamePrefix}
+                    onChange={(event) => setBatchFilenamePrefix(event.target.value)}
+                  />
+                </FormField>
+                <FormField label="整理文件名后缀">
+                  <input
+                    value={batchFilenameSuffix}
+                    onChange={(event) => setBatchFilenameSuffix(event.target.value)}
+                  />
+                </FormField>
+                <FormField label="制作方">
+                  <input
+                    value={batchStudio}
+                    onChange={(event) => setBatchStudio(event.target.value)}
+                  />
+                </FormField>
+                <FormField label="系列">
+                  <input
+                    value={batchSeries}
+                    onChange={(event) => setBatchSeries(event.target.value)}
+                  />
+                </FormField>
+                <FormField label="标签">
+                  <textarea
+                    value={batchTags}
+                    onChange={(event) => setBatchTags(event.target.value)}
+                  />
+                </FormField>
+                <FormField label="类型">
+                  <textarea
+                    value={batchGenres}
+                    onChange={(event) => setBatchGenres(event.target.value)}
+                  />
+                </FormField>
+                <FormField label="简介">
+                  <textarea
+                    value={batchPlot}
+                    onChange={(event) => setBatchPlot(event.target.value)}
+                  />
+                </FormField>
+              </div>
+              <div className="button-row batch-actions-row">
+                <button
+                  disabled={!selectedBatchPaths.length}
+                  type="button"
+                  onClick={applyBatchFields}
+                >
+                  为已选视频生成整理信息
+                </button>
+              </div>
+
+              {batchStatuses.length ? (
+                <div className="table-wrap">
+                  <table>
+                    <caption>已生成的整理信息</caption>
+                    <thead>
+                      <tr>
+                        <th>视频</th>
+                        <th>标题</th>
+                        <th>整理文件名</th>
+                        <th>状态</th>
+                        <th>操作</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {batchStatuses.map((item) => {
+                        const isLoadedDraft = draft.video_path === item.path;
+                        return (
+                          <tr
+                            className={isLoadedDraft ? "is-selected-row" : undefined}
+                            key={item.path}
                           >
-                            保存当前
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-        ) : null}
-      </Section>
+                            <td>{item.path}</td>
+                            <td>{item.draft.title}</td>
+                            <td>{item.draft.organize_filename || "使用文件名模板"}</td>
+                            <td>
+                              <span
+                                className={`status-pill ${batchStatusClass(item.status)}`}
+                              >
+                                {batchStatusLabel(item.status)}
+                              </span>
+                            </td>
+                            <td>
+                              <div className="button-row">
+                                <button
+                                  className="secondary"
+                                  type="button"
+                                  aria-label={`载入整理信息 ${item.filename}`}
+                                  onClick={() => loadBatchDraft(item)}
+                                >
+                                  载入
+                                </button>
+                                <button
+                                  className="secondary"
+                                  disabled={!isLoadedDraft}
+                                  type="button"
+                                  aria-label={`保存当前草稿到 ${item.filename}`}
+                                  onClick={() => saveCurrentDraftToBatch(item)}
+                                >
+                                  保存当前
+                                </button>
+                              </div>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              ) : null}
+            </Section>
+
+            {renderOrganizePreviewSection("batch")}
+          </>
+        )}
+      </div>
 
       {status ? <p className="status floating-status">{status}</p> : null}
       {error ? <p className="status error floating-status">{error}</p> : null}
     </div>
+  );
+}
+
+function VideoPathPicker({
+  buttonLabel = "选择视频",
+  initialPath = "",
+  onSelect,
+  title = "选择视频文件",
+}: {
+  buttonLabel?: string;
+  initialPath?: string;
+  onSelect: (path: string) => void;
+  title?: string;
+}) {
+  const titleId = useId();
+  const [open, setOpen] = useState(false);
+  const [roots, setRoots] = useState<StorageRootRead[]>([]);
+  const [selectedRoot, setSelectedRoot] = useState<StorageRootRead | null>(null);
+  const [currentPath, setCurrentPath] = useState("");
+  const [browseResult, setBrowseResult] = useState<BrowseResponse | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+
+  async function loadRoots(path = initialPath) {
+    setError("");
+    setLoading(true);
+    try {
+      const response = await apiFetch<StorageRootList>("/api/storage-roots");
+      setRoots(response.roots);
+      const matchingRoot = findRootForPickerPath(response.roots, path);
+      const root = matchingRoot ?? response.roots[0] ?? null;
+      setSelectedRoot(root);
+      if (root) {
+        const relativePath = matchingRoot
+          ? toPickerRelativePath(path, root.path)
+          : "";
+        await browse(
+          root,
+          pathLooksLikeFile(relativePath)
+            ? parentPickerPath(relativePath)
+            : relativePath,
+        );
+      } else {
+        setBrowseResult(null);
+      }
+    } catch (exc) {
+      setError(exc instanceof Error ? exc.message : "无法加载媒体目录");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function browse(root = selectedRoot, path = currentPath) {
+    if (!root) {
+      setError("请先配置媒体目录");
+      return;
+    }
+    setError("");
+    setLoading(true);
+    try {
+      const query = new URLSearchParams({
+        root_id: String(root.id),
+        path,
+      });
+      const response = await apiFetch<BrowseResponse>(
+        `/api/storage-roots/browse?${query}`,
+      );
+      setSelectedRoot(response.root);
+      setBrowseResult(response);
+      setCurrentPath(toPickerRelativePath(path, response.root.path));
+    } catch (exc) {
+      setError(exc instanceof Error ? exc.message : "目录浏览失败");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  function openPicker() {
+    setOpen(true);
+    setCurrentPath("");
+    setBrowseResult(null);
+    void loadRoots();
+  }
+
+  function switchRoot(root: StorageRootRead) {
+    setSelectedRoot(root);
+    void browse(root, "");
+  }
+
+  function enterDirectory(path: string) {
+    if (!selectedRoot) {
+      return;
+    }
+    void browse(selectedRoot, toPickerRelativePath(path, selectedRoot.path));
+  }
+
+  function goUp() {
+    if (!selectedRoot) {
+      return;
+    }
+    void browse(selectedRoot, parentPickerPath(currentPath));
+  }
+
+  function selectFile(path: string) {
+    onSelect(path);
+    setOpen(false);
+  }
+
+  return (
+    <>
+      <button
+        className="secondary directory-picker-trigger"
+        type="button"
+        onClick={openPicker}
+      >
+        {buttonLabel}
+      </button>
+      {open ? (
+        <div
+          aria-labelledby={titleId}
+          aria-modal="true"
+          className="dialog-backdrop"
+          role="dialog"
+        >
+          <div className="dialog directory-picker-dialog">
+            <div className="row row-between">
+              <div>
+                <h2 id={titleId}>{title}</h2>
+                <p className="muted">选择一个媒体目录，然后点击视频文件。</p>
+              </div>
+              <button
+                className="secondary"
+                type="button"
+                onClick={() => setOpen(false)}
+              >
+                关闭
+              </button>
+            </div>
+
+            {roots.length ? (
+              <div className="root-picker" aria-label="媒体目录列表">
+                {roots.map((root) => (
+                  <button
+                    aria-pressed={selectedRoot?.id === root.id}
+                    className="root-option"
+                    key={root.id}
+                    type="button"
+                    onClick={() => switchRoot(root)}
+                  >
+                    <span className="root-name">{root.path}</span>
+                    <span className="badge">
+                      {root.source === "user" ? "用户" : "容器挂载"}
+                    </span>
+                  </button>
+                ))}
+              </div>
+            ) : null}
+
+            <div className="directory-toolbar">
+              <button
+                disabled={loading || !selectedRoot}
+                type="button"
+                onClick={() => void browse()}
+              >
+                刷新
+              </button>
+              <button
+                className="secondary"
+                disabled={loading || !selectedRoot || !currentPath}
+                type="button"
+                onClick={goUp}
+              >
+                上一层
+              </button>
+            </div>
+
+            {error ? <p className="status error">{error}</p> : null}
+            {browseResult && selectedRoot ? (
+              <div className="directory-browser">
+                <p className="directory-path">
+                  当前目录：<code>{joinPickerPath(selectedRoot.path, currentPath)}</code>
+                </p>
+                {browseResult.entries.length ? (
+                  <ul className="directory-tree" aria-label="视频路径浏览结果">
+                    {browseResult.entries.map((entry) => (
+                      <li key={entry.path}>
+                        <button
+                          aria-label={
+                            entry.is_dir
+                              ? `打开目录 ${entry.name}`
+                              : `选择视频文件 ${entry.name}`
+                          }
+                          className="directory-entry"
+                          type="button"
+                          onClick={() =>
+                            entry.is_dir
+                              ? enterDirectory(entry.path)
+                              : selectFile(entry.path)
+                          }
+                        >
+                          <span className="directory-icon" aria-hidden="true">
+                            {entry.is_dir ? "目录" : "文件"}
+                          </span>
+                          <span className="directory-main">
+                            <strong>{entry.name}</strong>
+                            <small>{entry.path}</small>
+                          </span>
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                ) : (
+                  <p className="muted">当前目录为空。</p>
+                )}
+              </div>
+            ) : (
+              <p className="muted">
+                {loading ? "加载中..." : "请先配置或选择一个媒体目录。"}
+              </p>
+            )}
+          </div>
+        </div>
+      ) : null}
+    </>
+  );
+}
+
+function OrganizeProgressSummary({
+  busy,
+  destinationRoot,
+  draftVideoPath,
+  executeResult,
+  planPreview,
+  workflow,
+}: {
+  busy: BusyAction;
+  destinationRoot: string;
+  draftVideoPath: string;
+  executeResult: LocalExecutePlanResponse | null;
+  planPreview: LocalPlanPreviewResponse | null;
+  workflow: LocalMetadataWorkflowTab;
+}) {
+  const workflowLabel = workflow === "single" ? "单个整理" : "批量整理";
+  return (
+    <p
+      aria-label={`${workflowLabel}预览状态`}
+      aria-live="polite"
+      className="status"
+      role="status"
+    >
+      {organizeProgressText({
+        busy,
+        destinationRoot,
+        draftVideoPath,
+        executeResult,
+        planPreview,
+        workflowLabel,
+      })}
+    </p>
+  );
+}
+
+function BatchDraftProgress({
+  batchStatuses,
+  busy,
+  scannedCount,
+  selectedCount,
+}: {
+  batchStatuses: BatchDraftStatus[];
+  busy: BusyAction;
+  scannedCount: number;
+  selectedCount: number;
+}) {
+  return (
+    <p
+      aria-label="批量整理进度"
+      aria-live="polite"
+      className="status"
+      role="status"
+    >
+      {batchDraftProgressText({ batchStatuses, busy, scannedCount, selectedCount })}
+    </p>
   );
 }
 
@@ -1373,6 +1726,67 @@ function titleFromPath(path: string): string {
   return stem.replace(/[._-]+/g, " ").replace(/\s+/g, " ").trim();
 }
 
+function findRootForPickerPath(
+  roots: StorageRootRead[],
+  path: string,
+): StorageRootRead | null {
+  const normalizedPath = normalizePickerSeparators(path);
+  if (!normalizedPath) {
+    return null;
+  }
+  return (
+    roots
+      .filter((root) => {
+        const rootPath = normalizePickerSeparators(root.path).replace(/\/+$/g, "");
+        return (
+          normalizedPath === rootPath ||
+          normalizedPath.startsWith(`${rootPath}/`)
+        );
+      })
+      .sort((left, right) => right.path.length - left.path.length)[0] ?? null
+  );
+}
+
+function toPickerRelativePath(path: string, rootPath: string): string {
+  const normalizedPath = normalizePickerSeparators(path);
+  const normalizedRoot = normalizePickerSeparators(rootPath).replace(/\/+$/g, "");
+  if (!normalizedPath || normalizedPath === normalizedRoot) {
+    return "";
+  }
+  if (normalizedPath.startsWith(`${normalizedRoot}/`)) {
+    return normalizedPath.slice(normalizedRoot.length + 1);
+  }
+  return normalizedPath.replace(/^\/+/, "");
+}
+
+function parentPickerPath(path: string): string {
+  const normalized = normalizePickerSeparators(path).replace(/\/+$/g, "");
+  if (!normalized) {
+    return "";
+  }
+  const index = normalized.lastIndexOf("/");
+  return index <= 0 ? "" : normalized.slice(0, index);
+}
+
+function joinPickerPath(rootPath: string, relativePath: string): string {
+  const normalizedRoot = normalizePickerSeparators(rootPath).replace(/\/+$/g, "");
+  const normalizedRelative = normalizePickerSeparators(relativePath).replace(
+    /^\/+/,
+    "",
+  );
+  return normalizedRelative
+    ? `${normalizedRoot}/${normalizedRelative}`
+    : normalizedRoot;
+}
+
+function normalizePickerSeparators(path: string): string {
+  return path.trim().replace(/\\/g, "/");
+}
+
+function pathLooksLikeFile(path: string): boolean {
+  return /[^/]+\.[^/.]+$/.test(path);
+}
+
 function listFromText(value: string): string[] {
   return unique(
     value
@@ -1388,6 +1802,75 @@ function unique(values: string[]): string[] {
 
 function defaultLocalTags(): string[] {
   return ["local-generated", "unmatched"];
+}
+
+function organizeProgressText({
+  busy,
+  destinationRoot,
+  draftVideoPath,
+  executeResult,
+  planPreview,
+  workflowLabel,
+}: {
+  busy: BusyAction;
+  destinationRoot: string;
+  draftVideoPath: string;
+  executeResult: LocalExecutePlanResponse | null;
+  planPreview: LocalPlanPreviewResponse | null;
+  workflowLabel: string;
+}): string {
+  if (busy === "plan") {
+    return `${workflowLabel}预览状态：正在生成整理预览。`;
+  }
+  if (busy === "execute") {
+    return `${workflowLabel}预览状态：正在执行整理计划。`;
+  }
+  if (executeResult) {
+    const stateLabel =
+      executeResult.state === "completed"
+        ? "整理完成"
+        : `状态 ${executeResult.state}`;
+    return `${workflowLabel}预览状态：计划 ${executeResult.plan_id} ${stateLabel}。`;
+  }
+  if (planPreview) {
+    return `${workflowLabel}预览状态：整理预览已生成，计划 ${planPreview.plan_id}。`;
+  }
+  if (!draftVideoPath.trim()) {
+    return `${workflowLabel}预览状态：等待视频路径或已载入的整理信息。`;
+  }
+  if (!destinationRoot.trim()) {
+    return `${workflowLabel}预览状态：等待目标目录。`;
+  }
+  return `${workflowLabel}预览状态：可生成整理预览。`;
+}
+
+function batchDraftProgressText({
+  batchStatuses,
+  busy,
+  scannedCount,
+  selectedCount,
+}: {
+  batchStatuses: BatchDraftStatus[];
+  busy: BusyAction;
+  scannedCount: number;
+  selectedCount: number;
+}): string {
+  if (busy === "scan") {
+    return "批量整理进度：正在扫描目录。";
+  }
+  if (batchStatuses.length) {
+    const loadedCount = batchStatuses.filter(
+      (item) => item.status === "loaded",
+    ).length;
+    const updatedCount = batchStatuses.filter(
+      (item) => item.status === "updated",
+    ).length;
+    return `批量整理进度：已生成 ${batchStatuses.length} 个视频整理信息，${loadedCount} 个已载入，${updatedCount} 个已更新。`;
+  }
+  if (scannedCount) {
+    return `批量整理进度：已扫描 ${scannedCount} 个视频，已选择 ${selectedCount} 个。`;
+  }
+  return "批量整理进度：等待扫描目录。";
 }
 
 function batchStatusLabel(status: BatchDraftState): string {

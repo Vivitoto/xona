@@ -99,6 +99,67 @@ describe("UnmatchedVideosPage", () => {
     });
   });
 
+  it("keeps manual video path input while adding a single video path picker", async () => {
+    installFetchMock([
+      { path: "/api/settings", response: settingsFixture() },
+      {
+        path: "/api/storage-roots",
+        response: {
+          roots: [
+            {
+              id: 1,
+              path: "/media",
+              source: "user",
+              enabled: true,
+            },
+          ],
+        },
+      },
+      {
+        path: "/api/storage-roots/browse?root_id=1&path=",
+        response: {
+          root: {
+            id: 1,
+            path: "/media",
+            source: "user",
+            enabled: true,
+          },
+          entries: [
+            {
+              name: "incoming",
+              path: "/media/incoming",
+              is_dir: true,
+            },
+            {
+              name: "Picked.Scene.mp4",
+              path: "/media/Picked.Scene.mp4",
+              is_dir: false,
+            },
+          ],
+        },
+      },
+    ]);
+
+    render(<UnmatchedVideosPage />);
+
+    const pathInput = screen.getByLabelText("视频路径");
+    fireEvent.change(pathInput, {
+      target: { value: "/manual/Typed.Scene.mp4" },
+    });
+    expect(pathInput).toHaveValue("/manual/Typed.Scene.mp4");
+
+    fireEvent.click(screen.getByRole("button", { name: "选择视频" }));
+    const dialog = await screen.findByRole("dialog", { name: "选择视频文件" });
+    fireEvent.click(
+      await within(dialog).findByRole("button", {
+        name: "选择视频文件 Picked.Scene.mp4",
+      }),
+    );
+
+    expect(pathInput).toHaveValue("/media/Picked.Scene.mp4");
+    expect(screen.queryByRole("dialog", { name: "选择视频文件" })).toBeNull();
+  });
+
   it("creates loadable page-local batch drafts and previews the loaded draft", async () => {
     const { calls } = installFetchMock([
       { path: "/api/settings", response: settingsFixture() },
@@ -140,12 +201,34 @@ describe("UnmatchedVideosPage", () => {
 
     render(<UnmatchedVideosPage />);
 
+    const singleTab = screen.getByRole("tab", { name: "单个整理" });
+    const batchTab = screen.getByRole("tab", { name: "批量整理" });
+    expect(singleTab).toHaveAttribute("aria-selected", "true");
+    expect(batchTab).toHaveAttribute("aria-selected", "false");
+    expect(screen.getByRole("heading", { name: "单个视频" })).toBeTruthy();
+    expect(screen.queryByRole("heading", { name: "批量整理列表" })).toBeNull();
+    expect(
+      screen.getByRole("status", { name: "单个整理预览状态" }),
+    ).toHaveTextContent("单个整理预览状态");
+
     await waitFor(() =>
       expect(screen.getByLabelText("目标目录")).toHaveValue("/media/organized"),
     );
 
+    fireEvent.click(batchTab);
+    expect(batchTab).toHaveAttribute("aria-selected", "true");
+    expect(screen.getByRole("heading", { name: "批量整理列表" })).toBeTruthy();
+    expect(screen.queryByRole("heading", { name: "单个视频" })).toBeNull();
+    expect(screen.getByRole("heading", { name: "整理预览" })).toBeTruthy();
+    expect(
+      screen.getByRole("status", { name: "批量整理进度" }),
+    ).toHaveTextContent("等待扫描目录");
+    expect(
+      screen.getByRole("status", { name: "批量整理预览状态" }),
+    ).toHaveTextContent("批量整理预览状态");
+
     const batchSection = screen
-      .getByRole("heading", { name: "批量草稿" })
+      .getByRole("heading", { name: "批量整理列表" })
       .closest("section");
     expect(batchSection).toBeTruthy();
     const batch = within(batchSection as HTMLElement);
@@ -194,18 +277,22 @@ describe("UnmatchedVideosPage", () => {
       target: { value: "Batch plot text." },
     });
 
-    fireEvent.click(batch.getByRole("button", { name: "生成批量草稿" }));
+    fireEvent.click(batch.getByRole("button", { name: "为已选视频生成整理信息" }));
 
-    await waitFor(() => expect(batch.getByText("本地草稿状态")).toBeTruthy());
+    await waitFor(() => expect(batch.getByText("已生成的整理信息")).toBeTruthy());
+    expect(
+      batch.getByRole("status", { name: "批量整理进度" }),
+    ).toHaveTextContent("已生成 2 个视频整理信息");
     expect(batch.getByText("[Batch] Alpha Scene - Draft")).toBeTruthy();
     expect(batch.getByText("OF_Alpha Scene_OUT")).toBeTruthy();
     expect(batch.getByText("[Batch] Beta Scene - Draft")).toBeTruthy();
     expect(batch.getByText("OF_Beta Custom_OUT")).toBeTruthy();
 
     fireEvent.click(
-      batch.getByRole("button", { name: "载入批量草稿 Beta.Scene.mkv" }),
+      batch.getByRole("button", { name: "载入整理信息 Beta.Scene.mkv" }),
     );
 
+    fireEvent.click(singleTab);
     const editorSection = screen
       .getByRole("heading", { name: "元数据草稿" })
       .closest("section");
@@ -225,13 +312,29 @@ describe("UnmatchedVideosPage", () => {
     fireEvent.change(editor.getByLabelText("标题"), {
       target: { value: "Edited Beta Scene" },
     });
-    fireEvent.click(
-      batch.getByRole("button", { name: "保存当前草稿到 Beta.Scene.mkv" }),
-    );
-    expect(batch.getByText("Edited Beta Scene")).toBeTruthy();
-    expect(batch.getByText("已更新")).toBeTruthy();
 
-    fireEvent.click(screen.getByRole("button", { name: "生成整理预览" }));
+    fireEvent.click(batchTab);
+    const updatedBatchSection = screen
+      .getByRole("heading", { name: "批量整理列表" })
+      .closest("section");
+    expect(updatedBatchSection).toBeTruthy();
+    const updatedBatch = within(updatedBatchSection as HTMLElement);
+    fireEvent.click(
+      updatedBatch.getByRole("button", { name: "保存当前草稿到 Beta.Scene.mkv" }),
+    );
+    expect(updatedBatch.getByText("Edited Beta Scene")).toBeTruthy();
+    expect(updatedBatch.getByText("已更新")).toBeTruthy();
+
+    const batchPreviewSection = screen
+      .getByRole("heading", { name: "整理预览" })
+      .closest("section");
+    expect(batchPreviewSection).toBeTruthy();
+    const batchPreview = within(batchPreviewSection as HTMLElement);
+    expect(
+      batchPreview.getByRole("status", { name: "批量整理预览状态" }),
+    ).toHaveTextContent("可生成整理预览");
+
+    fireEvent.click(batchPreview.getByRole("button", { name: "生成整理预览" }));
 
     await waitFor(() =>
       expect(
@@ -241,6 +344,11 @@ describe("UnmatchedVideosPage", () => {
             call.url === "/api/local-metadata/preview-plan",
         ),
       ).toBe(true),
+    );
+    await waitFor(() =>
+      expect(
+        batchPreview.getByRole("status", { name: "批量整理预览状态" }),
+      ).toHaveTextContent("整理预览已生成"),
     );
     const previewCall = calls.find(
       (call) => call.method === "POST" && call.url === "/api/local-metadata/preview-plan",

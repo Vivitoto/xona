@@ -23,7 +23,11 @@ def test_clean_local_title_uses_existing_filename_normalizer() -> None:
         clean_local_title("site-prefix ABC123 [1080p WEB-DL] Nice.Title.4K.mkv")
         == "ABC123 Nice Title"
     )
-    assert clean_local_title("TangXin.Vlog_EP01_1080p.mp4") == "TangXin Vlog EP01"
+    assert clean_local_title("TangXin.Vlog_EP01_1080p.mp4") == "TangXin Vlog_EP01"
+    assert (
+        clean_local_title("Nana_taipei【轻熟女教】老师4顽徒驯服 老师用肉体调教问题学生_4K.mkv")
+        == "Nana_taipei【轻熟女教】老师4顽徒驯服 老师用肉体调教问题学生"
+    )
 
 
 def test_clean_organize_filename_sanitizes_user_stem() -> None:

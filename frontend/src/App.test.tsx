@@ -22,7 +22,7 @@ describe("App", () => {
     expect(screen.getByRole("heading", { name: "Xona" })).toBeTruthy();
     expect(
       screen.getByLabelText(`Xona 版本 ${APP_VERSION_LABEL}`),
-    ).toHaveTextContent("v1.1.4");
+    ).toHaveTextContent("v1.1.5");
   });
 
   it("toggles theme mode and persists the selection", () => {

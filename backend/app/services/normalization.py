@@ -28,7 +28,10 @@ WINDOWS_RESERVED = {
 
 
 def normalize_filename_for_search(
-    filename: str | Path, *, parent_name: str | None = None
+    filename: str | Path,
+    *,
+    parent_name: str | None = None,
+    preserve_underscores: bool = False,
 ) -> NormalizedName:
     original = str(filename)
     value = unicodedata.normalize("NFKC", Path(original).name)
@@ -60,18 +63,13 @@ def normalize_filename_for_search(
     if identifier:
         stem = IDENTIFIER_RE.sub(protected_identifier, stem, count=1)
 
-    tokens: list[str] = []
-    for raw_token in re.split(r"[\s._-]+", stem):
-        token = raw_token.strip()
-        if not token:
-            continue
-        if token == protected_identifier:
-            tokens.append(identifier or token)
-            continue
-        if TECHNICAL_TOKEN_RE.match(token):
-            technical_tokens.append(token)
-            continue
-        tokens.append(token)
+    tokens = _search_tokens(
+        stem,
+        protected_identifier=protected_identifier,
+        identifier=identifier,
+        technical_tokens=technical_tokens,
+        preserve_underscores=preserve_underscores,
+    )
 
     search_text = " ".join(tokens)
     search_text = re.sub(r"\s+", " ", search_text).strip()
@@ -116,6 +114,53 @@ def _strip_bracketed_technical_tokens(value: str, tokens: list[str]) -> str:
         return match.group(0)
 
     return BRACKET_RE.sub(replace, value)
+
+
+def _search_tokens(
+    value: str,
+    *,
+    protected_identifier: str,
+    identifier: str | None,
+    technical_tokens: list[str],
+    preserve_underscores: bool,
+) -> list[str]:
+    if not preserve_underscores:
+        tokens: list[str] = []
+        for raw_token in re.split(r"[\s._-]+", value):
+            token = raw_token.strip()
+            if not token:
+                continue
+            if token == protected_identifier:
+                tokens.append(identifier or token)
+                continue
+            if TECHNICAL_TOKEN_RE.match(token):
+                technical_tokens.append(token)
+                continue
+            tokens.append(token)
+        return tokens
+
+    tokens = []
+    for raw_segment in re.split(r"[\s.-]+", value):
+        segment = raw_segment.strip()
+        if not segment:
+            continue
+        if segment == protected_identifier:
+            tokens.append(identifier or segment)
+            continue
+        kept_parts: list[str] = []
+        for part in segment.split("_"):
+            if not part:
+                continue
+            if part == protected_identifier:
+                kept_parts.append(identifier or part)
+                continue
+            if TECHNICAL_TOKEN_RE.match(part):
+                technical_tokens.append(part)
+                continue
+            kept_parts.append(part)
+        if kept_parts:
+            tokens.append("_".join(kept_parts))
+    return tokens
 
 
 def _extract_identifier(value: str) -> str | None:
