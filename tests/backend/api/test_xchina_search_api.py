@@ -122,7 +122,7 @@ def test_xchina_search_uses_optional_normalized_query(tmp_path: Path) -> None:
 
 def test_xchina_detail_accepts_direct_source_url_without_local_job(tmp_path: Path) -> None:
     adapter = FakeXChinaAdapter()
-    source_url = "https://www.xchina.co/videos/xc-001.html"
+    source_url = "https://www.xchina.co/video/id-XC-001.html"
 
     async def run() -> httpx.Response:
         app = create_app(_settings(tmp_path))

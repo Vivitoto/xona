@@ -81,7 +81,7 @@ describe("UnmatchedVideosPage", () => {
     fireEvent.change(organizeInput, {
       target: { value: "Custom Output Name" },
     });
-    fireEvent.change(screen.getByLabelText("额外截图数量"), {
+    fireEvent.change(screen.getByLabelText("额外背景图数量"), {
       target: { value: "2" },
     });
     fireEvent.click(screen.getByRole("button", { name: "生成整理预览" }));
@@ -102,6 +102,14 @@ describe("UnmatchedVideosPage", () => {
       metadata: {
         title: "Metadata Title",
         organize_filename: "Custom Output Name",
+        technical: {
+          width: 1920,
+          height: 1080,
+          video_codec: "h264",
+          audio_codec: "aac",
+          bit_rate: 5000000,
+          fps: 29.97,
+        },
       },
       selected_frame_ids: [],
       extra_backdrop_count: 2,
@@ -386,6 +394,10 @@ describe("UnmatchedVideosPage", () => {
   });
 
   it("requires selected frames for cover preview and clears stale cover and plan previews", async () => {
+    const selectedFrameIds = Array.from(
+      { length: 9 },
+      (_, index) => `frames/frame-${index + 1}.jpg`,
+    );
     const { calls } = installFetchMock([
       { path: "/api/settings", response: settingsFixture() },
       {
@@ -417,18 +429,13 @@ describe("UnmatchedVideosPage", () => {
         path: "/api/local-metadata/frames",
         response: {
           video_path: "/media/incoming/Frame.Source.mp4",
-          frames: [
+          frames: selectedFrameIds.map((id, index) =>
             cachedAssetFixture({
-              id: "frames/frame-a.jpg",
-              url: "/api/local-metadata/cache/frames/frame-a.jpg",
-              time_seconds: 12,
+              id,
+              url: `/api/local-metadata/cache/${id}`,
+              time_seconds: index === 0 ? 12 : (index + 1) * 30,
             }),
-            cachedAssetFixture({
-              id: "frames/frame-b.jpg",
-              url: "/api/local-metadata/cache/frames/frame-b.jpg",
-              time_seconds: 60,
-            }),
-          ],
+          ),
           warnings: [],
         },
       },
@@ -450,9 +457,16 @@ describe("UnmatchedVideosPage", () => {
             width: 1600,
             height: 900,
           }),
+          thumb: cachedAssetFixture({
+            id: "covers/thumb.jpg",
+            kind: "thumb",
+            url: "/api/local-metadata/cache/covers/thumb.jpg",
+            width: 1600,
+            height: 900,
+          }),
           template: "simple_poster",
           title_font_id: "source_han_sans",
-          selected_frame_ids: ["frames/frame-a.jpg"],
+          selected_frame_ids: selectedFrameIds,
           warnings: [],
         },
       },
@@ -475,8 +489,7 @@ describe("UnmatchedVideosPage", () => {
       expect(screen.getByLabelText("目标目录")).toHaveValue("/media/organized"),
     );
     expect(screen.getByText("分析文件或扫描目录")).toBeTruthy();
-    expect(screen.getByText(/封面预览需要先生成截图/)).toBeTruthy();
-    expect(screen.getByText(/优先使用已选截图/)).toBeTruthy();
+    expect(screen.getByText(/自动选中前 9 张作为/)).toBeTruthy();
     expect(screen.getByText(/0 表示居中/)).toBeTruthy();
     expect(screen.getByRole("button", { name: "分析并生成截图" })).toBeTruthy();
     expect(screen.queryByRole("button", { name: "分析" })).toBeNull();
@@ -501,8 +514,8 @@ describe("UnmatchedVideosPage", () => {
     expect(screen.getByLabelText("文字纵向偏移")).toHaveValue(43);
 
     const coverButton = screen.getByRole("button", { name: "生成封面预览" });
+    const resetFramesButton = screen.getByRole("button", { name: "重新选择前 9 张" });
     const firstFrame = await screen.findByRole("button", { name: /截图 0:12/ });
-    const secondFrame = screen.getByRole("button", { name: /截图 1:00/ });
     const framesCall = calls.find(
       (call) => call.method === "POST" && call.url === "/api/local-metadata/frames",
     );
@@ -510,16 +523,19 @@ describe("UnmatchedVideosPage", () => {
       video_path: "/media/incoming/Frame.Source.mp4",
       frame_count: 9,
     });
-    expect(screen.getByText("已选择 2 张截图用于封面和背景图。")).toBeTruthy();
+    expect(screen.getByText(/Xona 默认选择前 9 张；当前已选择 9 张/)).toBeTruthy();
     expect(coverButton).not.toBeDisabled();
+    expect(resetFramesButton).toBeDisabled();
 
     fireEvent.click(firstFrame);
-    fireEvent.click(secondFrame);
-    expect(screen.getByText("已选择 0 张截图用于封面和背景图。")).toBeTruthy();
+    expect(screen.getByText(/Xona 默认选择前 9 张；当前已选择 8 张/)).toBeTruthy();
     expect(coverButton).toBeDisabled();
+    expect(resetFramesButton).not.toBeDisabled();
 
-    fireEvent.click(firstFrame);
-    expect(screen.getByText("已选择 1 张截图用于封面和背景图。")).toBeTruthy();
+    fireEvent.click(resetFramesButton);
+    expect(screen.getByText(/Xona 默认选择前 9 张；当前已选择 9 张/)).toBeTruthy();
+    expect(coverButton).not.toBeDisabled();
+    expect(resetFramesButton).toBeDisabled();
     fireEvent.change(screen.getByLabelText("封面文字"), {
       target: { value: "Poster Manual\nFrame Source" },
     });
@@ -569,7 +585,7 @@ describe("UnmatchedVideosPage", () => {
       title_stroke_color: "#e11d48",
       title_stroke_width: 0,
       title_effect: "none",
-      selected_frame_ids: ["frames/frame-a.jpg"],
+      selected_frame_ids: selectedFrameIds,
     });
 
     fireEvent.click(screen.getByRole("button", { name: "生成整理预览" }));
@@ -583,7 +599,8 @@ describe("UnmatchedVideosPage", () => {
       },
       poster_ref: "covers/poster.jpg",
       fanart_ref: "covers/fanart.jpg",
-      selected_frame_ids: ["frames/frame-a.jpg"],
+      thumb_ref: "covers/thumb.jpg",
+      selected_frame_ids: selectedFrameIds,
     });
     await screen.findByText("<movie><title>Frame Source</title></movie>");
 
@@ -764,7 +781,7 @@ describe("UnmatchedVideosPage", () => {
     fireEvent.click(screen.getByRole("button", { name: "分析并生成截图" }));
 
     await screen.findByRole("button", { name: /截图 0:10/ });
-    expect(screen.getByText("已选择 9 张截图用于封面和背景图。")).toBeTruthy();
+    expect(screen.getByText(/Xona 默认选择前 9 张；当前已选择 9 张/)).toBeTruthy();
     expect(screen.getByLabelText("截图候选").closest(".frame-strip")).toBeTruthy();
     expect(screen.getAllByRole("button", { name: /截图 / })).toHaveLength(12);
     const framesCall = calls.find(

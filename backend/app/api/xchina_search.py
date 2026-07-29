@@ -211,7 +211,7 @@ def _validate_detail_url(url: str, store_settings: dict[str, object]) -> None:
     if not is_allowed_xchina_detail_url(url, store_settings):
         raise HTTPException(
             status_code=400,
-            detail="XChina detail URL must be an on-site /videos page",
+            detail="XChina detail URL must be an on-site /video or /videos page",
         )
 
 

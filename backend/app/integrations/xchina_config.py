@@ -85,7 +85,7 @@ def is_allowed_xchina_detail_url(
         return False
     if parsed.username or parsed.password:
         return False
-    if not (parsed.path == "/videos" or parsed.path.startswith("/videos/")):
+    if not _is_allowed_xchina_detail_path(parsed.path):
         return False
 
     base = urlsplit(xchina_base_url(store_settings))
@@ -99,6 +99,10 @@ def is_allowed_xchina_detail_url(
     if candidate_host == base_host:
         return True
     return candidate_host in DEFAULT_XCHINA_SITE_HOSTS and base_host in DEFAULT_XCHINA_SITE_HOSTS
+
+
+def _is_allowed_xchina_detail_path(path: str) -> bool:
+    return path in {"/video", "/videos"} or path.startswith("/video/") or path.startswith("/videos/")
 
 
 def _effective_port(parts: Any) -> int | None:

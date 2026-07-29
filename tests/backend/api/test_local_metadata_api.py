@@ -4,7 +4,7 @@ import asyncio
 from pathlib import Path
 
 import httpx
-from PIL import Image
+from PIL import Image, ImageDraw
 
 from backend.app.core.settings import Settings
 from backend.app.main import create_app
@@ -66,6 +66,9 @@ def test_local_metadata_api_analyze_and_nfo_preview_contract(
                             "title": "Local Work",
                             "plot": "Local draft.",
                             "tags": ["local-generated", "unmatched"],
+                            "studio": "Studio Local",
+                            "actors": ["Actor Local"],
+                            "technical": fake_probe(video).model_dump(mode="json"),
                         }
                     },
                     headers={"Origin": ORIGIN},
@@ -85,6 +88,17 @@ def test_local_metadata_api_analyze_and_nfo_preview_contract(
     nfo = responses["nfo"].json()
     assert "<title>Local Work</title>" in nfo["xml_text"]
     assert '<uniqueid type="local" default="true">local-' in nfo["xml_text"]
+    assert "<fileinfo>" in nfo["xml_text"]
+    assert "<width>1920</width>" in nfo["xml_text"]
+    assert "<height>1080</height>" in nfo["xml_text"]
+    assert "<codec>h264</codec>" in nfo["xml_text"]
+    assert "<label>1080p</label>" in nfo["xml_text"]
+    assert "<label>Actor Local</label>" in nfo["xml_text"]
+    assert "<label>Studio Local</label>" in nfo["xml_text"]
+    assert "<customrating>" not in nfo["xml_text"]
+    assert "<countrycode>" not in nfo["xml_text"]
+    assert "<mpaa>" not in nfo["xml_text"]
+    assert "<num>" not in nfo["xml_text"]
 
 
 def test_local_metadata_api_cover_preview_title_position_contract(
@@ -101,9 +115,20 @@ def test_local_metadata_api_cover_preview_title_position_contract(
         auth_enabled=False,
     )
     cache_root = settings.config_dir / "cache" / "local_metadata"
-    frame = cache_root / "manual" / "frame.jpg"
-    frame.parent.mkdir(parents=True)
-    Image.new("RGB", (640, 360), (120, 84, 48)).save(frame)
+    frame_dir = cache_root / "manual"
+    frame_dir.mkdir(parents=True)
+    selected_frame_ids: list[str] = []
+    for index in range(1, 10):
+        frame = frame_dir / f"frame-{index}.jpg"
+        image = Image.new("RGB", (640, 360), (60 + index * 18, 45 + index * 14, 35 + index * 16))
+        draw = ImageDraw.Draw(image)
+        draw.rectangle((20, 20, 620, 340), outline=(255, 255, 255), width=5)
+        for offset in range(0, 180, 45):
+            draw.line((offset, index * 10, 640 - offset, 360 - index * 8), fill=(20, 20, 20), width=4)
+            draw.line((640 - offset, 30 + offset, offset, 330 - offset), fill=(255, 240, 120), width=3)
+        draw.ellipse((40 + index * 12, 80, 220 + index * 12, 260), outline=(255, 240, 120), width=4)
+        image.save(frame)
+        selected_frame_ids.append(f"manual/frame-{index}.jpg")
 
     async def run() -> dict[str, httpx.Response]:
         app = create_app(settings)
@@ -122,7 +147,7 @@ def test_local_metadata_api_cover_preview_title_position_contract(
                         "title_position_y_percent": 35,
                         "template": "simple_poster",
                         "title_font_id": "lxgw_wenkai",
-                        "selected_frame_ids": ["manual/frame.jpg"],
+                        "selected_frame_ids": selected_frame_ids,
                     },
                     headers={"Origin": ORIGIN},
                 )
@@ -133,11 +158,21 @@ def test_local_metadata_api_cover_preview_title_position_contract(
                         "title": "Local Poster",
                         "title_position_x_percent": 101,
                         "template": "simple_poster",
-                        "selected_frame_ids": ["manual/frame.jpg"],
+                        "selected_frame_ids": selected_frame_ids,
                     },
                     headers={"Origin": ORIGIN},
                 )
-                return {"valid": valid, "invalid": invalid}
+                too_few = await client.post(
+                    "/api/local-metadata/cover-preview",
+                    json={
+                        "video_path": str(video),
+                        "title": "Local Poster",
+                        "template": "simple_poster",
+                        "selected_frame_ids": selected_frame_ids[:4],
+                    },
+                    headers={"Origin": ORIGIN},
+                )
+                return {"valid": valid, "invalid": invalid, "too_few": too_few}
 
     responses = asyncio.run(run())
 
@@ -145,6 +180,12 @@ def test_local_metadata_api_cover_preview_title_position_contract(
     preview = responses["valid"].json()
     assert preview["poster"]["kind"] == "poster"
     assert preview["fanart"]["kind"] == "fanart"
+    assert preview["thumb"]["kind"] == "thumb"
     assert preview["title_font_id"] == "lxgw_wenkai"
-    assert preview["selected_frame_ids"] == ["manual/frame.jpg"]
+    assert preview["selected_frame_ids"] == selected_frame_ids
     assert responses["invalid"].status_code == 422
+    assert responses["too_few"].status_code == 400
+    assert responses["too_few"].json()["detail"]["error"] == "cover_generation_failed"
+    assert responses["too_few"].json()["detail"]["reasons"] == [
+        "nine_distinct_frames_required:4"
+    ]

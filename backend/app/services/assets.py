@@ -36,7 +36,7 @@ def select_assets(
         assets.append(
             LogicalAsset(
                 kind="backdrop",
-                relative_path=f"backdrop{index}.jpg",
+                relative_path=_backdrop_relative_path(index),
                 source_url=url,
                 referer_url=record.source_url,
             )
@@ -134,6 +134,10 @@ def _add_url_asset(
                 reason="missing_source_url",
             )
         )
+
+
+def _backdrop_relative_path(index: int) -> str:
+    return "backdrop.jpg" if index == 1 else f"backdrop{index - 1}.jpg"
 
 
 def _trailer_name(url: str | None) -> str:

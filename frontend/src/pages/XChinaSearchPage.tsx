@@ -13,6 +13,9 @@ import { proxiedImageUrl } from "../utils/imageProxy";
 
 type LoadState = "idle" | "loading" | "success" | "error";
 
+const XCHINA_RESULT_PAGE_SIZES = [6, 10, 20] as const;
+const DEFAULT_XCHINA_RESULT_PAGE_SIZE = 6;
+
 export function XChinaSearchPage() {
   const [query, setQuery] = useState("");
   const [detailUrl, setDetailUrl] = useState("");
@@ -24,8 +27,19 @@ export function XChinaSearchPage() {
   const [detailState, setDetailState] = useState<LoadState>("idle");
   const [feedback, setFeedback] = useState("");
   const [error, setError] = useState("");
+  const [resultPageSize, setResultPageSize] = useState(
+    DEFAULT_XCHINA_RESULT_PAGE_SIZE,
+  );
+  const [resultPage, setResultPage] = useState(1);
 
   const selectedMetadata = detail?.metadata ?? null;
+  const totalResultPages = Math.max(1, Math.ceil(candidates.length / resultPageSize));
+  const visibleResultPage = Math.min(resultPage, totalResultPages);
+  const pageStartIndex = candidates.length ? (visibleResultPage - 1) * resultPageSize : 0;
+  const pagedCandidates = useMemo(
+    () => candidates.slice(pageStartIndex, pageStartIndex + resultPageSize),
+    [candidates, pageStartIndex, resultPageSize],
+  );
   const resultCountLabel = useMemo(() => {
     if (searchState === "idle") {
       return "输入关键词后开始搜索。";
@@ -55,6 +69,7 @@ export function XChinaSearchPage() {
     setCandidates([]);
     setSelectedCandidate(null);
     setDetail(null);
+    setResultPage(1);
     try {
       const response = await apiFetch<XChinaSearchResponse>("/api/xchina/search", {
         method: "POST",
@@ -83,6 +98,7 @@ export function XChinaSearchPage() {
 
   async function fetchCandidateDetail(candidate: XChinaSearchCandidate) {
     setSelectedCandidate(candidate);
+    setDetailUrl(candidate.url);
     await fetchDetail(candidate.url, candidate);
   }
 
@@ -94,6 +110,7 @@ export function XChinaSearchPage() {
     setError("");
     setFeedback("");
     setDetail(null);
+    setDetailUrl(sourceUrl);
     try {
       const response = await apiFetch<XChinaDetailResponse>("/api/xchina/detail", {
         method: "POST",
@@ -107,6 +124,29 @@ export function XChinaSearchPage() {
       const message = exc instanceof Error ? exc.message : "详情获取失败";
       setError(message);
       setDetailState("error");
+    }
+  }
+
+  function updateResultPageSize(value: string) {
+    const nextPageSize = Number(value);
+    setResultPageSize(
+      XCHINA_RESULT_PAGE_SIZES.includes(
+        nextPageSize as (typeof XCHINA_RESULT_PAGE_SIZES)[number],
+      )
+        ? nextPageSize
+        : DEFAULT_XCHINA_RESULT_PAGE_SIZE,
+    );
+    setResultPage(1);
+  }
+
+  async function copyCandidateSourceLink(candidate: XChinaSearchCandidate) {
+    setError("");
+    setFeedback("");
+    try {
+      await copyText(candidate.url);
+      setFeedback(`已复制来源链接：${candidate.url}`);
+    } catch {
+      setError(`复制失败，请手动复制：${candidate.url}`);
     }
   }
 
@@ -159,16 +199,60 @@ export function XChinaSearchPage() {
             <strong>{resultCountLabel}</strong>
           </div>
           {candidates.length ? (
-            <div className="candidate-grid xchina-candidate-grid">
-              {candidates.map((candidate) => (
-                <XChinaResultCard
-                  key={`${candidate.source}:${candidate.source_candidate_id}:${candidate.url}`}
-                  candidate={candidate}
-                  selected={candidate.url === selectedCandidate?.url}
-                  onDetail={fetchCandidateDetail}
-                />
-              ))}
-            </div>
+            <>
+              <div className="xchina-results-toolbar">
+                <span>
+                  第 {visibleResultPage} / {totalResultPages} 页 · 显示 {pageStartIndex + 1}-
+                  {Math.min(pageStartIndex + resultPageSize, candidates.length)} / {candidates.length}
+                </span>
+                <label>
+                  每页
+                  <select
+                    aria-label="搜索结果每页数量"
+                    value={resultPageSize}
+                    onChange={(event) => updateResultPageSize(event.target.value)}
+                  >
+                    {XCHINA_RESULT_PAGE_SIZES.map((pageSize) => (
+                      <option key={pageSize} value={pageSize}>
+                        {pageSize} 条
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              </div>
+              <div className="candidate-grid xchina-candidate-grid">
+                {pagedCandidates.map((candidate) => (
+                  <XChinaResultCard
+                    key={`${candidate.source}:${candidate.source_candidate_id}:${candidate.url}`}
+                    candidate={candidate}
+                    selected={candidate.url === selectedCandidate?.url}
+                    onCopySource={copyCandidateSourceLink}
+                    onDetail={fetchCandidateDetail}
+                  />
+                ))}
+              </div>
+              <div className="xchina-results-pagination" aria-label="搜索结果分页">
+                <button
+                  type="button"
+                  disabled={visibleResultPage <= 1}
+                  onClick={() => setResultPage((page) => Math.max(1, page - 1))}
+                >
+                  上一页
+                </button>
+                <span>
+                  {visibleResultPage} / {totalResultPages}
+                </span>
+                <button
+                  type="button"
+                  disabled={visibleResultPage >= totalResultPages}
+                  onClick={() =>
+                    setResultPage((page) => Math.min(totalResultPages, page + 1))
+                  }
+                >
+                  下一页
+                </button>
+              </div>
+            </>
           ) : null}
         </Section>
 
@@ -195,10 +279,12 @@ export function XChinaSearchPage() {
 function XChinaResultCard({
   candidate,
   selected,
+  onCopySource,
   onDetail,
 }: {
   candidate: XChinaSearchCandidate;
   selected: boolean;
+  onCopySource: (candidate: XChinaSearchCandidate) => void;
   onDetail: (candidate: XChinaSearchCandidate) => void;
 }) {
   const { imageSafetyModeEnabled } = useImageSafetyMode();
@@ -271,6 +357,13 @@ function XChinaResultCard({
           >
             打开来源
           </a>
+          <button
+            className="secondary"
+            type="button"
+            onClick={() => onCopySource(candidate)}
+          >
+            复制来源链接
+          </button>
           <button
             className="candidate-select-button"
             type="button"
@@ -395,6 +488,27 @@ function XChinaDetailPreview({
 function formatList(values: string[], fallback: string): string {
   const visible = values.filter(Boolean);
   return visible.length ? visible.join(", ") : fallback;
+}
+
+async function copyText(text: string): Promise<void> {
+  if (navigator.clipboard?.writeText) {
+    await navigator.clipboard.writeText(text);
+    return;
+  }
+  const textarea = document.createElement("textarea");
+  textarea.value = text;
+  textarea.setAttribute("readonly", "");
+  textarea.style.position = "fixed";
+  textarea.style.left = "-9999px";
+  document.body.appendChild(textarea);
+  textarea.select();
+  try {
+    if (!document.execCommand?.("copy")) {
+      throw new Error("copy command unavailable");
+    }
+  } finally {
+    document.body.removeChild(textarea);
+  }
 }
 
 function stateTone(state: LoadState): string {

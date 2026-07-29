@@ -369,6 +369,7 @@ export interface LocalMetadataDraft {
   runtime_minutes: number | null;
   genres: string[];
   actors: string[];
+  technical: LocalVideoTechnicalInfo | null;
 }
 
 export interface LocalAnalyzeResponse {
@@ -426,6 +427,7 @@ export interface LocalCoverPreviewRequest extends Record<string, unknown> {
 export interface LocalCoverPreviewResponse {
   poster: LocalCachedAsset;
   fanart: LocalCachedAsset;
+  thumb: LocalCachedAsset;
   template: CoverTemplateName;
   title_font_id: PosterFontId;
   selected_frame_ids: string[];
@@ -445,6 +447,7 @@ export interface LocalPlanPreviewRequest extends Record<string, unknown> {
   filename_template: string;
   poster_ref: string | null;
   fanart_ref: string | null;
+  thumb_ref: string | null;
   selected_frame_ids: string[];
   extra_backdrop_count: number;
 }

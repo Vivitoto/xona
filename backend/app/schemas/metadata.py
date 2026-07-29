@@ -23,6 +23,16 @@ class MetadataAssets(BaseModel):
     trailer_url: str | None = None
 
 
+class MetadataTechnicalInfo(BaseModel):
+    duration_seconds: float | None = None
+    width: int | None = None
+    height: int | None = None
+    video_codec: str | None = None
+    audio_codec: str | None = None
+    bit_rate: int | None = None
+    fps: float | None = None
+
+
 class MetadataRecordData(BaseModel):
     source: str
     xchina_id: str | None = None
@@ -40,7 +50,9 @@ class MetadataRecordData(BaseModel):
     actors: list[MetadataActor] = Field(default_factory=list)
     genres: list[str] = Field(default_factory=list)
     tags: list[str] = Field(default_factory=list)
+    labels: list[str] = Field(default_factory=list)
     assets: MetadataAssets = Field(default_factory=MetadataAssets)
+    technical: MetadataTechnicalInfo | None = None
 
     @property
     def source_id(self) -> str:

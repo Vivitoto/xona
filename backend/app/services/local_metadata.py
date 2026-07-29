@@ -28,9 +28,15 @@ from backend.app.schemas.local_metadata import (
     LocalScanRequest,
     LocalScanResponse,
     LocalScannedVideo,
+    LocalVideoTechnicalInfo,
 )
 from backend.app.schemas.media import MediaScanItem
-from backend.app.schemas.metadata import MetadataActor, MetadataAssets, MetadataRecordData
+from backend.app.schemas.metadata import (
+    MetadataActor,
+    MetadataAssets,
+    MetadataRecordData,
+    MetadataTechnicalInfo,
+)
 from backend.app.schemas.operations import GeneratedArtifact, OperationPlan
 from backend.app.schemas.templates import TemplateContext
 from backend.app.services import scanner
@@ -193,6 +199,7 @@ class LocalMetadataService:
         return LocalCoverPreviewResponse(
             poster=self._cache_asset(generated.poster_path, kind="poster"),
             fanart=self._cache_asset(generated.fanart_path, kind="fanart"),
+            thumb=self._cache_asset(generated.thumb_path, kind="thumb"),
             template=payload.template,
             title_font_id=generated.title_font_id,
             selected_frame_ids=list(payload.selected_frame_ids),
@@ -243,6 +250,7 @@ class LocalMetadataService:
             destination_root=payload.destination_root,
             poster_ref=payload.poster_ref,
             fanart_ref=payload.fanart_ref,
+            thumb_ref=payload.thumb_ref,
             selected_frame_ids=payload.selected_frame_ids,
             extra_backdrop_count=payload.extra_backdrop_count,
         )
@@ -381,6 +389,7 @@ class LocalMetadataService:
         destination_root: Path,
         poster_ref: str | None,
         fanart_ref: str | None,
+        thumb_ref: str | None,
         selected_frame_ids: list[str],
         extra_backdrop_count: int,
     ) -> list[MaterializedAsset]:
@@ -403,6 +412,15 @@ class LocalMetadataService:
                     relative_path="fanart.jpg",
                 )
             )
+        if thumb_ref:
+            assets.append(
+                self._plan_asset_from_cache(
+                    thumb_ref,
+                    destination_root=destination_root,
+                    kind="thumb",
+                    relative_path="thumb.jpg",
+                )
+            )
         for index, frame_ref in enumerate(
             self._selected_backdrop_refs(
                 video_path=video_path,
@@ -416,7 +434,7 @@ class LocalMetadataService:
                     frame_ref,
                     destination_root=destination_root,
                     kind="backdrop",
-                    relative_path=f"backdrop{index}.jpg",
+                    relative_path=_backdrop_relative_path(index),
                 )
             )
         return assets
@@ -496,10 +514,17 @@ def clean_organize_filename(value: str | None, *, source_suffix: str = "") -> st
     return cleaned or None
 
 
+def _backdrop_relative_path(index: int) -> str:
+    return "backdrop.jpg" if index == 1 else f"backdrop{index - 1}.jpg"
+
+
 def local_metadata_record(draft: LocalMetadataDraft) -> MetadataRecordData:
     title = " ".join(draft.title.split()).strip() or clean_local_title(draft.video_path)
     plot = _clean_text(draft.plot)
     tags = _clean_list(draft.tags) or list(DEFAULT_LOCAL_TAGS)
+    actors = _clean_list(draft.actors)
+    studio = _clean_text(draft.studio)
+    technical = _metadata_technical_info(draft.technical)
     return MetadataRecordData(
         source="local",
         xchina_id=None,
@@ -511,13 +536,63 @@ def local_metadata_record(draft: LocalMetadataDraft) -> MetadataRecordData:
         outline=plot,
         release_date=_clean_text(draft.release_date),
         runtime_minutes=draft.runtime_minutes,
-        studio=_clean_text(draft.studio),
+        studio=studio,
         series=_clean_text(draft.series),
-        actors=[MetadataActor(name=name) for name in _clean_list(draft.actors)],
+        actors=[MetadataActor(name=name) for name in actors],
         genres=_clean_list(draft.genres),
         tags=tags,
+        labels=_local_labels(technical=technical, actors=actors, studio=studio),
         assets=MetadataAssets(),
+        technical=technical,
     )
+
+
+def _metadata_technical_info(
+    technical: LocalVideoTechnicalInfo | None,
+) -> MetadataTechnicalInfo | None:
+    if technical is None:
+        return None
+    return MetadataTechnicalInfo(
+        duration_seconds=technical.duration_seconds,
+        width=technical.width,
+        height=technical.height,
+        video_codec=technical.video_codec,
+        audio_codec=technical.audio_codec,
+        bit_rate=technical.bit_rate,
+        fps=technical.fps,
+    )
+
+
+def _local_labels(
+    *,
+    technical: MetadataTechnicalInfo | None,
+    actors: list[str],
+    studio: str | None,
+) -> list[str]:
+    labels: list[str] = []
+    resolution = _resolution_label(technical)
+    if resolution:
+        labels.append(resolution)
+    labels.extend(actors)
+    if studio:
+        labels.append(studio)
+    return _clean_list(labels)
+
+
+def _resolution_label(technical: MetadataTechnicalInfo | None) -> str | None:
+    if technical is None:
+        return None
+    width = technical.width or 0
+    height = technical.height or 0
+    if width >= 3840 or height >= 2160:
+        return "4K"
+    if height >= 1080:
+        return "1080p"
+    if height >= 720:
+        return "720p"
+    if height > 0:
+        return f"{height}p"
+    return None
 
 
 def _tool_error(exc: MediaToolUnavailableError | MediaToolExecutionError) -> LocalMetadataError:

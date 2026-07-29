@@ -12,8 +12,14 @@ from backend.app.schemas.local_metadata import (
     LocalFrameRequest,
     LocalMetadataDraft,
     LocalPlanPreviewRequest,
+    LocalVideoTechnicalInfo,
 )
-from backend.app.services.cover_templates import FANART_SIZE, POSTER_SIZE, generate_cover_previews
+from backend.app.services.cover_templates import (
+    FANART_SIZE,
+    POSTER_SIZE,
+    CoverTemplateError,
+    generate_cover_previews,
+)
 from backend.app.services.local_metadata import (
     LocalMetadataError,
     LocalMetadataService,
@@ -43,9 +49,8 @@ def test_clean_organize_filename_sanitizes_user_stem() -> None:
 
 def test_cover_templates_generate_poster_and_fanart_smoke(tmp_path: Path) -> None:
     frame_paths = [
-        _synthetic_frame(tmp_path / "frame-1.jpg", (40, 84, 126)),
-        _synthetic_frame(tmp_path / "frame-2.jpg", (126, 72, 52)),
-        _synthetic_frame(tmp_path / "frame-3.jpg", (48, 112, 76)),
+        _synthetic_frame(tmp_path / f"frame-{index}.jpg", color)
+        for index, color in enumerate(_nine_colors(), start=1)
     ]
 
     for template in ("simple_poster", "jav_classic_left_strip", "tangxin_vlog"):
@@ -58,26 +63,19 @@ def test_cover_templates_generate_poster_and_fanart_smoke(tmp_path: Path) -> Non
 
         assert generated.poster_path.is_file()
         assert generated.fanart_path.is_file()
+        assert generated.thumb_path.is_file()
         with Image.open(generated.poster_path) as poster:
             assert poster.size == POSTER_SIZE
         with Image.open(generated.fanart_path) as fanart:
             assert fanart.size == FANART_SIZE
+        with Image.open(generated.thumb_path) as thumb:
+            assert thumb.size == FANART_SIZE
 
 
-def test_cover_templates_render_fanart_as_three_by_three_collage_from_nine_frames(
+def test_cover_templates_render_thumb_as_three_by_three_collage_from_nine_frames(
     tmp_path: Path,
 ) -> None:
-    colors = [
-        (226, 32, 44),
-        (30, 198, 82),
-        (36, 78, 224),
-        (235, 180, 40),
-        (165, 78, 224),
-        (32, 178, 190),
-        (242, 92, 148),
-        (70, 150, 68),
-        (55, 55, 62),
-    ]
+    colors = _nine_colors()
     frame_paths = [
         _solid_frame(tmp_path / f"solid-{index}.jpg", color)
         for index, color in enumerate(colors, start=1)
@@ -90,12 +88,12 @@ def test_cover_templates_render_fanart_as_three_by_three_collage_from_nine_frame
         output_dir=tmp_path / "collage",
     )
 
-    with Image.open(generated.fanart_path) as fanart:
-        assert fanart.size == FANART_SIZE
+    with Image.open(generated.thumb_path) as thumb:
+        assert thumb.size == FANART_SIZE
         tile_width = FANART_SIZE[0] // 3
         tile_height = FANART_SIZE[1] // 3
         sampled = [
-            fanart.getpixel(
+            thumb.getpixel(
                 (
                     (index % 3) * tile_width + tile_width // 2,
                     (index // 3) * tile_height + tile_height // 2,
@@ -107,7 +105,7 @@ def test_cover_templates_render_fanart_as_three_by_three_collage_from_nine_frame
     assert all(_near_color(pixel, color) for pixel, color in zip(sampled, colors))
 
 
-def test_cover_templates_do_not_repeat_available_frames_when_fanart_has_fewer_than_nine(
+def test_cover_templates_refuse_thumb_when_fewer_than_nine_distinct_frames(
     tmp_path: Path,
 ) -> None:
     colors = [
@@ -121,23 +119,36 @@ def test_cover_templates_do_not_repeat_available_frames_when_fanart_has_fewer_th
         for index, color in enumerate(colors, start=1)
     ]
 
+    with pytest.raises(CoverTemplateError, match="nine_distinct_frames_required:4"):
+        generate_cover_previews(
+            title="Local Work Title",
+            template="simple_poster",
+            frame_paths=frame_paths,
+            output_dir=tmp_path / "collage",
+        )
+
+
+def test_cover_templates_render_fanart_as_promotional_art_not_thumb_grid(
+    tmp_path: Path,
+) -> None:
+    colors = _nine_colors()
+    frame_paths = [
+        _solid_frame(tmp_path / f"solid-{index}.jpg", color)
+        for index, color in enumerate(colors, start=1)
+    ]
+
     generated = generate_cover_previews(
         title="Local Work Title",
         template="simple_poster",
         frame_paths=frame_paths,
-        output_dir=tmp_path / "collage",
+        output_dir=tmp_path / "fanart",
     )
 
-    with Image.open(generated.fanart_path) as fanart:
+    with Image.open(generated.fanart_path) as fanart, Image.open(generated.thumb_path) as thumb:
         assert fanart.size == FANART_SIZE
-        sampled = [
-            fanart.getpixel((FANART_SIZE[0] // 4, FANART_SIZE[1] // 4)),
-            fanart.getpixel((FANART_SIZE[0] * 3 // 4, FANART_SIZE[1] // 4)),
-            fanart.getpixel((FANART_SIZE[0] // 4, FANART_SIZE[1] * 3 // 4)),
-            fanart.getpixel((FANART_SIZE[0] * 3 // 4, FANART_SIZE[1] * 3 // 4)),
-        ]
-
-    assert all(_near_color(pixel, color) for pixel, color in zip(sampled, colors))
+        assert fanart.tobytes() != thumb.tobytes()
+        assert _near_color(fanart.getpixel((FANART_SIZE[0] - 120, 120)), colors[0])
+        assert not _near_color(fanart.getpixel((FANART_SIZE[0] // 6, FANART_SIZE[1] // 6)), colors[0])
 
 
 def test_local_frame_request_defaults_to_nine_evenly_spaced_screenshots() -> None:
@@ -209,6 +220,34 @@ def test_local_metadata_record_maps_draft_actors_to_nfo_and_template_context(
         engine.dispose()
 
 
+def test_local_metadata_record_adds_resolution_actor_and_studio_labels() -> None:
+    draft = LocalMetadataDraft(
+        video_path=Path("/media/incoming/Local.Work.mp4"),
+        title="Local Work",
+        studio=" 糖心Vlog ",
+        actors=[" 星野兔 ", "星野兔", ""],
+        technical=LocalVideoTechnicalInfo(
+            path=Path("/media/incoming/Local.Work.mp4"),
+            size_bytes=123,
+            duration_seconds=2880,
+            width=3840,
+            height=2160,
+            video_codec="hevc",
+            audio_codec="aac",
+            bit_rate=12000000,
+            fps=59.94,
+        ),
+    )
+
+    record = local_metadata_record(draft)
+
+    assert record.labels == ["4K", "星野兔", "糖心Vlog"]
+    assert record.technical is not None
+    assert record.technical.width == 3840
+    assert record.technical.height == 2160
+    assert record.technical.video_codec == "hevc"
+
+
 def test_local_plan_preview_includes_nfo_and_cached_generated_images(
     tmp_path: Path,
 ) -> None:
@@ -227,8 +266,10 @@ def test_local_plan_preview_includes_nfo_and_cached_generated_images(
     cache_dir = settings.config_dir / "cache" / "local_metadata" / "synthetic"
     poster = _synthetic_frame(cache_dir / "poster.jpg", (40, 84, 126), size=(1000, 1500))
     fanart = _synthetic_frame(cache_dir / "fanart.jpg", (48, 112, 76), size=(1920, 1080))
+    thumb = _synthetic_frame(cache_dir / "thumb.jpg", (98, 88, 156), size=(1920, 1080))
     frame1 = _synthetic_frame(cache_dir / "frames" / "frame-1.jpg", (126, 72, 52))
     frame2 = _synthetic_frame(cache_dir / "frames" / "frame-2.jpg", (48, 112, 76))
+    frame3 = _synthetic_frame(cache_dir / "frames" / "frame-3.jpg", (190, 120, 40))
     run_migrations(settings=settings)
     engine = create_engine_for_settings(settings)
     try:
@@ -248,20 +289,24 @@ def test_local_plan_preview_includes_nfo_and_cached_generated_images(
                     filename_template="{title}",
                     poster_ref=str(poster.relative_to(settings.config_dir / "cache" / "local_metadata")),
                     fanart_ref=str(fanart.relative_to(settings.config_dir / "cache" / "local_metadata")),
+                    thumb_ref=str(thumb.relative_to(settings.config_dir / "cache" / "local_metadata")),
                     selected_frame_ids=[
                         str(frame1.relative_to(settings.config_dir / "cache" / "local_metadata")),
                         str(frame2.relative_to(settings.config_dir / "cache" / "local_metadata")),
+                        str(frame3.relative_to(settings.config_dir / "cache" / "local_metadata")),
                     ],
                     extra_backdrop_count=3,
                 )
             )
 
             assert response.plan_id.startswith("plan_")
-            assert len(response.materialized_assets) == 4
+            assert len(response.materialized_assets) == 6
             steps = response.plan["steps"]
             assert any(step["category"] == "media" for step in steps)
             assert any(step["category"] == "asset" and step["target_path"].endswith("poster.jpg") for step in steps)
             assert any(step["category"] == "asset" and step["target_path"].endswith("fanart.jpg") for step in steps)
+            assert any(step["category"] == "asset" and step["target_path"].endswith("thumb.jpg") for step in steps)
+            assert any(step["category"] == "asset" and step["target_path"].endswith("backdrop.jpg") for step in steps)
             assert any(step["category"] == "asset" and step["target_path"].endswith("backdrop1.jpg") for step in steps)
             assert any(step["category"] == "asset" and step["target_path"].endswith("backdrop2.jpg") for step in steps)
             assert not any(step["category"] == "asset" and step["target_path"].endswith("backdrop3.jpg") for step in steps)
@@ -350,7 +395,7 @@ def test_local_plan_preview_refuses_existing_backdrop_output(tmp_path: Path) -> 
     target_dir.mkdir(parents=True)
     video = incoming / "Unmatched.Work.mp4"
     video.write_bytes(b"synthetic-video")
-    (target_dir / "backdrop1.jpg").write_bytes(b"existing-backdrop")
+    (target_dir / "backdrop.jpg").write_bytes(b"existing-backdrop")
     settings = Settings(
         config_dir=tmp_path / "config",
         storage_roots=(root,),
@@ -482,6 +527,20 @@ def _solid_frame(path: Path, color: tuple[int, int, int]) -> Path:
     image = Image.new("RGB", (1280, 720), color)
     image.save(path, "JPEG", quality=95)
     return path
+
+
+def _nine_colors() -> list[tuple[int, int, int]]:
+    return [
+        (226, 32, 44),
+        (30, 198, 82),
+        (36, 78, 224),
+        (235, 180, 40),
+        (165, 78, 224),
+        (32, 178, 190),
+        (242, 92, 148),
+        (70, 150, 68),
+        (55, 55, 62),
+    ]
 
 
 def _near_color(

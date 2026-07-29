@@ -4,7 +4,11 @@ from pathlib import Path
 from xml.etree import ElementTree
 
 from backend.app.integrations.xchina import parse_video_detail
-from backend.app.schemas.metadata import MetadataRecordData
+from backend.app.schemas.metadata import (
+    MetadataActor,
+    MetadataRecordData,
+    MetadataTechnicalInfo,
+)
 from backend.app.services.metadata import normalize_source_video
 from backend.app.services.nfo import movie_nfo_relative_path, render_movie_nfo
 
@@ -78,3 +82,53 @@ def test_movie_nfo_uses_local_unique_id_when_source_id_is_absent() -> None:
     assert unique_id.text.startswith("local-")
     assert root.findtext("id") == unique_id.text
     assert root.findtext("title") == "Unmatched Work"
+
+
+def test_movie_nfo_writes_available_streamdetails_and_auto_labels_without_rating_fields() -> None:
+    record = MetadataRecordData(
+        source="local",
+        xchina_id=None,
+        source_url="file:///media/incoming/Unmatched.Work.mp4",
+        title="Unmatched Work",
+        runtime_minutes=48,
+        studio="糖心Vlog",
+        actors=[MetadataActor(name="星野兔")],
+        labels=["1080p", "星野兔", "糖心Vlog"],
+        technical=MetadataTechnicalInfo(
+            duration_seconds=2880,
+            width=1920,
+            height=1080,
+            video_codec="h264",
+            audio_codec="aac",
+            bit_rate=6803959,
+            fps=24,
+        ),
+    )
+
+    root = ElementTree.fromstring(render_movie_nfo(record))
+
+    assert [item.text for item in root.findall("label")] == [
+        "1080p",
+        "星野兔",
+        "糖心Vlog",
+    ]
+    video = root.find("fileinfo/streamdetails/video")
+    assert video is not None
+    assert video.findtext("codec") == "h264"
+    assert video.findtext("micodec") == "h264"
+    assert video.findtext("bitrate") == "6803959"
+    assert video.findtext("width") == "1920"
+    assert video.findtext("height") == "1080"
+    assert video.findtext("aspect") == "16:9"
+    assert video.findtext("aspectratio") == "16:9"
+    assert video.findtext("framerate") == "24"
+    assert video.findtext("duration") == "48"
+    assert video.findtext("durationinseconds") == "2880"
+
+    audio = root.find("fileinfo/streamdetails/audio")
+    assert audio is not None
+    assert audio.findtext("codec") == "aac"
+    assert audio.findtext("micodec") == "aac"
+
+    forbidden = {"customrating", "countrycode", "mpaa", "num"}
+    assert forbidden.isdisjoint({child.tag for child in root})

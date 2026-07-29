@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import math
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, cast
@@ -44,7 +45,37 @@ class CoverTemplateError(ValueError):
 class GeneratedCoverSet:
     poster_path: Path
     fanart_path: Path
+    thumb_path: Path
     title_font_id: PosterFontId
+
+
+@dataclass(frozen=True)
+class FrameCandidate:
+    path: Path
+    image: Image.Image
+    index: int
+    mean_luma: float
+    contrast: float
+    focus: float
+    hash_value: int
+    signature: tuple[int, ...]
+
+    @property
+    def quality_score(self) -> float:
+        luma_score = 100.0 - min(100.0, abs(self.mean_luma - 118.0))
+        contrast_score = min(80.0, self.contrast * 4.0)
+        focus_score = min(80.0, self.focus * 8.0)
+        return luma_score + contrast_score + focus_score
+
+    @property
+    def is_usable_quality(self) -> bool:
+        if self.mean_luma < 18.0 or self.mean_luma > 238.0:
+            return False
+        if self.contrast < 5.0:
+            return False
+        if self.focus < 1.8:
+            return False
+        return True
 
 
 @dataclass(frozen=True)
@@ -187,8 +218,10 @@ def generate_cover_previews(
     if not frame_paths:
         raise CoverTemplateError("at_least_one_frame_required")
 
-    frame_paths = _distinct_frame_paths(frame_paths)
-    frames = [_open_frame(path) for path in frame_paths]
+    frame_candidates = _select_quality_frame_candidates(frame_paths)
+    frame_paths = [candidate.path for candidate in frame_candidates]
+    thumb_paths = _thumb_frame_paths(frame_paths)
+    frames = [candidate.image for candidate in frame_candidates]
     title_angle_degrees = _bounded_title_angle(title_angle_degrees)
     title_position_x_percent = _bounded_title_position(title_position_x_percent)
     title_position_y_percent = _bounded_title_position(title_position_y_percent)
@@ -212,9 +245,20 @@ def generate_cover_previews(
         title_style=title_style,
         frame_paths=frame_paths,
     )
-    fanart_key = _frame_key(frame_paths=frame_paths[:9])
+    fanart_key = _cover_key(
+        title=title,
+        title_angle_degrees=title_angle_degrees,
+        title_position_x_percent=title_position_x_percent,
+        title_position_y_percent=title_position_y_percent,
+        template=template,
+        title_font_id=resolved_title_font_id,
+        title_style=title_style,
+        frame_paths=frame_paths,
+    )
+    thumb_key = _frame_key(frame_paths=thumb_paths)
     poster_path = output_dir / f"poster-{template}-{resolved_title_font_id}-{poster_key}.jpg"
-    fanart_path = output_dir / f"fanart-{fanart_key}.jpg"
+    fanart_path = output_dir / f"fanart-{template}-{resolved_title_font_id}-{fanart_key}.jpg"
+    thumb_path = output_dir / f"thumb-{thumb_key}.jpg"
 
     poster = _render_poster(
         title=title,
@@ -226,12 +270,24 @@ def generate_cover_previews(
         title_style=title_style,
         frames=frames,
     )
-    fanart = _render_fanart(frames[:9])
+    fanart = _render_fanart(
+        title=title,
+        title_angle_degrees=title_angle_degrees,
+        title_position_x_percent=title_position_x_percent,
+        title_position_y_percent=title_position_y_percent,
+        template=template,
+        title_font_id=resolved_title_font_id,
+        title_style=title_style,
+        frames=frames,
+    )
+    thumb = _render_thumb(frames[:9])
     poster.save(poster_path, "JPEG", quality=92, optimize=True)
     fanart.save(fanart_path, "JPEG", quality=90, optimize=True)
+    thumb.save(thumb_path, "JPEG", quality=90, optimize=True)
     return GeneratedCoverSet(
         poster_path=poster_path,
         fanart_path=fanart_path,
+        thumb_path=thumb_path,
         title_font_id=resolved_title_font_id,
     )
 
@@ -245,6 +301,113 @@ def _open_frame(path: Path) -> Image.Image:
         raise CoverTemplateError(f"frame_unreadable:{path}") from exc
 
 
+def _select_quality_frame_candidates(frame_paths: list[Path]) -> list[FrameCandidate]:
+    path_distinct = _distinct_frame_paths(frame_paths)
+    candidates = [
+        _frame_candidate(path, image=_open_frame(path), index=index)
+        for index, path in enumerate(path_distinct)
+    ]
+    content_distinct: list[FrameCandidate] = []
+    for candidate in candidates:
+        if any(_is_similar_frame(candidate, selected) for selected in content_distinct):
+            continue
+        content_distinct.append(candidate)
+
+    if len(content_distinct) < 9:
+        raise CoverTemplateError(f"nine_distinct_frames_required:{len(content_distinct)}")
+
+    usable = [candidate for candidate in content_distinct if candidate.is_usable_quality]
+    rejected = [candidate for candidate in content_distinct if not candidate.is_usable_quality]
+    if len(usable) >= 9:
+        selected = usable
+    else:
+        fallback_count = 9 - len(usable)
+        fallback = sorted(rejected, key=lambda candidate: candidate.quality_score, reverse=True)[
+            :fallback_count
+        ]
+        selected = sorted((*usable, *fallback), key=lambda candidate: candidate.index)
+
+    selected_paths = {candidate.path.resolve().as_posix() for candidate in selected}
+    remainder = [
+        candidate
+        for candidate in content_distinct
+        if candidate.path.resolve().as_posix() not in selected_paths
+    ]
+    return [*selected, *remainder]
+
+
+def _frame_candidate(path: Path, *, image: Image.Image, index: int) -> FrameCandidate:
+    grayscale = image.convert("L").resize((64, 36), Image.Resampling.BILINEAR)
+    pixels = list(grayscale.tobytes())
+    mean_luma = sum(pixels) / len(pixels)
+    contrast = math.sqrt(sum((pixel - mean_luma) ** 2 for pixel in pixels) / len(pixels))
+    focus = _focus_metric(grayscale)
+    signature_image = image.convert("RGB").resize((16, 16), Image.Resampling.BILINEAR)
+    signature = tuple(signature_image.tobytes())
+    hash_value = _difference_hash(image)
+    return FrameCandidate(
+        path=path,
+        image=image,
+        index=index,
+        mean_luma=mean_luma,
+        contrast=contrast,
+        focus=focus,
+        hash_value=hash_value,
+        signature=signature,
+    )
+
+
+def _focus_metric(image: Image.Image) -> float:
+    width, height = image.size
+    if width < 3 or height < 3:
+        return 0.0
+    pixels = image.load()
+    total = 0.0
+    count = 0
+    for y in range(1, height - 1):
+        for x in range(1, width - 1):
+            center = int(pixels[x, y])
+            laplacian = (
+                int(pixels[x - 1, y])
+                + int(pixels[x + 1, y])
+                + int(pixels[x, y - 1])
+                + int(pixels[x, y + 1])
+                - 4 * center
+            )
+            total += abs(laplacian)
+            count += 1
+    return total / max(1, count)
+
+
+def _difference_hash(image: Image.Image) -> int:
+    thumbnail = image.convert("L").resize((9, 8), Image.Resampling.BILINEAR)
+    pixels = list(thumbnail.tobytes())
+    value = 0
+    for y in range(8):
+        for x in range(8):
+            left = pixels[y * 9 + x]
+            right = pixels[y * 9 + x + 1]
+            value = (value << 1) | int(left > right)
+    return value
+
+
+def _is_similar_frame(left: FrameCandidate, right: FrameCandidate) -> bool:
+    if left.signature == right.signature:
+        return True
+    if abs(left.mean_luma - right.mean_luma) > 8.0:
+        return False
+    if _hamming_distance(left.hash_value, right.hash_value) > 2:
+        return False
+    mean_delta = sum(abs(a - b) for a, b in zip(left.signature, right.signature)) / len(
+        left.signature
+    )
+    return mean_delta < 3.0
+
+
+def _hamming_distance(left: int, right: int) -> int:
+    return (left ^ right).bit_count()
+
+
 def _distinct_frame_paths(frame_paths: list[Path]) -> list[Path]:
     distinct: list[Path] = []
     seen: set[str] = set()
@@ -255,6 +418,12 @@ def _distinct_frame_paths(frame_paths: list[Path]) -> list[Path]:
         distinct.append(path)
         seen.add(key)
     return distinct
+
+
+def _thumb_frame_paths(frame_paths: list[Path]) -> list[Path]:
+    if len(frame_paths) < 9:
+        raise CoverTemplateError(f"nine_distinct_frames_required:{len(frame_paths)}")
+    return frame_paths[:9]
 
 
 def _render_poster(
@@ -441,13 +610,223 @@ def _tangxin_vlog(
     return canvas.convert("RGB")
 
 
-def _render_fanart(frames: list[Image.Image]) -> Image.Image:
+def _render_fanart(
+    *,
+    title: str,
+    title_angle_degrees: float,
+    title_position_x_percent: float | None,
+    title_position_y_percent: float | None,
+    template: CoverTemplateName,
+    title_font_id: PosterFontId,
+    title_style: TemplateTitleStyle,
+    frames: list[Image.Image],
+) -> Image.Image:
     if not frames:
         raise CoverTemplateError("at_least_one_frame_required")
 
+    if template == "jav_classic_left_strip":
+        return _jav_classic_fanart(
+            title=title,
+            title_angle_degrees=title_angle_degrees,
+            title_position_x_percent=title_position_x_percent,
+            title_position_y_percent=title_position_y_percent,
+            title_font_id=title_font_id,
+            title_style=title_style,
+            frames=frames,
+        )
+    if template == "tangxin_vlog":
+        return _tangxin_fanart(
+            title=title,
+            title_angle_degrees=title_angle_degrees,
+            title_position_x_percent=title_position_x_percent,
+            title_position_y_percent=title_position_y_percent,
+            title_font_id=title_font_id,
+            title_style=title_style,
+            frames=frames,
+        )
+    return _simple_fanart(
+        title=title,
+        title_angle_degrees=title_angle_degrees,
+        title_position_x_percent=title_position_x_percent,
+        title_position_y_percent=title_position_y_percent,
+        title_font_id=title_font_id,
+        title_style=title_style,
+        frames=frames,
+    )
+
+
+def _simple_fanart(
+    *,
+    title: str,
+    title_angle_degrees: float,
+    title_position_x_percent: float | None,
+    title_position_y_percent: float | None,
+    title_font_id: PosterFontId,
+    title_style: TemplateTitleStyle,
+    frames: list[Image.Image],
+) -> Image.Image:
+    canvas = Image.new("RGB", FANART_SIZE, (14, 17, 20))
+    main_left = 760
+    _paste_collage(
+        canvas,
+        frames[1:] or frames,
+        boxes=[
+            (0, 0, 460, 360),
+            (460, 0, main_left, 300),
+            (460, 300, main_left, 620),
+            (0, 360, 260, 720),
+            (260, 360, 460, 720),
+            (0, 720, 380, FANART_SIZE[1]),
+            (380, 620, main_left, FANART_SIZE[1]),
+        ],
+    )
+    main = _cover(frames[0], (FANART_SIZE[0] - main_left, FANART_SIZE[1]))
+    canvas.paste(main, (main_left, 0))
+    return _draw_fanart_title(
+        canvas,
+        title,
+        title_angle_degrees=title_angle_degrees,
+        title_position_x_percent=title_position_x_percent,
+        title_position_y_percent=title_position_y_percent,
+        title_font_id=title_font_id,
+        title_style=title_style,
+        box=(820, 690, 1840, 1015),
+    )
+
+
+def _jav_classic_fanart(
+    *,
+    title: str,
+    title_angle_degrees: float,
+    title_position_x_percent: float | None,
+    title_position_y_percent: float | None,
+    title_font_id: PosterFontId,
+    title_style: TemplateTitleStyle,
+    frames: list[Image.Image],
+) -> Image.Image:
+    canvas = Image.new("RGB", FANART_SIZE, (18, 27, 34))
+    main_left = FANART_SIZE[0] // 2
+    _paste_collage(
+        canvas,
+        frames[1:] or frames,
+        boxes=[
+            (0, 0, 480, 360),
+            (480, 0, main_left, 280),
+            (480, 280, main_left, 620),
+            (0, 360, 300, 760),
+            (300, 360, 480, 760),
+            (0, 760, 520, FANART_SIZE[1]),
+            (520, 620, main_left, FANART_SIZE[1]),
+        ],
+    )
+    main = _cover(frames[0], (FANART_SIZE[0] - main_left, FANART_SIZE[1]))
+    canvas.paste(main, (main_left, 0))
+    return _draw_fanart_title(
+        canvas,
+        title,
+        title_angle_degrees=title_angle_degrees,
+        title_position_x_percent=title_position_x_percent,
+        title_position_y_percent=title_position_y_percent,
+        title_font_id=title_font_id,
+        title_style=title_style,
+        box=(1010, 720, 1870, 1025),
+    )
+
+
+def _tangxin_fanart(
+    *,
+    title: str,
+    title_angle_degrees: float,
+    title_position_x_percent: float | None,
+    title_position_y_percent: float | None,
+    title_font_id: PosterFontId,
+    title_style: TemplateTitleStyle,
+    frames: list[Image.Image],
+) -> Image.Image:
+    canvas = Image.new("RGB", FANART_SIZE, (13, 18, 20))
+    center_left = 430
+    center_right = 1490
+    _paste_collage(
+        canvas,
+        frames[1:] or frames,
+        boxes=[
+            (0, 0, 250, 310),
+            (250, 0, center_left, 520),
+            (0, 310, 250, 680),
+            (0, 680, center_left, FANART_SIZE[1]),
+            (center_right, 0, 1675, 420),
+            (1675, 0, FANART_SIZE[0], 300),
+            (1490, 420, FANART_SIZE[0], 760),
+            (1490, 760, 1710, FANART_SIZE[1]),
+            (1710, 760, FANART_SIZE[0], FANART_SIZE[1]),
+        ],
+    )
+    main = _cover(frames[0], (center_right - center_left, FANART_SIZE[1]))
+    canvas.paste(main, (center_left, 0))
+    return _draw_fanart_title(
+        canvas,
+        title,
+        title_angle_degrees=title_angle_degrees,
+        title_position_x_percent=title_position_x_percent,
+        title_position_y_percent=title_position_y_percent,
+        title_font_id=title_font_id,
+        title_style=title_style,
+        box=(220, 590, 1700, 1000),
+    )
+
+
+def _draw_fanart_title(
+    canvas: Image.Image,
+    title: str,
+    *,
+    title_angle_degrees: float,
+    title_position_x_percent: float | None,
+    title_position_y_percent: float | None,
+    title_font_id: PosterFontId,
+    title_style: TemplateTitleStyle,
+    box: tuple[int, int, int, int],
+) -> Image.Image:
+    return _draw_title_block(
+        canvas.convert("RGBA"),
+        title,
+        box=_positioned_title_box(
+            box,
+            title_position_x_percent=title_position_x_percent,
+            title_position_y_percent=title_position_y_percent,
+            canvas_size=FANART_SIZE,
+        ),
+        max_lines=None,
+        max_font_size=max(title_style.max_font_size, int(title_style.max_font_size * 1.12)),
+        min_font_size=title_style.min_font_size,
+        fill=title_style.fill,
+        stroke_width=max(2, title_style.stroke_width),
+        stroke_fill=title_style.stroke_fill,
+        shadow=title_style.shadow if title_style.effect == "shadow" else (0, 0),
+        glow=title_style.effect == "glow",
+        title_font_id=title_font_id,
+        title_angle_degrees=title_angle_degrees,
+    ).convert("RGB")
+
+
+def _paste_collage(
+    canvas: Image.Image,
+    frames: list[Image.Image],
+    *,
+    boxes: list[tuple[int, int, int, int]],
+) -> None:
+    for index, box in enumerate(boxes):
+        source = frames[index % len(frames)]
+        left, top, right, bottom = box
+        tile = _cover(source, (right - left, bottom - top))
+        canvas.paste(tile, (left, top))
+
+
+def _render_thumb(frames: list[Image.Image]) -> Image.Image:
+    if len(frames) < 9:
+        raise CoverTemplateError(f"nine_distinct_frames_required:{len(frames)}")
     canvas = Image.new("RGB", FANART_SIZE, (0, 0, 0))
     frames = frames[:9]
-    columns, rows = _fanart_grid_dimensions(len(frames))
+    columns, rows = 3, 3
     tile_size = (FANART_SIZE[0] // columns, FANART_SIZE[1] // rows)
     for index, frame in enumerate(frames):
         tile = _cover(frame, tile_size)
@@ -455,20 +834,6 @@ def _render_fanart(frames: list[Image.Image]) -> Image.Image:
         y = (index // columns) * tile_size[1]
         canvas.paste(tile, (x, y))
     return canvas
-
-
-def _fanart_grid_dimensions(frame_count: int) -> tuple[int, int]:
-    if frame_count >= 9:
-        return 3, 3
-    if frame_count >= 7:
-        return 3, 3
-    if frame_count >= 5:
-        return 3, 2
-    if frame_count >= 3:
-        return 2, 2
-    if frame_count == 2:
-        return 2, 1
-    return 1, 1
 
 
 def _cover(image: Image.Image, size: tuple[int, int]) -> Image.Image:
@@ -509,6 +874,7 @@ def _positioned_title_box(
     *,
     title_position_x_percent: float | None,
     title_position_y_percent: float | None,
+    canvas_size: tuple[int, int] = POSTER_SIZE,
 ) -> tuple[int, int, int, int]:
     left, top, right, bottom = default_box
     width = right - left
@@ -516,12 +882,12 @@ def _positioned_title_box(
     if title_position_x_percent is None:
         positioned_left = left
     else:
-        max_left = max(0, POSTER_SIZE[0] - width)
+        max_left = max(0, canvas_size[0] - width)
         positioned_left = round(max_left * title_position_x_percent / 100.0)
     if title_position_y_percent is None:
         positioned_top = top
     else:
-        max_top = max(0, POSTER_SIZE[1] - height)
+        max_top = max(0, canvas_size[1] - height)
         positioned_top = round(max_top * title_position_y_percent / 100.0)
     return (
         int(positioned_left),
@@ -537,7 +903,7 @@ def _draw_title_block(
     *,
     title_angle_degrees: float,
     box: tuple[int, int, int, int],
-    max_lines: int,
+    max_lines: int | None,
     max_font_size: int,
     min_font_size: int,
     fill: tuple[int, int, int, int],
@@ -593,7 +959,7 @@ def _draw_title_text(
     title: str,
     *,
     box: tuple[int, int, int, int],
-    max_lines: int,
+    max_lines: int | None,
     max_font_size: int,
     min_font_size: int,
     fill: tuple[int, int, int, int],
@@ -607,16 +973,17 @@ def _draw_title_text(
     max_width = max(1, right - left)
     max_height = max(1, bottom - top)
 
+    hard_min_font_size = min(min_font_size, 12)
     lines: list[str] = _title_source_lines(title)
-    font = _font(min_font_size, title_font_id=title_font_id)
-    for size in range(max_font_size, min_font_size - 1, -2):
+    font = _font(hard_min_font_size, title_font_id=title_font_id)
+    for size in range(max_font_size, hard_min_font_size - 1, -2):
         candidate_font = _font(size, title_font_id=title_font_id)
         candidate_lines = _wrap_text(title, candidate_font, max_width, max_lines)
         text = "\n".join(candidate_lines)
         width, height = _text_size(draw, text, candidate_font, spacing=max(8, size // 5), stroke_width=stroke_width)
+        lines = candidate_lines
+        font = candidate_font
         if width <= max_width and height <= max_height:
-            lines = candidate_lines
-            font = candidate_font
             break
 
     text = "\n".join(lines)
@@ -676,38 +1043,24 @@ def _wrap_text(
     text: str,
     font: ImageFont.ImageFont,
     max_width: int,
-    max_lines: int,
+    max_lines: int | None = None,
 ) -> list[str]:
     source_lines = _title_source_lines(text)
     lines: list[str] = []
-    truncated = False
-    for index, source_line in enumerate(source_lines):
-        remaining = max_lines - len(lines)
-        if remaining <= 0:
-            truncated = True
-            break
-        wrapped, consumed = _wrap_single_line(source_line, font, max_width, remaining)
+    for source_line in source_lines:
+        wrapped = _wrap_single_line(source_line, font, max_width)
         lines.extend(wrapped)
-        if not consumed:
-            truncated = True
-            break
-        if index < len(source_lines) - 1 and len(lines) >= max_lines:
-            truncated = True
-            break
 
     if not lines:
         lines = ["Untitled"]
-    if truncated:
-        lines[-1] = _ellipsize(lines[-1], font, max_width)
-    return lines[:max_lines]
+    return lines
 
 
 def _wrap_single_line(
     text: str,
     font: ImageFont.ImageFont,
     max_width: int,
-    max_lines: int,
-) -> tuple[list[str], bool]:
+) -> list[str]:
     units = text.split()
     separator = " "
     if len(units) <= 1:
@@ -716,39 +1069,43 @@ def _wrap_single_line(
 
     lines: list[str] = []
     current = ""
-    for index, unit in enumerate(units):
+    for unit in units:
         candidate = unit if not current else f"{current}{separator}{unit}"
         if _line_width(candidate, font) <= max_width:
             current = candidate
             continue
         if current:
             lines.append(current)
-            if len(lines) == max_lines:
-                return lines, False
         current = unit
-        if _line_width(current, font) > max_width and not lines:
-            lines.append(current)
-            current = ""
-            if len(lines) == max_lines and index < len(units) - 1:
-                return lines, False
+        if _line_width(current, font) > max_width:
+            split_lines, current = _split_long_unit(current, font, max_width)
+            lines.extend(split_lines)
     if current:
-        if len(lines) >= max_lines:
-            return lines, False
         lines.append(current)
-    return lines or ["Untitled"], True
+    return lines or ["Untitled"]
+
+
+def _split_long_unit(
+    text: str,
+    font: ImageFont.ImageFont,
+    max_width: int,
+) -> tuple[list[str], str]:
+    lines: list[str] = []
+    current = ""
+    for character in text:
+        candidate = f"{current}{character}"
+        if not current or _line_width(candidate, font) <= max_width:
+            current = candidate
+            continue
+        lines.append(current)
+        current = character
+    return lines, current
 
 
 def _title_source_lines(text: str) -> list[str]:
     normalized = text.replace("\r\n", "\n").replace("\r", "\n")
     lines = [" ".join(line.split()).strip() for line in normalized.split("\n")]
     return [line for line in lines if line] or ["Untitled"]
-
-
-def _ellipsize(text: str, font: ImageFont.ImageFont, max_width: int) -> str:
-    value = text
-    while value and _line_width(f"{value}...", font) > max_width:
-        value = value[:-1].rstrip()
-    return f"{value}..." if value else "..."
 
 
 def _line_width(text: str, font: ImageFont.ImageFont) -> int:

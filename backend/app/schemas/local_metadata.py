@@ -52,6 +52,7 @@ class LocalMetadataDraft(BaseModel):
     runtime_minutes: int | None = None
     genres: list[str] = Field(default_factory=list)
     actors: list[str] = Field(default_factory=list)
+    technical: LocalVideoTechnicalInfo | None = None
 
 
 class LocalAnalyzeRequest(BaseModel):
@@ -113,6 +114,7 @@ class LocalCoverPreviewRequest(BaseModel):
 class LocalCoverPreviewResponse(BaseModel):
     poster: LocalCachedAsset
     fanart: LocalCachedAsset
+    thumb: LocalCachedAsset
     template: CoverTemplateName
     title_font_id: PosterFontId
     selected_frame_ids: list[str] = Field(default_factory=list)
@@ -136,6 +138,7 @@ class LocalPlanPreviewRequest(BaseModel):
     filename_template: str = "{title}"
     poster_ref: str | None = None
     fanart_ref: str | None = None
+    thumb_ref: str | None = None
     selected_frame_ids: list[str] = Field(default_factory=list)
     extra_backdrop_count: int = Field(default=0, ge=0, le=10)
 

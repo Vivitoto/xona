@@ -41,8 +41,8 @@ def test_selects_logical_assets_with_deterministic_relative_names() -> None:
     by_kind = {(asset.kind, asset.relative_path): asset for asset in selection.assets}
     assert ("poster", "poster.jpg") in by_kind
     assert ("fanart", "fanart.jpg") in by_kind
+    assert ("backdrop", "backdrop.jpg") in by_kind
     assert ("backdrop", "backdrop1.jpg") in by_kind
-    assert ("backdrop", "backdrop2.jpg") in by_kind
     assert ("extrafanart", "extrafanart/fanart1.jpg") in by_kind
     assert ("thumb", "thumb.jpg") in by_kind
     assert ("clearlogo", "clearlogo.png") in by_kind

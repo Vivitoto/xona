@@ -56,7 +56,8 @@ const MAX_TITLE_ANGLE_DEGREES = 20;
 const MIN_TITLE_OFFSET = -50;
 const MAX_TITLE_OFFSET = 50;
 const DEFAULT_SCREENSHOT_COUNT = 9;
-const MIN_SCREENSHOT_COUNT = 1;
+const MIN_COVER_FRAME_COUNT = 9;
+const MIN_SCREENSHOT_COUNT = MIN_COVER_FRAME_COUNT;
 const MAX_SCREENSHOT_COUNT = 36;
 const DEFAULT_TITLE_POSITION_BY_TEMPLATE: Record<
   CoverTemplateName,
@@ -205,11 +206,15 @@ export function UnmatchedVideosPage() {
     () => scannedVideos.filter((video) => selectedBatchPaths.includes(video.path)),
     [scannedVideos, selectedBatchPaths],
   );
+  const initialCoverFrameIds = useMemo(() => selectedInitialFrameIds(frames), [frames]);
   const hasSelectedFrames = selectedFrameIds.length > 0;
+  const hasEnoughSelectedCoverFrames = selectedFrameIds.length >= MIN_COVER_FRAME_COUNT;
+  const canReselectInitialCoverFrames =
+    frames.length > 0 && !sameOrderedValues(selectedFrameIds, initialCoverFrameIds);
   const hasLocalSource = Boolean(draft.video_path.trim() || scannedVideos.length);
   const coverDisplayTitle = posterTitle.trim() || draft.title.trim();
   const canGenerateCover =
-    Boolean(draft.video_path.trim() && coverDisplayTitle && hasSelectedFrames) &&
+    Boolean(draft.video_path.trim() && coverDisplayTitle && hasEnoughSelectedCoverFrames) &&
     busy !== "cover";
   const canPreviewPlan =
     Boolean(draft.video_path.trim() && destinationRoot.trim()) && busy !== "plan";
@@ -277,6 +282,7 @@ export function UnmatchedVideosPage() {
         plot: response.default_plot,
         tags: response.default_tags,
         runtime_minutes: runtimeMinutes(response.technical.duration_seconds),
+        technical: response.technical,
       };
       setDraft(nextDraft);
       resetPosterTitle(nextDraft.title);
@@ -322,8 +328,8 @@ export function UnmatchedVideosPage() {
       setError("视频路径和封面文字不能为空。");
       return;
     }
-    if (!selectedFrameIds.length) {
-      setError("请先生成截图并选择至少一张截图用于封面。");
+    if (selectedFrameIds.length < MIN_COVER_FRAME_COUNT) {
+      setError(`请先生成截图并选择至少 ${MIN_COVER_FRAME_COUNT} 张不同截图用于封面。`);
       return;
     }
     setBusy("cover");
@@ -406,6 +412,7 @@ export function UnmatchedVideosPage() {
         filename_template: filenameTemplate,
         poster_ref: coverPreview?.poster.id ?? null,
         fanart_ref: coverPreview?.fanart.id ?? null,
+        thumb_ref: coverPreview?.thumb.id ?? null,
         selected_frame_ids: selectedFrameIds,
         extra_backdrop_count: extraBackdropCount,
       };
@@ -563,7 +570,7 @@ export function UnmatchedVideosPage() {
     setVideoPath(editorDraft.video_path);
     setDraft(editorDraft);
     resetPosterTitle(editorDraft.title);
-    setTechnical(null);
+    setTechnical(editorDraft.technical);
     clearGeneratedPreviews();
     setError("");
   }
@@ -572,7 +579,7 @@ export function UnmatchedVideosPage() {
     setVideoPath(nextPath);
     setTechnical(null);
     clearGeneratedPreviews();
-    const nextDraft = draftWithUpdatedVideoPath(draft, nextPath);
+    const nextDraft = { ...draftWithUpdatedVideoPath(draft, nextPath), technical: null };
     setDraft(nextDraft);
     if (!posterTitleTouched.current || posterTitle === draft.title) {
       setPosterTitle(nextDraft.title);
@@ -730,6 +737,14 @@ export function UnmatchedVideosPage() {
     clearPlanPreview();
   }
 
+  function reselectInitialCoverFrames() {
+    const nextFrameIds = selectedInitialFrameIds(frames);
+    setSelectedFrameIds(nextFrameIds);
+    setCoverPreview(null);
+    clearPlanPreview();
+    setStatus(`已重新选择前 ${nextFrameIds.length} 张截图用于 Poster/Fanart/Thumb`);
+  }
+
   function clearPlanPreview() {
     setPlanPreview(null);
     setExecuteResult(null);
@@ -803,10 +818,7 @@ export function UnmatchedVideosPage() {
               }
             />
           </FormField>
-          <FormField
-            label="额外截图数量"
-            description="从已生成截图输出 Emby 兼容 backdrop1、backdrop2 等背景图；优先使用已选截图，0 表示不额外输出。"
-          >
+          <FormField label="额外背景图数量">
             <input
               max={10}
               min={0}
@@ -874,7 +886,7 @@ export function UnmatchedVideosPage() {
     <div className="page-stack unmatched-workbench">
       <WorkflowProgress
         hasLocalSource={hasLocalSource}
-        hasSelectedFrames={hasSelectedFrames}
+        hasSelectedFrames={hasEnoughSelectedCoverFrames}
         hasPlanPreview={Boolean(planPreview)}
       />
 
@@ -911,7 +923,7 @@ export function UnmatchedVideosPage() {
                 </div>
                 <FormField
                   label="截图数量"
-                  description="用于截图候选和 Fanart 拼图；默认 9 张。"
+                  description="用于截图候选和 Fanart 拼图；默认 9 张，生成后自动选中前 9 张。"
                 >
                   <input
                     max={MAX_SCREENSHOT_COUNT}
@@ -1162,14 +1174,27 @@ export function UnmatchedVideosPage() {
 
               <Section title="截图与预览">
                 <p className="section-lead">
-                  封面预览需要先生成截图，并至少选中一张截图作为 Poster/Fanart
-                  的素材。
+                  生成截图后，Xona 会自动选中前 {MIN_COVER_FRAME_COUNT} 张作为
+                  Poster/Fanart/Thumb 的素材；你可以手动调整，但封面预览仍至少需要
+                  {MIN_COVER_FRAME_COUNT} 张不同截图。
                 </p>
                 {frames.length ? (
                   <>
-                    <p className="frame-selection-status">
-                      已选择 {selectedFrameIds.length} 张截图用于封面和背景图。
-                    </p>
+                    <div className="frame-selection-toolbar">
+                      <p className="frame-selection-status">
+                        Xona 默认选择前 {MIN_COVER_FRAME_COUNT} 张；当前已选择{" "}
+                        {selectedFrameIds.length} 张用于 Poster/Fanart/Thumb，至少需要{" "}
+                        {MIN_COVER_FRAME_COUNT} 张。
+                      </p>
+                      <button
+                        className="secondary"
+                        disabled={!canReselectInitialCoverFrames}
+                        type="button"
+                        onClick={reselectInitialCoverFrames}
+                      >
+                        重新选择前 {MIN_COVER_FRAME_COUNT} 张
+                      </button>
+                    </div>
                     <div className="frame-strip">
                       <div className="frame-grid" aria-label="截图候选">
                         {frames.map((frame) => {
@@ -1196,7 +1221,10 @@ export function UnmatchedVideosPage() {
                 ) : (
                   <div className="empty-state">
                     <strong>暂无截图</strong>
-                    <span>输入视频路径后生成截图，再选择至少一张用于封面。</span>
+                    <span>
+                      输入视频路径后生成截图；Xona 会自动选择前 {MIN_COVER_FRAME_COUNT} 张用于
+                      Poster/Fanart/Thumb，也可手动调整。
+                    </span>
                   </div>
                 )}
 
@@ -1204,6 +1232,7 @@ export function UnmatchedVideosPage() {
                   <div className="cover-preview-grid">
                     <PreviewImage asset={coverPreview.poster} label="Poster" />
                     <PreviewImage asset={coverPreview.fanart} label="Fanart" />
+                    <PreviewImage asset={coverPreview.thumb} label="Thumb" />
                   </div>
                 ) : null}
 
@@ -1813,7 +1842,7 @@ function TechnicalSummary({
 
 function PreviewImage({ asset, label }: { asset: LocalCachedAsset; label: string }) {
   return (
-    <figure className="cover-preview">
+    <figure className={`cover-preview cover-preview-${label.toLowerCase()}`}>
       <img alt={`${label} preview`} src={asset.url} />
       <figcaption>
         {label} · {asset.width ?? "?"} x {asset.height ?? "?"}
@@ -1836,6 +1865,7 @@ function blankDraft(videoPath: string): LocalMetadataDraft {
     runtime_minutes: null,
     genres: [],
     actors: [],
+    technical: null,
   };
 }
 
@@ -2160,7 +2190,11 @@ function clampTitleStrokeWidth(value: string): number {
 }
 
 function selectedInitialFrameIds(frames: LocalCachedAsset[]): string[] {
-  return unique(frames.map((frame) => frame.id)).slice(0, 9);
+  return unique(frames.map((frame) => frame.id)).slice(0, MIN_COVER_FRAME_COUNT);
+}
+
+function sameOrderedValues(left: string[], right: string[]): boolean {
+  return left.length === right.length && left.every((value, index) => value === right[index]);
 }
 
 function organizationModeForPreview(mode: OrganizationMode): OrganizationMode {
