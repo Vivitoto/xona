@@ -254,19 +254,22 @@ def test_local_metadata_record_adds_resolution_actor_and_studio_labels() -> None
     record = local_metadata_record(draft)
 
     assert record.labels == ["4K", "星野兔", "糖心Vlog"]
-    assert record.tags == ["星野兔", "糖心Vlog", "4K"]
+    assert record.tags == []
+    assert record.genres == []
     assert record.technical is not None
     assert record.technical.width == 3840
     assert record.technical.height == 2160
     assert record.technical.video_codec == "hevc"
 
 
-def test_local_metadata_record_defaults_nfo_tags_from_actor_studio_and_resolution() -> None:
+def test_local_metadata_record_expands_nfo_tag_and_genre_variables() -> None:
     draft = LocalMetadataDraft(
         video_path=Path("/media/incoming/Local.Work.mp4"),
         title="Local Work",
         studio=" Studio Local ",
         actors=[" Actor One ", "Actor Two", "Actor One"],
+        tags=["{actors}", "{studio}", "{resolution}"],
+        genres=["{actors}", "{studio}", "{resolution}"],
         technical=LocalVideoTechnicalInfo(
             path=Path("/media/incoming/Local.Work.mp4"),
             size_bytes=123,
@@ -283,11 +286,16 @@ def test_local_metadata_record_defaults_nfo_tags_from_actor_studio_and_resolutio
     record = local_metadata_record(draft)
     xml_text = render_movie_nfo(record).decode("utf-8")
 
-    assert record.tags == ["Actor One", "Actor Two", "Studio Local", "1080p"]
+    assert record.tags == ["Actor One", "Actor Two", "片商: Studio Local", "1080p"]
+    assert record.genres == ["Actor One", "Actor Two", "片商: Studio Local", "1080p"]
     assert "<tag>Actor One</tag>" in xml_text
     assert "<tag>Actor Two</tag>" in xml_text
-    assert "<tag>Studio Local</tag>" in xml_text
+    assert "<tag>片商: Studio Local</tag>" in xml_text
     assert "<tag>1080p</tag>" in xml_text
+    assert "<genre>Actor One</genre>" in xml_text
+    assert "<genre>Actor Two</genre>" in xml_text
+    assert "<genre>片商: Studio Local</genre>" in xml_text
+    assert "<genre>1080p</genre>" in xml_text
 
 
 def test_local_metadata_record_preserves_explicit_draft_tags_for_nfo() -> None:
@@ -297,6 +305,7 @@ def test_local_metadata_record_preserves_explicit_draft_tags_for_nfo() -> None:
         studio="Studio Local",
         actors=["Actor One"],
         tags=[" Explicit Tag ", "Actor One", "Explicit Tag"],
+        genres=[" Manual Genre ", "Manual Genre"],
         technical=LocalVideoTechnicalInfo(
             path=Path("/media/incoming/Local.Work.mp4"),
             size_bytes=123,
@@ -314,10 +323,14 @@ def test_local_metadata_record_preserves_explicit_draft_tags_for_nfo() -> None:
     xml_text = render_movie_nfo(record).decode("utf-8")
 
     assert record.tags == ["Explicit Tag", "Actor One"]
+    assert record.genres == ["Manual Genre"]
     assert "<tag>Explicit Tag</tag>" in xml_text
     assert "<tag>Actor One</tag>" in xml_text
-    assert "<tag>Studio Local</tag>" not in xml_text
+    assert "<genre>Manual Genre</genre>" in xml_text
+    assert "<tag>片商: Studio Local</tag>" not in xml_text
     assert "<tag>1080p</tag>" not in xml_text
+    assert "<genre>片商: Studio Local</genre>" not in xml_text
+    assert "<genre>1080p</genre>" not in xml_text
 
 
 def test_local_plan_preview_includes_nfo_and_cached_generated_images(

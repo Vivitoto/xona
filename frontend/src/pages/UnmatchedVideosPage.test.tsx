@@ -21,7 +21,8 @@ describe("UnmatchedVideosPage", () => {
           cleaned_title: "Cleaned Local Work",
           default_organize_filename: "Cleaned Local Work",
           default_plot: "Cleaned Local Work",
-          default_tags: [],
+          default_tags: ["{actors}", "{studio}", "{resolution}"],
+          default_genres: ["{actors}", "{studio}", "{resolution}"],
           technical: {
             path: "/media/incoming/Raw.Local.Work.mp4",
             size_bytes: 4,
@@ -75,7 +76,8 @@ describe("UnmatchedVideosPage", () => {
     const organizeInput = screen.getByLabelText("整理文件名 (organize_filename)") as HTMLInputElement;
     await waitFor(() => expect(organizeInput).toHaveValue("Cleaned Local Work"));
     expect(screen.getByLabelText("简介 (plot)")).toHaveValue("Cleaned Local Work");
-    expect(screen.getByLabelText("标签 (tag)")).toHaveValue("");
+    expect(screen.getByLabelText("标签 (tag)")).toHaveValue("{actors}\n{studio}\n{resolution}");
+    expect(screen.getByLabelText("类型 (genre)")).toHaveValue("{actors}\n{studio}\n{resolution}");
 
     fireEvent.change(screen.getByLabelText("标题 (title)"), {
       target: { value: "Metadata Title" },
@@ -112,6 +114,7 @@ describe("UnmatchedVideosPage", () => {
         organize_filename: "Custom Output Name",
         plot: "Cleaned Local Work",
         tags: [],
+        genres: ["{actors}", "{studio}", "{resolution}"],
         technical: {
           width: 1920,
           height: 1080,
@@ -444,7 +447,8 @@ describe("UnmatchedVideosPage", () => {
           cleaned_title: "Beta Scene",
           default_organize_filename: "Beta Scene",
           default_plot: "Beta Scene",
-          default_tags: [],
+          default_tags: ["{actors}", "{studio}", "{resolution}"],
+          default_genres: ["{actors}", "{studio}", "{resolution}"],
           technical: {
             path: "/media/incoming/Beta.Scene.mkv",
             size_bytes: 4096,
@@ -1095,7 +1099,8 @@ describe("UnmatchedVideosPage", () => {
           cleaned_title: "Frame Source",
           default_organize_filename: "Frame Source",
           default_plot: "Frame Source",
-          default_tags: [],
+          default_tags: ["{actors}", "{studio}", "{resolution}"],
+          default_genres: ["{actors}", "{studio}", "{resolution}"],
           technical: {
             path: "/media/incoming/Frame.Source.mp4",
             size_bytes: 4,
@@ -1427,7 +1432,8 @@ describe("UnmatchedVideosPage", () => {
           cleaned_title: "Many Frames",
           default_organize_filename: "Many Frames",
           default_plot: "Many Frames",
-          default_tags: [],
+          default_tags: ["{actors}", "{studio}", "{resolution}"],
+          default_genres: ["{actors}", "{studio}", "{resolution}"],
           technical: {
             path: "/media/incoming/Many.Frames.mp4",
             size_bytes: 4,
@@ -1536,7 +1542,8 @@ function analyzeResponseFixture(videoPath: string) {
     cleaned_title: title,
     default_organize_filename: title,
     default_plot: title,
-    default_tags: [],
+    default_tags: ["{actors}", "{studio}", "{resolution}"],
+    default_genres: ["{actors}", "{studio}", "{resolution}"],
     technical: {
       path: videoPath,
       size_bytes: 4096,

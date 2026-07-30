@@ -69,7 +69,10 @@ from backend.app.services.video_probe import (
 )
 
 
-DEFAULT_LOCAL_TAGS: tuple[str, ...] = ()
+DEFAULT_LOCAL_METADATA_VALUES: tuple[str, ...] = ("{actors}", "{studio}", "{resolution}")
+DEFAULT_LOCAL_TAGS: tuple[str, ...] = DEFAULT_LOCAL_METADATA_VALUES
+DEFAULT_LOCAL_GENRES: tuple[str, ...] = DEFAULT_LOCAL_METADATA_VALUES
+STUDIO_TAG_PREFIX = "片商: "
 MAX_EXTRA_BACKDROP_COUNT = 10
 logger = logging.getLogger(__name__)
 
@@ -137,6 +140,7 @@ class LocalMetadataService:
             default_organize_filename=title,
             default_plot=title,
             default_tags=list(DEFAULT_LOCAL_TAGS),
+            default_genres=list(DEFAULT_LOCAL_GENRES),
             technical=technical,
         )
 
@@ -640,7 +644,14 @@ def local_metadata_record(draft: LocalMetadataDraft) -> MetadataRecordData:
     actors = _clean_list(draft.actors)
     studio = _clean_text(draft.studio)
     technical = _metadata_technical_info(draft.technical)
-    tags = _clean_list(draft.tags) or _local_default_tags(
+    tags = _expand_local_metadata_values(
+        draft.tags,
+        technical=technical,
+        actors=actors,
+        studio=studio,
+    )
+    genres = _expand_local_metadata_values(
+        draft.genres,
         technical=technical,
         actors=actors,
         studio=studio,
@@ -659,7 +670,7 @@ def local_metadata_record(draft: LocalMetadataDraft) -> MetadataRecordData:
         studio=studio,
         series=_clean_text(draft.series),
         actors=[MetadataActor(name=name) for name in actors],
-        genres=_clean_list(draft.genres),
+        genres=genres,
         tags=tags,
         labels=_local_labels(technical=technical, actors=actors, studio=studio),
         assets=MetadataAssets(),
@@ -699,19 +710,41 @@ def _local_labels(
     return _clean_list(labels)
 
 
-def _local_default_tags(
+def _expand_local_metadata_values(
+    values: list[str],
     *,
     technical: MetadataTechnicalInfo | None,
     actors: list[str],
     studio: str | None,
 ) -> list[str]:
-    values = [*actors]
-    if studio:
-        values.append(studio)
     resolution = _resolution_label(technical)
-    if resolution:
-        values.append(resolution)
-    return _clean_list(values)
+    expanded: list[str] = []
+    for raw_value in values:
+        value = " ".join(raw_value.split()).strip()
+        if not value:
+            continue
+        if value == "{actors}":
+            expanded.extend(actors)
+            continue
+        if value == "{studio}":
+            if studio:
+                expanded.append(f"{STUDIO_TAG_PREFIX}{studio}")
+            continue
+        if value == "{resolution}":
+            if resolution:
+                expanded.append(resolution)
+            continue
+
+        rendered = value
+        rendered = rendered.replace("{actors}", ", ".join(actors))
+        rendered = rendered.replace("{first_actor}", actors[0] if actors else "")
+        rendered = rendered.replace(
+            "{studio}",
+            f"{STUDIO_TAG_PREFIX}{studio}" if studio else "",
+        )
+        rendered = rendered.replace("{resolution}", resolution or "")
+        expanded.append(rendered)
+    return _clean_list(expanded)
 
 
 def _resolution_label(technical: MetadataTechnicalInfo | None) -> str | None:

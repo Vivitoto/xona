@@ -78,6 +78,7 @@ const MIN_COVER_FRAME_COUNT = 9;
 const MIN_SCREENSHOT_COUNT = MIN_COVER_FRAME_COUNT;
 const MAX_SCREENSHOT_COUNT = 36;
 const DEFAULT_BATCH_CONCURRENCY = 2;
+const DEFAULT_LOCAL_METADATA_VALUES = ["{actors}", "{studio}", "{resolution}"];
 const MIN_BATCH_CONCURRENCY = 1;
 const MAX_BATCH_CONCURRENCY = 3;
 const DEFAULT_TITLE_POSITION_BY_TEMPLATE: Record<
@@ -271,8 +272,12 @@ export function UnmatchedVideosPage() {
   const [batchStudio, setBatchStudio] = useState("");
   const [batchSeries, setBatchSeries] = useState("");
   const [batchActors, setBatchActors] = useState("");
-  const [batchTags, setBatchTags] = useState("");
-  const [batchGenres, setBatchGenres] = useState("");
+  const [batchTags, setBatchTags] = useState(
+    listToLines(DEFAULT_LOCAL_METADATA_VALUES),
+  );
+  const [batchGenres, setBatchGenres] = useState(
+    listToLines(DEFAULT_LOCAL_METADATA_VALUES),
+  );
   const [batchPlot, setBatchPlot] = useState("");
   const [batchCoverTemplate, setBatchCoverTemplate] =
     useState<CoverTemplateName>("simple_poster");
@@ -403,6 +408,7 @@ export function UnmatchedVideosPage() {
         organize_filename: response.default_organize_filename,
         plot: response.default_plot,
         tags: response.default_tags,
+        genres: response.default_genres,
         runtime_minutes: runtimeMinutes(response.technical.duration_seconds),
         technical: response.technical,
       };
@@ -624,7 +630,6 @@ export function UnmatchedVideosPage() {
       title,
       organize_filename: video.default_organize_filename || title,
       plot: title,
-      tags: [],
     });
     setStatus(`已选择 ${video.filename}`);
   }
@@ -1659,7 +1664,7 @@ export function UnmatchedVideosPage() {
                 <div className="grid two">
                   <FormField
                     label="标签 (tag)"
-                    description="每行一个 NFO <tag>；留空时默认使用演员、制作方和分辨率。"
+                    description="每行一个 NFO <tag>；默认变量会展开为演员、片商: 制作方和分辨率。清空则不写入标签。"
                   >
                     <textarea
                       value={listToLines(draft.tags)}
@@ -1668,7 +1673,10 @@ export function UnmatchedVideosPage() {
                       }
                     />
                   </FormField>
-                  <FormField label="类型 (genre)">
+                  <FormField
+                    label="类型 (genre)"
+                    description="每行一个 NFO <genre>；默认变量会展开为演员、片商: 制作方和分辨率。清空则不写入类型。"
+                  >
                     <textarea
                       value={listToLines(draft.genres)}
                       onChange={(event) =>
@@ -1905,14 +1913,17 @@ export function UnmatchedVideosPage() {
                 </FormField>
                 <FormField
                   label="标签 (tag)"
-                  description="每行一个 NFO <tag>；留空时默认使用演员、制作方和分辨率。"
+                  description="每行一个 NFO <tag>；默认变量会展开为演员、片商: 制作方和分辨率。清空则不写入标签。"
                 >
                   <textarea
                     value={batchTags}
                     onChange={(event) => setBatchTags(event.target.value)}
                   />
                 </FormField>
-                <FormField label="类型 (genre)">
+                <FormField
+                  label="类型 (genre)"
+                  description="每行一个 NFO <genre>；默认变量会展开为演员、片商: 制作方和分辨率。清空则不写入类型。"
+                >
                   <textarea
                     value={batchGenres}
                     onChange={(event) => setBatchGenres(event.target.value)}
@@ -2834,12 +2845,12 @@ function blankDraft(videoPath: string): LocalMetadataDraft {
     title,
     organize_filename: title,
     plot: null,
-    tags: [],
+    tags: [...DEFAULT_LOCAL_METADATA_VALUES],
     studio: null,
     series: null,
     release_date: null,
     runtime_minutes: null,
-    genres: [],
+    genres: [...DEFAULT_LOCAL_METADATA_VALUES],
     actors: [],
     technical: null,
   };

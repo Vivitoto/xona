@@ -378,6 +378,7 @@ export interface LocalAnalyzeResponse {
   default_organize_filename: string;
   default_plot: string;
   default_tags: string[];
+  default_genres: string[];
   technical: LocalVideoTechnicalInfo;
   warnings: string[];
 }

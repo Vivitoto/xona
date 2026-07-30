@@ -65,6 +65,7 @@ class LocalAnalyzeResponse(BaseModel):
     default_organize_filename: str
     default_plot: str
     default_tags: list[str]
+    default_genres: list[str]
     technical: LocalVideoTechnicalInfo
     warnings: list[str] = Field(default_factory=list)
 
