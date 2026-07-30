@@ -38,7 +38,6 @@ import type {
 } from "../api/types";
 import { DirectoryPicker } from "../components/DirectoryPicker";
 import { CheckboxField, FormField, Section } from "../components/FormField";
-import { OperationPlanView } from "../components/OperationPlanView";
 import { Tabs, type TabItem } from "../components/Tabs";
 import { linesToList, listToLines, normalizeSettings } from "./settings/settingsForm";
 
@@ -272,7 +271,7 @@ export function UnmatchedVideosPage() {
   const [batchStudio, setBatchStudio] = useState("");
   const [batchSeries, setBatchSeries] = useState("");
   const [batchActors, setBatchActors] = useState("");
-  const [batchTags, setBatchTags] = useState(() => defaultLocalTags().join("\n"));
+  const [batchTags, setBatchTags] = useState("");
   const [batchGenres, setBatchGenres] = useState("");
   const [batchPlot, setBatchPlot] = useState("");
   const [batchCoverTemplate, setBatchCoverTemplate] =
@@ -619,12 +618,13 @@ export function UnmatchedVideosPage() {
   }
 
   function selectVideo(video: LocalScannedVideo) {
+    const title = video.cleaned_title || titleFromPath(video.path);
     loadDraftIntoEditor({
       ...blankDraft(video.path),
-      title: video.cleaned_title,
-      organize_filename: video.default_organize_filename || video.cleaned_title,
-      plot: `Local metadata generated for ${video.filename}.`,
-      tags: defaultLocalTags(),
+      title,
+      organize_filename: video.default_organize_filename || title,
+      plot: title,
+      tags: [],
     });
     setStatus(`已选择 ${video.filename}`);
   }
@@ -1003,7 +1003,6 @@ export function UnmatchedVideosPage() {
       video.default_organize_filename || video.cleaned_title || titleFromPath(video.path);
     const organizeFilename =
       `${batchFilenamePrefix}${organizeBase}${batchFilenameSuffix}`.trim() || title;
-    const tags = listFromText(batchTags);
     return cleanedDraft({
       ...blankDraft(video.path),
       title,
@@ -1011,8 +1010,8 @@ export function UnmatchedVideosPage() {
       studio: batchStudio,
       series: batchSeries,
       actors: listFromText(batchActors),
-      plot: batchPlot.trim() || `Local metadata generated for ${video.filename}.`,
-      tags: tags.length ? tags : defaultLocalTags(),
+      plot: batchPlot.trim() || fallbackTitle,
+      tags: listFromText(batchTags),
       genres: listFromText(batchGenres),
       runtime_minutes: runtimeMinutes(knownTechnical?.duration_seconds ?? null),
       technical: knownTechnical,
@@ -1399,21 +1398,7 @@ export function UnmatchedVideosPage() {
               : `整理状态：${executeResult.state}`}
           </p>
         ) : null}
-        <OperationPlanView
-          plan={planPreview?.plan ?? null}
-          preview={
-            planPreview
-              ? {
-                  job_id: 0,
-                  plan_id: planPreview.plan_id,
-                  metadata: planPreview.metadata,
-                  materialized_assets: planPreview.materialized_assets,
-                  missing_assets: [],
-                  plan: planPreview.plan,
-                }
-              : null
-          }
-        />
+        <LocalOrganizePreviewSummary planPreview={planPreview} />
       </Section>
     );
   }
@@ -1490,15 +1475,15 @@ export function UnmatchedVideosPage() {
             <div className="unmatched-editor-layout">
               <Section title="元数据草稿">
                 <div className="grid two">
-                  <FormField label="标题">
+                  <FormField label="标题 (title)">
                     <input
                       value={draft.title}
                       onChange={(event) => updateDraft("title", event.target.value)}
                     />
                   </FormField>
                   <FormField
-                    label="整理文件名"
-                    description="标题写入 NFO 元数据；整理文件名用于输出视频和同名 NFO 文件。留空时使用文件名模板。"
+                    label="整理文件名 (organize_filename)"
+                    description="标题 (title) 写入 NFO 元数据；整理文件名 (organize_filename) 用于输出视频和同名 NFO 文件。留空时使用文件名模板。"
                   >
                     <input
                       value={draft.organize_filename ?? ""}
@@ -1635,7 +1620,7 @@ export function UnmatchedVideosPage() {
                   </FormField>
                 </div>
                 <div className="grid two">
-                  <FormField label="制作方">
+                  <FormField label="制作方 (studio)">
                     <input
                       value={draft.studio ?? ""}
                       onChange={(event) =>
@@ -1643,7 +1628,7 @@ export function UnmatchedVideosPage() {
                       }
                     />
                   </FormField>
-                  <FormField label="系列">
+                  <FormField label="系列 (set)">
                     <input
                       value={draft.series ?? ""}
                       onChange={(event) =>
@@ -1653,8 +1638,8 @@ export function UnmatchedVideosPage() {
                   </FormField>
                 </div>
                 <FormField
-                  label="演员"
-                  description="每行一位演员；会写入 NFO 并可用于 {actors} 与 {first_actor} 模板。"
+                  label="演员 (actor)"
+                  description="每行一位演员；会写入 NFO <actor>，并可用于 {actors} 与 {first_actor} 模板。"
                 >
                   <textarea
                     value={listToLines(draft.actors)}
@@ -1663,7 +1648,7 @@ export function UnmatchedVideosPage() {
                     }
                   />
                 </FormField>
-                <FormField label="简介">
+                <FormField label="简介 (plot)">
                   <textarea
                     value={draft.plot ?? ""}
                     onChange={(event) =>
@@ -1672,7 +1657,10 @@ export function UnmatchedVideosPage() {
                   />
                 </FormField>
                 <div className="grid two">
-                  <FormField label="标签">
+                  <FormField
+                    label="标签 (tag)"
+                    description="每行一个 NFO <tag>；留空时默认使用演员、制作方和分辨率。"
+                  >
                     <textarea
                       value={listToLines(draft.tags)}
                       onChange={(event) =>
@@ -1680,7 +1668,7 @@ export function UnmatchedVideosPage() {
                       }
                     />
                   </FormField>
-                  <FormField label="类型">
+                  <FormField label="类型 (genre)">
                     <textarea
                       value={listToLines(draft.genres)}
                       onChange={(event) =>
@@ -1873,61 +1861,64 @@ export function UnmatchedVideosPage() {
               )}
 
               <div className="grid three batch-draft-grid">
-                <FormField label="标题前缀">
+                <FormField label="标题前缀 (title)">
                   <input
                     value={batchPrefix}
                     onChange={(event) => setBatchPrefix(event.target.value)}
                   />
                 </FormField>
-                <FormField label="标题后缀">
+                <FormField label="标题后缀 (title)">
                   <input
                     value={batchSuffix}
                     onChange={(event) => setBatchSuffix(event.target.value)}
                   />
                 </FormField>
-                <FormField label="整理文件名前缀">
+                <FormField label="整理文件名前缀 (organize_filename)">
                   <input
                     value={batchFilenamePrefix}
                     onChange={(event) => setBatchFilenamePrefix(event.target.value)}
                   />
                 </FormField>
-                <FormField label="整理文件名后缀">
+                <FormField label="整理文件名后缀 (organize_filename)">
                   <input
                     value={batchFilenameSuffix}
                     onChange={(event) => setBatchFilenameSuffix(event.target.value)}
                   />
                 </FormField>
-                <FormField label="制作方">
+                <FormField label="制作方 (studio)">
                   <input
                     value={batchStudio}
                     onChange={(event) => setBatchStudio(event.target.value)}
                   />
                 </FormField>
-                <FormField label="系列">
+                <FormField label="系列 (set)">
                   <input
                     value={batchSeries}
                     onChange={(event) => setBatchSeries(event.target.value)}
                   />
                 </FormField>
-                <FormField label="演员">
+                <FormField label="演员 (actor)">
                   <textarea
                     value={batchActors}
                     onChange={(event) => setBatchActors(event.target.value)}
                   />
                 </FormField>
-                <FormField label="标签">
+                <FormField
+                  label="标签 (tag)"
+                  description="每行一个 NFO <tag>；留空时默认使用演员、制作方和分辨率。"
+                >
                   <textarea
                     value={batchTags}
                     onChange={(event) => setBatchTags(event.target.value)}
                   />
                 </FormField>
-                <FormField label="类型">
+                <FormField label="类型 (genre)">
                   <textarea
                     value={batchGenres}
                     onChange={(event) => setBatchGenres(event.target.value)}
                   />
                 </FormField>
-                <FormField label="简介">
+                <FormField label="简介 (plot)">
                   <textarea
                     value={batchPlot}
                     onChange={(event) => setBatchPlot(event.target.value)}
@@ -2715,6 +2706,127 @@ function PreviewImage({ asset, label }: { asset: LocalCachedAsset; label: string
   );
 }
 
+function LocalOrganizePreviewSummary({
+  planPreview,
+}: {
+  planPreview: LocalPlanPreviewResponse | null;
+}) {
+  if (!planPreview) {
+    return <p className="muted">尚无整理输出预览。</p>;
+  }
+
+  const outputs = organizePreviewOutputs(planPreview.plan);
+  return (
+    <div className="local-organize-summary" aria-label="整理输出概要">
+      <div className="plan-summary">
+        <span>计划 {planPreview.plan_id}</span>
+        <span>模式 {planPreview.plan.mode}</span>
+        <span>目标目录 {planPreview.plan.target_directory}</span>
+      </div>
+      <dl className="metadata-list compact organize-output-metadata">
+        <div>
+          <dt>目标目录</dt>
+          <dd>{planPreview.plan.target_directory}</dd>
+        </div>
+        <div>
+          <dt>目标文件</dt>
+          <dd>{outputs.length} 个</dd>
+        </div>
+      </dl>
+      <div className="plan-list local-output-list">
+        <h3>目标文件</h3>
+        {outputs.length ? (
+          <ul>
+            {outputs.map((output) => (
+              <li key={output.targetPath}>
+                <span>{output.kindLabel}</span>
+                <code>{output.relativePath}</code>
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <p className="muted">暂无目标文件。</p>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function organizePreviewOutputs(plan: LocalPlanPreviewResponse["plan"]): {
+  targetPath: string;
+  relativePath: string;
+  kindLabel: string;
+}[] {
+  const seen = new Set<string>();
+  return plan.steps
+    .filter((step) => step.target_path)
+    .map((step) => ({
+      targetPath: step.target_path,
+      relativePath: relativeTargetPath(step.target_path, plan.target_directory),
+      kindLabel: outputKindLabel(step),
+    }))
+    .filter((output) => {
+      if (seen.has(output.targetPath)) {
+        return false;
+      }
+      seen.add(output.targetPath);
+      return true;
+    });
+}
+
+function relativeTargetPath(targetPath: string, targetDirectory: string): string {
+  const normalizedTarget = normalizePreviewPath(targetPath);
+  const normalizedDirectory = normalizePreviewPath(targetDirectory).replace(
+    /\/+$/g,
+    "",
+  );
+  if (normalizedTarget === normalizedDirectory) {
+    return normalizedTarget.split("/").pop() || normalizedTarget;
+  }
+  if (normalizedTarget.startsWith(`${normalizedDirectory}/`)) {
+    return normalizedTarget.slice(normalizedDirectory.length + 1);
+  }
+  return targetPath;
+}
+
+function outputKindLabel(
+  step: LocalPlanPreviewResponse["plan"]["steps"][number],
+): string {
+  if (step.category === "media") {
+    return "视频";
+  }
+  if (step.category === "generated_artifact") {
+    return step.target_path.toLowerCase().endsWith(".nfo") ? "NFO" : "生成文件";
+  }
+  if (step.category === "asset") {
+    const filename = step.target_path.split(/[\\/]/).pop()?.toLowerCase() ?? "";
+    if (filename === "poster.jpg") {
+      return "Poster";
+    }
+    if (filename === "fanart.jpg") {
+      return "Fanart";
+    }
+    if (filename === "thumb.jpg") {
+      return "Thumb";
+    }
+    if (/^backdrop\d*\.jpg$/.test(filename)) {
+      return "Backdrop";
+    }
+    return "图片";
+  }
+  if (step.category === "sidecar") {
+    return "附属文件";
+  }
+  if (step.category === "actor_output") {
+    return "演员图片";
+  }
+  return "文件";
+}
+
+function normalizePreviewPath(path: string): string {
+  return path.replace(/\\/g, "/");
+}
+
 function blankDraft(videoPath: string): LocalMetadataDraft {
   const title = videoPath ? titleFromPath(videoPath) : "";
   return {
@@ -2722,7 +2834,7 @@ function blankDraft(videoPath: string): LocalMetadataDraft {
     title,
     organize_filename: title,
     plot: null,
-    tags: defaultLocalTags(),
+    tags: [],
     studio: null,
     series: null,
     release_date: null,
@@ -2858,10 +2970,6 @@ function listFromText(value: string): string[] {
 
 function unique(values: string[]): string[] {
   return [...new Set(values)];
-}
-
-function defaultLocalTags(): string[] {
-  return ["local-generated", "unmatched"];
 }
 
 function organizeProgressText({

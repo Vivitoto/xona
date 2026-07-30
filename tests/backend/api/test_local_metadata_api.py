@@ -69,7 +69,7 @@ def test_local_metadata_api_analyze_and_nfo_preview_contract(
                             "video_path": str(video),
                             "title": "Local Work",
                             "plot": "Local draft.",
-                            "tags": ["local-generated", "unmatched"],
+                            "tags": [],
                             "studio": "Studio Local",
                             "actors": ["Actor Local"],
                             "technical": fake_probe(video).model_dump(mode="json"),
@@ -85,6 +85,8 @@ def test_local_metadata_api_analyze_and_nfo_preview_contract(
     analyzed = responses["analyze"].json()
     assert analyzed["cleaned_title"] == "ABC123 Local Work"
     assert analyzed["default_organize_filename"] == "ABC123 Local Work"
+    assert analyzed["default_plot"] == "ABC123 Local Work"
+    assert analyzed["default_tags"] == []
     assert analyzed["technical"]["width"] == 1920
     assert analyzed["technical"]["duration_seconds"] == 125.2
 
@@ -96,6 +98,9 @@ def test_local_metadata_api_analyze_and_nfo_preview_contract(
     assert "<width>1920</width>" in nfo["xml_text"]
     assert "<height>1080</height>" in nfo["xml_text"]
     assert "<codec>h264</codec>" in nfo["xml_text"]
+    assert "<tag>Actor Local</tag>" in nfo["xml_text"]
+    assert "<tag>Studio Local</tag>" in nfo["xml_text"]
+    assert "<tag>1080p</tag>" in nfo["xml_text"]
     assert "<label>1080p</label>" in nfo["xml_text"]
     assert "<label>Actor Local</label>" in nfo["xml_text"]
     assert "<label>Studio Local</label>" in nfo["xml_text"]
@@ -237,7 +242,6 @@ def test_local_metadata_api_cleans_completed_plan_local_cache(tmp_path: Path) ->
                             video_path=video,
                             title="Api Cache Work",
                             plot="Local draft.",
-                            tags=["local-generated", "unmatched"],
                         ),
                         destination_root=destination,
                         mode="copy",

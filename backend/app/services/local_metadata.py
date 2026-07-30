@@ -69,7 +69,7 @@ from backend.app.services.video_probe import (
 )
 
 
-DEFAULT_LOCAL_TAGS = ["local-generated", "unmatched"]
+DEFAULT_LOCAL_TAGS: tuple[str, ...] = ()
 MAX_EXTRA_BACKDROP_COUNT = 10
 logger = logging.getLogger(__name__)
 
@@ -135,7 +135,7 @@ class LocalMetadataService:
             video_path=path,
             cleaned_title=title,
             default_organize_filename=title,
-            default_plot=f"Local metadata generated for {path.name}.",
+            default_plot=title,
             default_tags=list(DEFAULT_LOCAL_TAGS),
             technical=technical,
         )
@@ -637,10 +637,14 @@ def _backdrop_relative_path(index: int) -> str:
 def local_metadata_record(draft: LocalMetadataDraft) -> MetadataRecordData:
     title = " ".join(draft.title.split()).strip() or clean_local_title(draft.video_path)
     plot = _clean_text(draft.plot)
-    tags = _clean_list(draft.tags) or list(DEFAULT_LOCAL_TAGS)
     actors = _clean_list(draft.actors)
     studio = _clean_text(draft.studio)
     technical = _metadata_technical_info(draft.technical)
+    tags = _clean_list(draft.tags) or _local_default_tags(
+        technical=technical,
+        actors=actors,
+        studio=studio,
+    )
     return MetadataRecordData(
         source="local",
         xchina_id=None,
@@ -693,6 +697,21 @@ def _local_labels(
     if studio:
         labels.append(studio)
     return _clean_list(labels)
+
+
+def _local_default_tags(
+    *,
+    technical: MetadataTechnicalInfo | None,
+    actors: list[str],
+    studio: str | None,
+) -> list[str]:
+    values = [*actors]
+    if studio:
+        values.append(studio)
+    resolution = _resolution_label(technical)
+    if resolution:
+        values.append(resolution)
+    return _clean_list(values)
 
 
 def _resolution_label(technical: MetadataTechnicalInfo | None) -> str | None:

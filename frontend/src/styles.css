@@ -2963,6 +2963,41 @@ td {
   grid-column: span 2;
 }
 
+.local-organize-summary {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.organize-output-metadata {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.local-output-list ul {
+  display: grid;
+  gap: 0.35rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.local-output-list li {
+  display: grid;
+  grid-template-columns: minmax(72px, max-content) minmax(0, 1fr);
+  align-items: start;
+  gap: 0.65rem;
+}
+
+.local-output-list span {
+  color: var(--muted);
+  font-size: 0.8rem;
+  font-weight: 800;
+}
+
+.local-output-list code {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
 .organize-actions-row,
 .batch-actions-row {
   align-items: flex-end;

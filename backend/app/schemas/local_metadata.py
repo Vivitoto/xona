@@ -45,7 +45,7 @@ class LocalMetadataDraft(BaseModel):
     title: str
     organize_filename: str | None = None
     plot: str | None = None
-    tags: list[str] = Field(default_factory=lambda: ["local-generated", "unmatched"])
+    tags: list[str] = Field(default_factory=list)
     studio: str | None = None
     series: str | None = None
     release_date: str | None = None

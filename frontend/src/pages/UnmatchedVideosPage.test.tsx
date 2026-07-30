@@ -20,8 +20,8 @@ describe("UnmatchedVideosPage", () => {
           video_path: "/media/incoming/Raw.Local.Work.mp4",
           cleaned_title: "Cleaned Local Work",
           default_organize_filename: "Cleaned Local Work",
-          default_plot: "Local metadata generated for Raw.Local.Work.mp4.",
-          default_tags: ["local-generated", "unmatched"],
+          default_plot: "Cleaned Local Work",
+          default_tags: [],
           technical: {
             path: "/media/incoming/Raw.Local.Work.mp4",
             size_bytes: 4,
@@ -54,15 +54,15 @@ describe("UnmatchedVideosPage", () => {
           metadata: { title: "Metadata Title" },
           materialized_assets: [],
           nfo_xml: "<movie><title>Metadata Title</title></movie>",
-          plan: operationPlanFixture(),
+          plan: operationPlanFixture({ targetStem: "Custom Output Name" }),
         },
       },
     ]);
 
     render(<UnmatchedVideosPage />);
 
-    expect(screen.getByLabelText("整理文件名")).toBeTruthy();
-    expect(screen.getByText(/标题写入 NFO 元数据/)).toBeTruthy();
+    expect(screen.getByLabelText("整理文件名 (organize_filename)")).toBeTruthy();
+    expect(screen.getByText(/标题 \(title\) 写入 NFO 元数据/)).toBeTruthy();
     await waitFor(() =>
       expect(screen.getByLabelText("目标目录")).toHaveValue("/media/organized"),
     );
@@ -72,14 +72,22 @@ describe("UnmatchedVideosPage", () => {
     });
     fireEvent.click(screen.getByRole("button", { name: "分析并生成截图" }));
 
-    const organizeInput = screen.getByLabelText("整理文件名") as HTMLInputElement;
+    const organizeInput = screen.getByLabelText("整理文件名 (organize_filename)") as HTMLInputElement;
     await waitFor(() => expect(organizeInput).toHaveValue("Cleaned Local Work"));
+    expect(screen.getByLabelText("简介 (plot)")).toHaveValue("Cleaned Local Work");
+    expect(screen.getByLabelText("标签 (tag)")).toHaveValue("");
 
-    fireEvent.change(screen.getByLabelText("标题"), {
+    fireEvent.change(screen.getByLabelText("标题 (title)"), {
       target: { value: "Metadata Title" },
     });
     fireEvent.change(organizeInput, {
       target: { value: "Custom Output Name" },
+    });
+    fireEvent.change(screen.getByLabelText("标签 (tag)"), {
+      target: { value: "temporary-tag" },
+    });
+    fireEvent.change(screen.getByLabelText("标签 (tag)"), {
+      target: { value: "" },
     });
     fireEvent.change(screen.getByLabelText("额外背景图数量"), {
       target: { value: "2" },
@@ -102,6 +110,8 @@ describe("UnmatchedVideosPage", () => {
       metadata: {
         title: "Metadata Title",
         organize_filename: "Custom Output Name",
+        plot: "Cleaned Local Work",
+        tags: [],
         technical: {
           width: 1920,
           height: 1080,
@@ -114,6 +124,9 @@ describe("UnmatchedVideosPage", () => {
       selected_frame_ids: [],
       extra_backdrop_count: 2,
     });
+    expect(await screen.findByText("Custom Output Name.mp4")).toBeTruthy();
+    expect(await screen.findByText("Custom Output Name.nfo")).toBeTruthy();
+    expect(screen.queryByText("计划步骤")).toBeNull();
   });
 
   it("keeps manual video path input while adding a single video path picker", async () => {
@@ -266,34 +279,34 @@ describe("UnmatchedVideosPage", () => {
       ignore_patterns: [],
     });
 
-    fireEvent.change(batch.getByLabelText("标题前缀"), {
+    fireEvent.change(batch.getByLabelText("标题前缀 (title)"), {
       target: { value: "[Batch] " },
     });
-    fireEvent.change(batch.getByLabelText("标题后缀"), {
+    fireEvent.change(batch.getByLabelText("标题后缀 (title)"), {
       target: { value: " - Draft" },
     });
-    fireEvent.change(batch.getByLabelText("整理文件名前缀"), {
+    fireEvent.change(batch.getByLabelText("整理文件名前缀 (organize_filename)"), {
       target: { value: "OF_" },
     });
-    fireEvent.change(batch.getByLabelText("整理文件名后缀"), {
+    fireEvent.change(batch.getByLabelText("整理文件名后缀 (organize_filename)"), {
       target: { value: "_OUT" },
     });
-    fireEvent.change(batch.getByLabelText("制作方"), {
+    fireEvent.change(batch.getByLabelText("制作方 (studio)"), {
       target: { value: "Batch Studio" },
     });
-    fireEvent.change(batch.getByLabelText("系列"), {
+    fireEvent.change(batch.getByLabelText("系列 (set)"), {
       target: { value: "Batch Series" },
     });
-    fireEvent.change(batch.getByLabelText("演员"), {
+    fireEvent.change(batch.getByLabelText("演员 (actor)"), {
       target: { value: "Actor One\nActor Two" },
     });
-    fireEvent.change(batch.getByLabelText("标签"), {
-      target: { value: "batch-tag\nlocal-generated" },
+    fireEvent.change(batch.getByLabelText("标签 (tag)"), {
+      target: { value: "batch-tag\nmanual-tag" },
     });
-    fireEvent.change(batch.getByLabelText("类型"), {
+    fireEvent.change(batch.getByLabelText("类型 (genre)"), {
       target: { value: "Drama\nLocal" },
     });
-    fireEvent.change(batch.getByLabelText("简介"), {
+    fireEvent.change(batch.getByLabelText("简介 (plot)"), {
       target: { value: "Batch plot text." },
     });
 
@@ -320,17 +333,17 @@ describe("UnmatchedVideosPage", () => {
     const editor = within(editorSection as HTMLElement);
 
     await waitFor(() =>
-      expect(editor.getByLabelText("标题")).toHaveValue("[Batch] Beta Scene - Draft"),
+      expect(editor.getByLabelText("标题 (title)")).toHaveValue("[Batch] Beta Scene - Draft"),
     );
-    expect(editor.getByLabelText("整理文件名")).toHaveValue("OF_Beta Custom_OUT");
-    expect(editor.getByLabelText("制作方")).toHaveValue("Batch Studio");
-    expect(editor.getByLabelText("系列")).toHaveValue("Batch Series");
-    expect(editor.getByLabelText("演员")).toHaveValue("Actor One\nActor Two");
-    expect(editor.getByLabelText("简介")).toHaveValue("Batch plot text.");
-    expect(editor.getByLabelText("标签")).toHaveValue("batch-tag\nlocal-generated");
-    expect(editor.getByLabelText("类型")).toHaveValue("Drama\nLocal");
+    expect(editor.getByLabelText("整理文件名 (organize_filename)")).toHaveValue("OF_Beta Custom_OUT");
+    expect(editor.getByLabelText("制作方 (studio)")).toHaveValue("Batch Studio");
+    expect(editor.getByLabelText("系列 (set)")).toHaveValue("Batch Series");
+    expect(editor.getByLabelText("演员 (actor)")).toHaveValue("Actor One\nActor Two");
+    expect(editor.getByLabelText("简介 (plot)")).toHaveValue("Batch plot text.");
+    expect(editor.getByLabelText("标签 (tag)")).toHaveValue("batch-tag\nmanual-tag");
+    expect(editor.getByLabelText("类型 (genre)")).toHaveValue("Drama\nLocal");
 
-    fireEvent.change(editor.getByLabelText("标题"), {
+    fireEvent.change(editor.getByLabelText("标题 (title)"), {
       target: { value: "Edited Beta Scene" },
     });
 
@@ -383,7 +396,7 @@ describe("UnmatchedVideosPage", () => {
         series: "Batch Series",
         actors: ["Actor One", "Actor Two"],
         plot: "Batch plot text.",
-        tags: ["batch-tag", "local-generated"],
+        tags: ["batch-tag", "manual-tag"],
         genres: ["Drama", "Local"],
       },
       destination_root: "/media/organized",
@@ -430,8 +443,8 @@ describe("UnmatchedVideosPage", () => {
           video_path: "/media/incoming/Beta.Scene.mkv",
           cleaned_title: "Beta Scene",
           default_organize_filename: "Beta Scene",
-          default_plot: "Local metadata generated for Beta.Scene.mkv.",
-          default_tags: ["local-generated", "unmatched"],
+          default_plot: "Beta Scene",
+          default_tags: [],
           technical: {
             path: "/media/incoming/Beta.Scene.mkv",
             size_bytes: 4096,
@@ -1081,8 +1094,8 @@ describe("UnmatchedVideosPage", () => {
           video_path: "/media/incoming/Frame.Source.mp4",
           cleaned_title: "Frame Source",
           default_organize_filename: "Frame Source",
-          default_plot: "Local metadata generated for Frame.Source.mp4.",
-          default_tags: ["local-generated", "unmatched"],
+          default_plot: "Frame Source",
+          default_tags: [],
           technical: {
             path: "/media/incoming/Frame.Source.mp4",
             size_bytes: 4,
@@ -1174,7 +1187,7 @@ describe("UnmatchedVideosPage", () => {
     });
     fireEvent.click(screen.getByRole("button", { name: "分析并生成截图" }));
     await waitFor(() =>
-      expect(screen.getByLabelText("标题")).toHaveValue("Frame Source"),
+      expect(screen.getByLabelText("标题 (title)")).toHaveValue("Frame Source"),
     );
     expect(screen.getByLabelText("封面文字")).toHaveValue("Frame Source");
     expect(screen.getByLabelText("封面字体")).toHaveValue("source_han_sans");
@@ -1324,7 +1337,7 @@ describe("UnmatchedVideosPage", () => {
     fireEvent.click(screen.getByRole("button", { name: "生成整理预览" }));
     await screen.findByText("计划 plan-local");
 
-    fireEvent.change(screen.getByLabelText("标题"), {
+    fireEvent.change(screen.getByLabelText("标题 (title)"), {
       target: { value: "Retitled Frame Source" },
     });
     expect(screen.queryByRole("img", { name: "Poster preview" })).toBeNull();
@@ -1413,8 +1426,8 @@ describe("UnmatchedVideosPage", () => {
           video_path: "/media/incoming/Many.Frames.mp4",
           cleaned_title: "Many Frames",
           default_organize_filename: "Many Frames",
-          default_plot: "Local metadata generated for Many.Frames.mp4.",
-          default_tags: ["local-generated", "unmatched"],
+          default_plot: "Many Frames",
+          default_tags: [],
           technical: {
             path: "/media/incoming/Many.Frames.mp4",
             size_bytes: 4,
@@ -1518,13 +1531,12 @@ function settingsFixture(): AppSettings {
 
 function analyzeResponseFixture(videoPath: string) {
   const title = titleFromPathFixture(videoPath);
-  const filename = videoPath.split("/").pop() ?? videoPath;
   return {
     video_path: videoPath,
     cleaned_title: title,
     default_organize_filename: title,
-    default_plot: `Local metadata generated for ${filename}.`,
-    default_tags: ["local-generated", "unmatched"],
+    default_plot: title,
+    default_tags: [],
     technical: {
       path: videoPath,
       size_bytes: 4096,
@@ -1596,21 +1608,78 @@ function titleFromPathFixture(path: string): string {
 }
 
 function operationPlanFixture(
-  overrides: Partial<{ plan_id: string; mode: string }> = {},
+  overrides: Partial<{
+    plan_id: string;
+    mode: string;
+    targetDirectory: string;
+    targetStem: string;
+  }> = {},
 ) {
+  const mode = overrides.mode ?? "preview";
+  const targetDirectory =
+    overrides.targetDirectory ?? "/media/organized/Metadata Title";
+  const targetStem = overrides.targetStem ?? "Metadata Title";
   return {
     plan_id: overrides.plan_id ?? "plan-local",
     version: 1,
     job_id: null,
-    mode: overrides.mode ?? "preview",
+    mode,
     destination_root: "/media/organized",
-    target_directory: "/media/organized/Metadata Title",
+    target_directory: targetDirectory,
     source_snapshot: [],
     materialized_asset_cache_paths: [],
-    steps: [],
+    steps: [
+      operationStepFixture({
+        step_id: "step-media",
+        operation: mode,
+        category: "media",
+        source_path: "/media/incoming/Metadata.Title.mp4",
+        target_path: `${targetDirectory}/${targetStem}.mp4`,
+      }),
+      operationStepFixture({
+        step_id: "step-nfo",
+        operation: "write_generated",
+        category: "generated_artifact",
+        source_path: null,
+        target_path: `${targetDirectory}/${targetStem}.nfo`,
+        generated_artifact: true,
+      }),
+    ],
     conflicts: [],
     safety_warnings: [],
     created_at: "2026-07-27T00:00:00",
+  };
+}
+
+function operationStepFixture(
+  overrides: Partial<{
+    step_id: string;
+    operation: string;
+    category: string;
+    source_path: string | null;
+    target_path: string;
+    generated_artifact: boolean;
+  }> = {},
+) {
+  const targetPath =
+    overrides.target_path ?? "/media/organized/Metadata Title/Metadata Title.mp4";
+  return {
+    step_id: overrides.step_id ?? "step-media",
+    operation: overrides.operation ?? "preview",
+    category: overrides.category ?? "media",
+    source_path: overrides.source_path ?? "/media/incoming/Metadata.Title.mp4",
+    target_path: targetPath,
+    temp_parent_path: "/media/organized/.xona-tmp",
+    expected_size_bytes: null,
+    mtime_ns: null,
+    sha256: null,
+    sidecar: false,
+    materialized_asset: false,
+    generated_artifact: overrides.generated_artifact ?? false,
+    actor_output: false,
+    destructive: false,
+    allow_existing_generated_replacement: false,
+    metadata: {},
   };
 }
 

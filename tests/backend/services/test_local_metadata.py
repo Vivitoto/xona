@@ -29,6 +29,7 @@ from backend.app.services.local_metadata import (
     _percentage_times,
     _video_cache_dir_for_asset_path,
 )
+from backend.app.services.nfo import render_movie_nfo
 
 
 def test_clean_local_title_uses_existing_filename_normalizer() -> None:
@@ -46,6 +47,15 @@ def test_clean_local_title_uses_existing_filename_normalizer() -> None:
 def test_clean_organize_filename_sanitizes_user_stem() -> None:
     assert clean_organize_filename("../Custom:Name.mp4", source_suffix=".mp4") == "Custom_Name"
     assert clean_organize_filename("   ") is None
+
+
+def test_local_metadata_draft_tags_default_empty() -> None:
+    draft = LocalMetadataDraft(
+        video_path=Path("/media/incoming/Local.Work.mp4"),
+        title="Local Work",
+    )
+
+    assert draft.tags == []
 
 
 def test_cover_templates_generate_poster_and_fanart_smoke(tmp_path: Path) -> None:
@@ -185,12 +195,13 @@ def test_local_metadata_record_maps_draft_actors_to_nfo_and_template_context(
         title="Actor Work",
         plot="Local draft.",
         actors=[" Actor One ", "Actor Two", "Actor One", ""],
-        tags=["local-generated", "unmatched"],
+        tags=["Manual Tag"],
     )
 
     record = local_metadata_record(draft)
 
     assert [actor.name for actor in record.actors] == ["Actor One", "Actor Two"]
+    assert record.tags == ["Manual Tag"]
 
     settings = Settings(
         config_dir=tmp_path / "config",
@@ -243,10 +254,70 @@ def test_local_metadata_record_adds_resolution_actor_and_studio_labels() -> None
     record = local_metadata_record(draft)
 
     assert record.labels == ["4K", "星野兔", "糖心Vlog"]
+    assert record.tags == ["星野兔", "糖心Vlog", "4K"]
     assert record.technical is not None
     assert record.technical.width == 3840
     assert record.technical.height == 2160
     assert record.technical.video_codec == "hevc"
+
+
+def test_local_metadata_record_defaults_nfo_tags_from_actor_studio_and_resolution() -> None:
+    draft = LocalMetadataDraft(
+        video_path=Path("/media/incoming/Local.Work.mp4"),
+        title="Local Work",
+        studio=" Studio Local ",
+        actors=[" Actor One ", "Actor Two", "Actor One"],
+        technical=LocalVideoTechnicalInfo(
+            path=Path("/media/incoming/Local.Work.mp4"),
+            size_bytes=123,
+            duration_seconds=2880,
+            width=1920,
+            height=1080,
+            video_codec="h264",
+            audio_codec="aac",
+            bit_rate=5000000,
+            fps=29.97,
+        ),
+    )
+
+    record = local_metadata_record(draft)
+    xml_text = render_movie_nfo(record).decode("utf-8")
+
+    assert record.tags == ["Actor One", "Actor Two", "Studio Local", "1080p"]
+    assert "<tag>Actor One</tag>" in xml_text
+    assert "<tag>Actor Two</tag>" in xml_text
+    assert "<tag>Studio Local</tag>" in xml_text
+    assert "<tag>1080p</tag>" in xml_text
+
+
+def test_local_metadata_record_preserves_explicit_draft_tags_for_nfo() -> None:
+    draft = LocalMetadataDraft(
+        video_path=Path("/media/incoming/Local.Work.mp4"),
+        title="Local Work",
+        studio="Studio Local",
+        actors=["Actor One"],
+        tags=[" Explicit Tag ", "Actor One", "Explicit Tag"],
+        technical=LocalVideoTechnicalInfo(
+            path=Path("/media/incoming/Local.Work.mp4"),
+            size_bytes=123,
+            duration_seconds=2880,
+            width=1920,
+            height=1080,
+            video_codec="h264",
+            audio_codec="aac",
+            bit_rate=5000000,
+            fps=29.97,
+        ),
+    )
+
+    record = local_metadata_record(draft)
+    xml_text = render_movie_nfo(record).decode("utf-8")
+
+    assert record.tags == ["Explicit Tag", "Actor One"]
+    assert "<tag>Explicit Tag</tag>" in xml_text
+    assert "<tag>Actor One</tag>" in xml_text
+    assert "<tag>Studio Local</tag>" not in xml_text
+    assert "<tag>1080p</tag>" not in xml_text
 
 
 def test_local_plan_preview_includes_nfo_and_cached_generated_images(
@@ -282,7 +353,6 @@ def test_local_plan_preview_includes_nfo_and_cached_generated_images(
                         video_path=video,
                         title="Unmatched Work",
                         plot="Local draft.",
-                        tags=["local-generated", "unmatched"],
                     ),
                     destination_root=destination,
                     mode="preview",
@@ -353,7 +423,6 @@ def test_local_plan_preview_uses_organize_filename_for_media_and_nfo_not_xml_tit
                         title="Metadata Title",
                         organize_filename="Custom.Name.mp4",
                         plot="Local draft.",
-                        tags=["local-generated", "unmatched"],
                     ),
                     destination_root=destination,
                     mode="preview",
@@ -416,7 +485,6 @@ def test_local_plan_preview_refuses_existing_backdrop_output(tmp_path: Path) -> 
                             video_path=video,
                             title="Unmatched Work",
                             plot="Local draft.",
-                            tags=["local-generated", "unmatched"],
                         ),
                         destination_root=destination,
                         mode="preview",
@@ -460,7 +528,6 @@ def test_local_execute_plan_runs_current_non_preview_plan(tmp_path: Path) -> Non
                         title="Executable Work",
                         organize_filename="Executable Output",
                         plot="Local draft.",
-                        tags=["local-generated", "unmatched"],
                     ),
                     destination_root=destination,
                     mode="copy",
@@ -487,7 +554,6 @@ def test_local_execute_plan_runs_current_non_preview_plan(tmp_path: Path) -> Non
                         video_path=video,
                         title="Preview Only Work",
                         plot="Local draft.",
-                        tags=["local-generated", "unmatched"],
                     ),
                     destination_root=destination,
                     mode="preview",
@@ -552,7 +618,6 @@ def test_local_plan_cache_cleanup_requires_completed_plan_and_removes_video_cach
                         video_path=video,
                         title="Cache Cleanup Work",
                         plot="Local draft.",
-                        tags=["local-generated", "unmatched"],
                     ),
                     destination_root=destination,
                     mode="copy",
