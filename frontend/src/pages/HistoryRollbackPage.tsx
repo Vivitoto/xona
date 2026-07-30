@@ -24,7 +24,7 @@ export function HistoryRollbackPage() {
     setError("");
     setLoading(true);
     try {
-      const response = await apiFetch<HistoryPlansResponse>("/api/history/plans");
+      const response = await apiFetch<HistoryPlansResponse>("/api/history/plans?limit=50");
       const nextPlans = Array.isArray(response.plans) ? response.plans : [];
       setPlans(nextPlans);
       setSelectedPlanId((current) => current ?? nextPlans[0]?.plan_id ?? null);

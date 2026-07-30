@@ -1,4 +1,5 @@
 type JsonBody = Record<string, unknown> | unknown[];
+const DEFAULT_API_TIMEOUT_MS = 20_000;
 
 export class ApiError extends Error {
   readonly status: number;
@@ -14,33 +15,62 @@ export class ApiError extends Error {
 
 export interface ApiFetchOptions extends Omit<RequestInit, "body"> {
   body?: BodyInit | JsonBody | null;
+  timeoutMs?: number;
 }
 
 export async function apiFetch<T>(
   path: string,
   options: ApiFetchOptions = {},
 ): Promise<T> {
-  const headers = new Headers(options.headers);
-  let body = options.body;
+  const { body: requestBody, timeoutMs = DEFAULT_API_TIMEOUT_MS, ...fetchOptions } = options;
+  const headers = new Headers(fetchOptions.headers);
+  let body = requestBody;
+  const controller = new AbortController();
+  const timeoutId =
+    timeoutMs > 0
+      ? window.setTimeout(() => controller.abort("timeout"), timeoutMs)
+      : null;
+  const abortFromCaller = () => controller.abort(fetchOptions.signal?.reason);
+
+  if (fetchOptions.signal) {
+    if (fetchOptions.signal.aborted) {
+      abortFromCaller();
+    } else {
+      fetchOptions.signal.addEventListener("abort", abortFromCaller, { once: true });
+    }
+  }
 
   if (isJsonBody(body)) {
     headers.set("Content-Type", "application/json");
     body = JSON.stringify(body);
   }
 
-  const response = await fetch(path, {
-    credentials: "same-origin",
-    ...options,
-    headers,
-    body: body as BodyInit | null | undefined,
-  });
+  try {
+    const response = await fetch(path, {
+      credentials: "same-origin",
+      ...fetchOptions,
+      headers,
+      body: body as BodyInit | null | undefined,
+      signal: controller.signal,
+    });
 
-  const payload = await readPayload(response);
-  if (!response.ok) {
-    throw new ApiError(response.status, payload);
+    const payload = await readPayload(response);
+    if (!response.ok) {
+      throw new ApiError(response.status, payload);
+    }
+
+    return payload as T;
+  } catch (exc) {
+    if (controller.signal.aborted && controller.signal.reason === "timeout") {
+      throw new Error("API 请求超时，请稍后重试或检查服务是否卡住。");
+    }
+    throw exc;
+  } finally {
+    if (timeoutId !== null) {
+      window.clearTimeout(timeoutId);
+    }
+    fetchOptions.signal?.removeEventListener("abort", abortFromCaller);
   }
-
-  return payload as T;
 }
 
 async function readPayload(response: Response): Promise<unknown> {
@@ -120,5 +150,7 @@ function collectReasonCodes(value: unknown): string[] {
 
 const apiReasonLabels: Record<string, string> = {
   candidate_detail_unavailable: "详情页暂时无法解析，已无法获取完整候选详情；请稍后重试或换一个候选/详情 URL。",
+  source_already_planned: "这个源文件已有待执行的移动整理计划；请先执行或删除旧计划后再重新生成预览。",
+  source_missing: "源视频文件不存在，可能已被前一个移动整理计划移走；请重新扫描目录并重新生成预览。",
   search_source_unavailable: "搜索服务暂时不可用，请稍后重试或检查 FlareSolverr / 代理。",
 };

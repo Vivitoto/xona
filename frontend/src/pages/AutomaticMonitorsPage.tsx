@@ -76,7 +76,7 @@ export function AutomaticMonitorsPage() {
   async function loadAutomaticJobs() {
     setError("");
     try {
-      const response = await apiFetch<JobListResponse>("/api/jobs?manual=false");
+      const response = await apiFetch<JobListResponse>("/api/jobs?manual=false&limit=50");
       const jobs = Array.isArray(response.jobs) ? response.jobs : [];
       setAutomaticJobs(jobs);
       await loadQueueEvents(jobs);

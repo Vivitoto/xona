@@ -12,7 +12,7 @@ describe("HistoryRollbackPage", () => {
   it("loads history, shows verification, and displays unsafe rollback refusals", async () => {
     const { calls } = installFetchMock([
       {
-        path: "/api/history/plans",
+        path: "/api/history/plans?limit=50",
         response: {
           plans: [
             {

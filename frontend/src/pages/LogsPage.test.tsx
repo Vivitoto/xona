@@ -42,7 +42,7 @@ describe("LogsPage", () => {
   it("loads recent logs, streams live entries, filters and clears UI logs", async () => {
     installFetchMock([
       {
-        path: "/api/logs/recent?limit=300",
+        path: "/api/logs/recent?limit=100",
         response: {
           entries: [
             {
@@ -59,7 +59,7 @@ describe("LogsPage", () => {
         },
       },
       {
-        path: "/api/logs/recent?limit=300&level=ERROR",
+        path: "/api/logs/recent?limit=100&level=ERROR",
         response: {
           entries: [
             {
@@ -107,7 +107,7 @@ describe("LogsPage", () => {
   it("uses the shared error notice when recent logs cannot be loaded", async () => {
     installFetchMock([
       {
-        path: "/api/logs/recent?limit=300",
+        path: "/api/logs/recent?limit=100",
         response: { detail: "日志服务暂不可用" },
         status: 503,
       },
@@ -118,5 +118,20 @@ describe("LogsPage", () => {
     expect(await screen.findByRole("alert")).toHaveTextContent("日志加载失败");
     expect(screen.getByRole("alert")).toHaveTextContent("日志服务暂不可用");
     expect(screen.getByRole("button", { name: "重试" })).toBeTruthy();
+  });
+
+  it("keeps recent logs usable when live streaming or docker note is unavailable", async () => {
+    vi.stubGlobal("EventSource", undefined);
+    installFetchMock([
+      {
+        path: "/api/logs/recent?limit=100",
+        response: { entries: [] },
+      },
+    ]);
+
+    render(<LogsPage />);
+
+    expect(await screen.findByText("暂无日志")).toBeTruthy();
+    expect(screen.getAllByText(/docker logs/i).length).toBeGreaterThan(0);
   });
 });

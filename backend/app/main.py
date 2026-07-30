@@ -21,6 +21,7 @@ from backend.app.api.jobs import router as jobs_router
 from backend.app.api.local_metadata import router as local_metadata_router
 from backend.app.api.logs import router as logs_router
 from backend.app.api.manual import close_shared_flaresolverr_client, router as manual_router
+from backend.app.api.organize_records import router as organize_records_router
 from backend.app.api.settings import router as settings_router
 from backend.app.api.storage_roots import router as storage_roots_router
 from backend.app.api.watch_rules import router as watch_rules_router
@@ -132,6 +133,7 @@ def create_app(
     app.include_router(local_metadata_router)
     app.include_router(logs_router)
     app.include_router(history_router)
+    app.include_router(organize_records_router)
     app.include_router(settings_router)
     app.include_router(actors_router)
 

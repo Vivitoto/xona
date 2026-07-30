@@ -25,6 +25,9 @@ def test_backend_openapi_exposes_public_api_paths() -> None:
     paths = create_app().openapi()["paths"]
 
     assert "/api/history/plans" in paths
+    assert "/api/organize-records" in paths
+    assert "/api/organize-records/{record_id}" in paths
+    assert "/api/organize-records/{record_id}/rollback" in paths
     assert "/api/plans/{plan_id}/rollback" in paths
     assert "/api/watch-rules" in paths
 

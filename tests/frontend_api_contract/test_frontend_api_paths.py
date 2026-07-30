@@ -25,8 +25,8 @@ def test_frontend_api_paths_are_registered_in_backend_openapi() -> None:
     report = check_api_contract.audit_frontend_api_paths()
 
     assert report.missing == ()
-    assert "/api/history/plans" in report.unique_frontend_paths
-    assert "/api/plans/{}/rollback" in report.unique_frontend_paths
+    assert "/api/organize-records" in report.unique_frontend_paths
+    assert "/api/organize-records/{}/rollback" in report.unique_frontend_paths
     assert "/api/watch-rules" in report.unique_frontend_paths
 
 
@@ -37,7 +37,7 @@ def test_frontend_api_paths_are_registered_in_backend_openapi() -> None:
         ("/api/actors${...}", "/api/actors"),
         ("/api/jobs/${jobId}/events", "/api/jobs/{}/events"),
         ("/api/actors/${actor.id}/aliases", "/api/actors/{}/aliases"),
-        ("/api/plans/${planId}/rollback", "/api/plans/{}/rollback"),
+        ("/api/organize-records/${record.record_id}/rollback", "/api/organize-records/{}/rollback"),
         ("/api/watch-rules/{rule_id}/scan-now", "/api/watch-rules/{}/scan-now"),
         ("/api/storage-roots/browse?${query}", "/api/storage-roots/browse"),
     ],

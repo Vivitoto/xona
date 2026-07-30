@@ -569,6 +569,49 @@ export interface RollbackResponse {
   refusal_reason: string | null;
 }
 
+export interface OrganizeMetadataFlags {
+  nfo: boolean;
+  poster: boolean;
+  fanart: boolean;
+  thumb: boolean;
+  backdrop: boolean;
+  actors: boolean;
+}
+
+export interface OrganizeRecordRead {
+  record_id: string;
+  display_index: string;
+  job_id: number | null;
+  plan_id: string | null;
+  short_plan_id: string | null;
+  name: string;
+  source_path: string | null;
+  target_path: string | null;
+  mode: string | null;
+  status: string;
+  verification_status: string;
+  metadata: OrganizeMetadataFlags;
+  created_at: string;
+  can_rollback: boolean;
+  can_rerun: boolean;
+  rerun_path: string | null;
+  source_paths: string[];
+  target_paths: string[];
+  plan: OperationPlan | null;
+}
+
+export interface OrganizeRecordsResponse {
+  records: OrganizeRecordRead[];
+}
+
+export interface OrganizeRollbackResponse {
+  record_id: string;
+  plan_id: string;
+  status: string;
+  reversed_steps: string[];
+  refusal_reason: string | null;
+}
+
 export interface WatchRule {
   rule_id: string;
   source_directory: string;

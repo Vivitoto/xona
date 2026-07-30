@@ -19,7 +19,12 @@ class RecoveryService:
     def temp_path_for_step(plan: OperationPlan, step: OperationStep):
         return temp_path_for_step(plan, step)
 
-    def inspect_plan(self, plan: OperationPlan) -> RecoveryReport:
+    def inspect_plan(
+        self,
+        plan: OperationPlan,
+        *,
+        verify_content_hash: bool = True,
+    ) -> RecoveryReport:
         completed: list[str] = []
         partial: list[str] = []
         externally_modified: list[str] = []
@@ -32,7 +37,7 @@ class RecoveryService:
             if not step.target_path.exists():
                 pending.append(step.step_id)
                 continue
-            if _target_matches(step):
+            if _target_matches(step, verify_content_hash=verify_content_hash):
                 completed.append(step.step_id)
             else:
                 externally_modified.append(step.step_id)
@@ -44,7 +49,16 @@ class RecoveryService:
         )
 
 
-def _target_matches(step: OperationStep) -> bool:
+def _target_matches(step: OperationStep, *, verify_content_hash: bool) -> bool:
+    if not verify_content_hash:
+        try:
+            if not step.target_path.is_file():
+                return False
+            stat = step.target_path.stat()
+        except Exception:
+            return False
+        return step.expected_size_bytes is None or stat.st_size == step.expected_size_bytes
+
     try:
         observed = observe_file(step.target_path)
     except Exception:

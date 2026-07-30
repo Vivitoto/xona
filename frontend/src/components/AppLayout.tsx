@@ -1,7 +1,6 @@
 import type { ReactNode } from "react";
 import {
   FilePenLine,
-  History,
   House,
   ListChecks,
   Moon,
@@ -24,7 +23,6 @@ export type PageId =
   | "xchinaSearch"
   | "tasks"
   | "actors"
-  | "history"
   | "logs"
   | "settings";
 
@@ -36,9 +34,8 @@ export const navigationItems: {
   { id: "dashboard", label: "仪表盘", icon: House },
   { id: "localMetadata", label: "本地元数据生成", icon: FilePenLine },
   { id: "xchinaSearch", label: "XChina 元数据搜索", icon: Search },
-  { id: "tasks", label: "任务记录", icon: ListChecks },
+  { id: "tasks", label: "整理记录", icon: ListChecks },
   { id: "actors", label: "演员库", icon: UsersRound },
-  { id: "history", label: "历史/回滚", icon: History },
   { id: "logs", label: "日志", icon: ScrollText },
   { id: "settings", label: "设置", icon: Settings },
 ];

@@ -2,82 +2,173 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { TaskCenterPage } from "./TaskCenterPage";
+import type { OperationPlan, OrganizeRecordRead } from "../api/types";
 import { installFetchMock } from "../test/mockFetch";
 
 afterEach(() => {
   vi.unstubAllGlobals();
+  localStorage.clear();
 });
 
 describe("TaskCenterPage", () => {
-  it("loads details/events, triggers job actions, and renders compact progress", async () => {
+  it("loads organize records, filters, opens detail, reruns, and rolls back", async () => {
+    const onRerun = vi.fn();
+    let rolledBack = false;
     const { calls } = installFetchMock([
-      { path: "/api/jobs/42", response: jobFixture() },
       {
-        path: "/api/jobs/42/events",
-        response: {
-          events: [
-            {
-              id: 2,
-              job_id: 42,
-              from_state: "searching",
-              to_state: "review_required",
-              payload: {
-                api_key: "raw-secret",
-                proxy: "http://user:pass@proxy.test:8080",
-                header: "Bearer raw-token",
-              },
-            },
+        path: (url) => url.startsWith("/api/organize-records?"),
+        response: () => ({
+          records: [
+            recordFixture({
+              status: rolledBack ? "rolled_back" : "completed",
+              can_rollback: !rolledBack,
+            }),
+            recordFixture({
+              record_id: "planrow-7",
+              display_index: "#7",
+              job_id: null,
+              plan_id: "plan-7",
+              short_plan_id: "plan-7",
+              name: "Externally Modified",
+              verification_status: "externally_modified",
+              status: "externally_modified",
+              can_rollback: false,
+            }),
           ],
+        }),
+      },
+      {
+        path: "/api/organize-records/job-42",
+        response: recordFixture({ plan: planFixture() }),
+      },
+      {
+        method: "POST",
+        path: "/api/organize-records/job-42/rollback",
+        response: () => {
+          rolledBack = true;
+          return {
+            record_id: "job-42",
+            plan_id: "plan-42",
+            status: "rolled_back",
+            reversed_steps: ["plan-42:0001"],
+            refusal_reason: null,
+          };
         },
       },
-      { method: "POST", path: "/api/jobs/42/retry", response: { job: jobFixture("searching") } },
-      { method: "POST", path: "/api/jobs/42/cancel", response: { job: jobFixture("cancelled") } },
-      { method: "POST", path: "/api/jobs/42/retry-emby", response: { job_id: 42, state: "notifying_emby" } },
     ]);
 
-    render(<TaskCenterPage />);
-    fireEvent.change(screen.getByLabelText(/任务 ID/i), { target: { value: "42" } });
-    fireEvent.click(screen.getByRole("button", { name: "加载任务" }));
+    render(<TaskCenterPage onRerun={onRerun} />);
 
-    expect((await screen.findAllByText("media-42")).length).toBeGreaterThan(0);
-    expect(screen.getAllByText("等待人工复核").length).toBeGreaterThan(0);
-    expect(screen.queryByText("review_required")).toBeNull();
-    const progressLog = screen.getByLabelText("任务进度日志");
-    expect(progressLog).toHaveTextContent("等待人工复核");
-    expect(screen.queryByText(/raw-secret/)).toBeNull();
-    expect(screen.queryByText(/raw-token/)).toBeNull();
-    expect(screen.queryByText(/user:pass/)).toBeNull();
-    expect(progressLog).not.toHaveTextContent("api_key");
-    expect(progressLog).not.toHaveTextContent("Bearer");
+    expect(await screen.findByRole("button", { name: "#42" })).toBeTruthy();
+    expect(screen.getAllByText("整理记录").length).toBeGreaterThan(0);
+    expect(calls[0]?.url).toBe("/api/organize-records?limit=50");
 
-    fireEvent.click(screen.getByRole("button", { name: "重试" }));
-    fireEvent.click(screen.getByRole("button", { name: "取消" }));
-    fireEvent.click(screen.getByRole("button", { name: "重试 Emby" }));
-
+    fireEvent.change(screen.getByLabelText("状态"), { target: { value: "rollbackable" } });
     await waitFor(() => {
-      expect(calls.some((call) => call.url === "/api/jobs/42/retry")).toBe(true);
-      expect(calls.some((call) => call.url === "/api/jobs/42/cancel")).toBe(true);
-      expect(calls.some((call) => call.url === "/api/jobs/42/retry-emby")).toBe(true);
+      expect(
+        calls.some((call) => call.url === "/api/organize-records?limit=50&status=rollbackable"),
+      ).toBe(true);
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "#42" }));
+
+    expect(await screen.findByText("计划 plan-42")).toBeTruthy();
+    expect(screen.getAllByText("Movie 42").length).toBeGreaterThan(0);
+    expect(calls.some((call) => call.url === "/api/organize-records/job-42")).toBe(true);
+
+    fireEvent.click(enabledButton("重新整理"));
+    expect(localStorage.getItem("xona-rerun-video-path")).toBe(
+      "/media/organized/Movie 42/Movie 42.mkv",
+    );
+    expect(onRerun).toHaveBeenCalledWith("/media/organized/Movie 42/Movie 42.mkv");
+
+    fireEvent.click(enabledButton("回滚"));
+    await waitFor(() => {
+      expect(calls.some((call) => call.url === "/api/organize-records/job-42/rollback")).toBe(true);
+      expect(
+        calls.filter(
+          (call) => call.url === "/api/organize-records?limit=50&status=rollbackable",
+        ).length,
+      ).toBeGreaterThan(1);
     });
   });
 });
 
-function jobFixture(state = "review_required") {
+function enabledButton(name: string): HTMLElement {
+  const button = screen
+    .getAllByRole("button", { name })
+    .find((item) => !item.hasAttribute("disabled"));
+  if (!button) {
+    throw new Error(`No enabled button named ${name}`);
+  }
+  return button;
+}
+
+function recordFixture(overrides: Partial<OrganizeRecordRead> = {}): OrganizeRecordRead {
   return {
-    id: 42,
-    state,
-    media_identity: "media-42",
-    rule_id: null,
-    manual: true,
-    attempts: 1,
-    max_attempts: 3,
-    next_run_at: null,
-    last_error_code: null,
-    payload: {},
+    record_id: "job-42",
+    display_index: "#42",
+    job_id: 42,
     plan_id: "plan-42",
-    selected_candidate: { title: "Candidate" },
-    gate_reasons: ["confidence_below_threshold"],
-    retryable: true,
-    retry_emby_available: true,
+    short_plan_id: "plan-42",
+    name: "Movie 42",
+    source_path: "/media/incoming/Movie 42.mkv",
+    target_path: "/media/organized/Movie 42/Movie 42.mkv",
+    mode: "move",
+    status: "completed",
+    verification_status: "verified",
+    metadata: {
+      nfo: true,
+      poster: true,
+      fanart: false,
+      thumb: false,
+      backdrop: false,
+      actors: true,
+    },
+    created_at: "2026-07-30T00:00:00Z",
+    can_rollback: true,
+    can_rerun: true,
+    rerun_path: "/media/organized/Movie 42/Movie 42.mkv",
+    source_paths: ["/media/incoming/Movie 42.mkv"],
+    target_paths: ["/media/organized/Movie 42/Movie 42.mkv"],
+    plan: null,
+    ...overrides,
+  };
+}
+
+function planFixture(): OperationPlan {
+  return {
+    plan_id: "plan-42",
+    version: 1,
+    database_id: 1,
+    job_id: 42,
+    mode: "move",
+    destination_root: "/media/organized",
+    target_directory: "/media/organized/Movie 42",
+    source_snapshot: [],
+    materialized_asset_cache_paths: [],
+    steps: [
+      {
+        step_id: "plan-42:0001",
+        operation: "move",
+        category: "media",
+        source_path: "/media/incoming/Movie 42.mkv",
+        target_path: "/media/organized/Movie 42/Movie 42.mkv",
+        temp_parent_path: "/media/organized/Movie 42",
+        expected_size_bytes: 11,
+        mtime_ns: null,
+        sha256: null,
+        sidecar: false,
+        materialized_asset: false,
+        generated_artifact: false,
+        actor_output: false,
+        destructive: true,
+        allow_existing_generated_replacement: false,
+        metadata: {},
+      },
+    ],
+    conflicts: [],
+    safety_warnings: [],
+    created_at: "2026-07-30T00:00:00Z",
   };
 }

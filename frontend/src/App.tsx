@@ -6,7 +6,6 @@ import { ImageSafetyModeProvider } from "./components/ImageSafetyMode";
 import { ThemeModeProvider } from "./components/ThemeMode";
 import { ActorLibraryPage } from "./pages/ActorLibraryPage";
 import { DashboardPage } from "./pages/DashboardPage";
-import { HistoryRollbackPage } from "./pages/HistoryRollbackPage";
 import { LogsPage } from "./pages/LogsPage";
 import { SettingsPage } from "./pages/SettingsPage";
 import { TaskCenterPage } from "./pages/TaskCenterPage";
@@ -44,11 +43,9 @@ function renderPage(page: PageId, onNavigate: (page: PageId) => void) {
     case "xchinaSearch":
       return <XChinaSearchPage />;
     case "tasks":
-      return <TaskCenterPage />;
+      return <TaskCenterPage onRerun={() => onNavigate("localMetadata")} />;
     case "actors":
       return <ActorLibraryPage />;
-    case "history":
-      return <HistoryRollbackPage />;
     case "logs":
       return <LogsPage />;
     case "settings":

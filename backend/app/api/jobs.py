@@ -3,7 +3,7 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -31,14 +31,18 @@ async def get_db(request: Request):
 async def list_jobs(
     state: str | None = None,
     manual: bool | None = None,
+    limit: int = Query(default=100, ge=1, le=500),
+    offset: int = Query(default=0, ge=0),
     session: Session = Depends(get_db),
 ) -> JobListResponse:
     service = JobService(session)
-    jobs = service.list_jobs(state=state, manual=manual)
+    jobs = service.list_jobs(state=state, manual=manual, limit=limit, offset=offset)
     logger.info(
-        "Jobs listed state=%s manual=%s count=%s",
+        "Jobs listed state=%s manual=%s limit=%s offset=%s count=%s",
         state or "all",
         "all" if manual is None else manual,
+        limit,
+        offset,
         len(jobs),
     )
     return JobListResponse(

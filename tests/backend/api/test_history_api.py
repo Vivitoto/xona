@@ -20,7 +20,7 @@ from backend.app.services.storage_roots import StorageRootService
 ORIGIN = "http://testserver"
 
 
-def test_history_lists_plans_and_rollback_verifies_targets(tmp_path: Path) -> None:
+def test_history_lists_plans_and_rollback_verifies_targets(tmp_path: Path, monkeypatch) -> None:
     root = tmp_path / "media"
     incoming = root / "incoming"
     destination = root / "organized"
@@ -32,6 +32,14 @@ def test_history_lists_plans_and_rollback_verifies_targets(tmp_path: Path) -> No
         config_dir=tmp_path / "config",
         storage_roots=(root,),
         auth_enabled=False,
+    )
+
+    def fail_if_history_list_hashes_targets(_path: Path):
+        raise AssertionError("history list should not hash target files")
+
+    monkeypatch.setattr(
+        "backend.app.services.recovery.observe_file",
+        fail_if_history_list_hashes_targets,
     )
 
     async def run() -> dict[str, httpx.Response]:

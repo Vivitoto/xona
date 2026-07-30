@@ -22,6 +22,7 @@ PROTECTED_API_PREFIXES = (
     "/api/logs",
     "/api/local-metadata",
     "/api/manual",
+    "/api/organize-records",
     "/api/plans",
     "/api/settings",
     "/api/storage-roots",

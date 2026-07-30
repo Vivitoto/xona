@@ -101,12 +101,23 @@ class JobService:
         )
         return job
 
-    def list_jobs(self, *, state: str | None = None, manual: bool | None = None) -> list[Job]:
+    def list_jobs(
+        self,
+        *,
+        state: str | None = None,
+        manual: bool | None = None,
+        limit: int | None = None,
+        offset: int = 0,
+    ) -> list[Job]:
         statement = select(Job).order_by(Job.created_at.desc(), Job.id.desc())
         if state is not None:
             statement = statement.where(Job.state == state)
         if manual is not None:
             statement = statement.where(Job.manual.is_(manual))
+        if offset:
+            statement = statement.offset(offset)
+        if limit is not None:
+            statement = statement.limit(limit)
         return list(self._session.scalars(statement))
 
     def get_job(self, job_id: int) -> Job:

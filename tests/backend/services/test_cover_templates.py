@@ -9,10 +9,14 @@ from pydantic import ValidationError
 from backend.app.schemas.local_metadata import LocalCoverPreviewRequest
 from backend.app.services.cover_templates import (
     FANART_SIZE,
+    POSTER_SIZE,
     CoverTemplateError,
+    TemplateTitleStyle,
+    _cover,
     _font,
     _line_width,
     _resolve_title_font_id,
+    _render_poster,
     _wrap_text,
     generate_cover_previews,
 )
@@ -306,6 +310,35 @@ def test_title_position_changes_cover_cache_key_and_artwork_render(tmp_path: Pat
     assert default_thumb == moved_position.thumb_path.read_bytes()
 
 
+def test_poster_templates_do_not_dim_source_frame_for_title_readability() -> None:
+    frame = _poster_overlay_detection_frame()
+    expected = _cover(frame, POSTER_SIZE).convert("RGB")
+    invisible_title_style = TemplateTitleStyle(
+        max_font_size=74,
+        min_font_size=34,
+        fill=(255, 255, 255, 0),
+        stroke_width=0,
+        stroke_fill=(0, 0, 0, 0),
+        effect="none",
+        shadow=(0, 0),
+    )
+
+    for template in ("simple_poster", "tangxin_vlog"):
+        poster = _render_poster(
+            title="Invisible Title",
+            title_angle_degrees=0,
+            title_position_x_percent=None,
+            title_position_y_percent=None,
+            template=template,
+            title_font_id="source_han_sans",
+            title_style=invisible_title_style,
+            frames=[frame],
+        )
+
+        assert poster.convert("RGB").getpixel((500, 80)) == expected.getpixel((500, 80))
+        assert poster.convert("RGB").getpixel((500, 1450)) == expected.getpixel((500, 1450))
+
+
 def test_title_font_changes_cover_cache_key_but_not_thumb(tmp_path: Path) -> None:
     frame_paths = _nine_frame_paths(tmp_path)
 
@@ -385,6 +418,15 @@ def _nine_frame_paths(tmp_path: Path) -> list[Path]:
         Image.new("RGB", (640, 360), color).save(path)
         paths.append(path)
     return paths
+
+
+def _poster_overlay_detection_frame() -> Image.Image:
+    image = Image.new("RGB", (1280, 720), (120, 160, 200))
+    draw = ImageDraw.Draw(image)
+    for y in range(image.height):
+        color = (80 + y % 120, 110 + y % 90, 140 + y % 80)
+        draw.line((0, y, image.width, y), fill=color)
+    return image
 
 
 def _solid_frame(path: Path, color: tuple[int, int, int]) -> Path:

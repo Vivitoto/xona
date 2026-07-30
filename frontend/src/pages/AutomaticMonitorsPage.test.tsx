@@ -21,7 +21,7 @@ describe("AutomaticMonitorsPage", () => {
         response: { rules: [watchRuleFixture()] },
       },
       {
-        path: "/api/jobs?manual=false",
+        path: "/api/jobs?manual=false&limit=50",
         response: { jobs: [] },
       },
       {
@@ -151,7 +151,7 @@ describe("AutomaticMonitorsPage", () => {
         response: { rules: [watchRuleFixture()] },
       },
       {
-        path: "/api/jobs?manual=false",
+        path: "/api/jobs?manual=false&limit=50",
         response: { jobs: [autoJobFixture()] },
       },
       {

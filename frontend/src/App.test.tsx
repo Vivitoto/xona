@@ -62,9 +62,8 @@ describe("App", () => {
       "仪表盘",
       "本地元数据生成",
       "XChina 元数据搜索",
-      "任务记录",
+      "整理记录",
       "演员库",
-      "历史/回滚",
       "日志",
       "设置",
     ]) {
@@ -78,6 +77,8 @@ describe("App", () => {
       "未匹配视频",
       "自动监控",
       "复核队列",
+      "任务记录",
+      "历史/回滚",
     ]) {
       expect(
         within(navigation).queryByRole("button", { name: retiredName }),

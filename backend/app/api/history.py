@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -27,6 +27,7 @@ async def get_db(request: Request):
 
 @router.get("/history/plans", response_model=HistoryPlansResponse)
 async def list_history_plans(
+    limit: int = Query(default=100, ge=1, le=500),
     session: Session = Depends(get_db),
 ) -> HistoryPlansResponse:
     rows = list(
@@ -34,7 +35,7 @@ async def list_history_plans(
             select(OperationPlanModel).order_by(
                 OperationPlanModel.created_at.desc(),
                 OperationPlanModel.id.desc(),
-            )
+            ).limit(limit)
         )
     )
     return HistoryPlansResponse(plans=[_history_plan(row) for row in rows])
@@ -81,7 +82,7 @@ async def rollback_plan(
 
 def _history_plan(row: OperationPlanModel) -> HistoryPlanRead:
     plan = _operation_plan(row)
-    report = RecoveryService().inspect_plan(plan)
+    report = RecoveryService().inspect_plan(plan, verify_content_hash=False)
     if report.externally_modified:
         verification = "externally_modified"
     elif report.partial:

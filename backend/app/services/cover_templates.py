@@ -513,14 +513,7 @@ def _simple_poster(
     title_font_id: PosterFontId,
     title_style: TemplateTitleStyle,
 ) -> Image.Image:
-    canvas = _cover(frame, POSTER_SIZE)
-    overlay = Image.new("RGBA", POSTER_SIZE, (0, 0, 0, 0))
-    draw = ImageDraw.Draw(overlay)
-    band_top = int(POSTER_SIZE[1] * 0.72)
-    for y in range(band_top, POSTER_SIZE[1]):
-        alpha = int(110 + 95 * ((y - band_top) / max(1, POSTER_SIZE[1] - band_top)))
-        draw.line([(0, y), (POSTER_SIZE[0], y)], fill=(0, 0, 0, alpha))
-    canvas = Image.alpha_composite(canvas.convert("RGBA"), overlay)
+    canvas = _cover(frame, POSTER_SIZE).convert("RGBA")
     canvas = _draw_title_block(
         canvas,
         title,
@@ -617,13 +610,6 @@ def _tangxin_vlog(
     title_style: TemplateTitleStyle,
 ) -> Image.Image:
     canvas = _cover(frame, POSTER_SIZE).convert("RGBA")
-    overlay = Image.new("RGBA", POSTER_SIZE, (0, 0, 0, 0))
-    draw = ImageDraw.Draw(overlay)
-    for y in range(POSTER_SIZE[1]):
-        distance = abs((y / POSTER_SIZE[1]) - 0.58)
-        alpha = int(max(0, min(155, 190 * distance)))
-        draw.line([(0, y), (POSTER_SIZE[0], y)], fill=(0, 0, 0, alpha))
-    canvas = Image.alpha_composite(canvas, overlay)
     canvas = _draw_title_block(
         canvas,
         title,

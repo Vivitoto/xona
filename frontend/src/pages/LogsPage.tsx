@@ -10,13 +10,14 @@ import { LoadingSkeleton } from "../components/LoadingSkeleton";
 
 const logLevels = ["ALL", "DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"] as const;
 type LogLevelFilter = (typeof logLevels)[number];
+const dockerLogsFallback = "也可通过 docker logs 查看。";
 
 export function LogsPage() {
   const [entries, setEntries] = useState<LogEntryRead[]>([]);
   const [level, setLevel] = useState<LogLevelFilter>("ALL");
   const [live, setLive] = useState(true);
   const [autoScroll, setAutoScroll] = useState(true);
-  const [dockerNote, setDockerNote] = useState("也可通过 docker logs 查看。");
+  const [dockerNote, setDockerNote] = useState(dockerLogsFallback);
   const [status, setStatus] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
@@ -26,13 +27,13 @@ export function LogsPage() {
     setError("");
     setLoading(true);
     try {
-      const params = new URLSearchParams({ limit: "300" });
+      const params = new URLSearchParams({ limit: "100" });
       if (level !== "ALL") {
         params.set("level", level);
       }
       const response = await apiFetch<LogListResponse>(`/api/logs/recent?${params}`);
       setEntries(Array.isArray(response.entries) ? response.entries : []);
-      setDockerNote(response.docker_logs_note);
+      setDockerNote(response.docker_logs_note || dockerLogsFallback);
       setStatus("日志已刷新");
     } catch (exc) {
       setError(exc instanceof Error ? exc.message : "无法加载日志");
@@ -49,11 +50,21 @@ export function LogsPage() {
     if (!live) {
       return;
     }
+    if (typeof EventSource === "undefined") {
+      setStatus("当前浏览器不支持实时日志，已保留最近日志");
+      return;
+    }
 
     setStatus("实时日志已连接");
     const lastId = entries.at(-1)?.id;
     const url = lastId ? `/api/logs/stream?since_id=${lastId}` : "/api/logs/stream";
-    const source = new EventSource(url);
+    let source: EventSource;
+    try {
+      source = new EventSource(url);
+    } catch {
+      setStatus("实时日志连接不可用，已保留最近日志");
+      return;
+    }
 
     source.addEventListener("log", (event) => {
       try {

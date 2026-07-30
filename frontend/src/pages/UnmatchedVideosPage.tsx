@@ -106,6 +106,10 @@ const BATCH_TABLE_VISIBLE_LIMIT = 50;
 const DEFAULT_LOCAL_METADATA_VALUES = ["{actors}", "{studio}", "{resolution}"];
 const MIN_BATCH_CONCURRENCY = 1;
 const MAX_BATCH_CONCURRENCY = 3;
+const DESTRUCTIVE_BATCH_PLAN_MODES = new Set<OrganizationMode | string>([
+  "move",
+  "in_place",
+]);
 const DEFAULT_TITLE_POSITION_BY_TEMPLATE: Record<
   CoverTemplateName,
   { x: number; y: number }
@@ -233,6 +237,7 @@ const localMetadataWorkflowTabs: readonly TabItem<LocalMetadataWorkflowTab>[] = 
   { id: "single", label: "单个整理" },
   { id: "batch", label: "批量整理" },
 ];
+const RERUN_VIDEO_PATH_KEY = "xona-rerun-video-path";
 
 export function UnmatchedVideosPage() {
   const [activeWorkflowTab, setActiveWorkflowTab] =
@@ -434,6 +439,17 @@ export function UnmatchedVideosPage() {
     return () => {
       active = false;
     };
+  }, []);
+
+  useEffect(() => {
+    const rerunPath = window.localStorage.getItem(RERUN_VIDEO_PATH_KEY);
+    if (!rerunPath) {
+      return;
+    }
+    window.localStorage.removeItem(RERUN_VIDEO_PATH_KEY);
+    setActiveWorkflowTab("single");
+    updateVideoPath(rerunPath);
+    setStatus(`已载入重新整理路径：${rerunPath}`);
   }, []);
 
   async function analyzeAndGenerateFrames(event?: FormEvent) {
@@ -896,16 +912,23 @@ export function UnmatchedVideosPage() {
   }
 
   async function executeBatchOutputs() {
-    const items = batchOutputItems.filter(canExecuteBatchOutputItem);
+    const candidates = batchOutputItems.filter(canExecuteBatchOutputItem);
+    const { executableItems: items, skippedItems } =
+      splitDuplicateDestructiveBatchPlans(candidates);
+    skippedItems.forEach((item) => markDuplicateDestructiveBatchPlanSkipped(item));
     if (!items.length) {
       setError("没有可执行的批量整理计划。");
       return;
     }
 
-    const concurrency = clampBatchConcurrencyValue(batchConcurrency);
+    const concurrency = batchExecutionConcurrency(items, batchConcurrency);
     setBusy("batch_execute");
     setError("");
-    setStatus(`正在以 ${concurrency} 路并发执行批量整理计划`);
+    setStatus(
+      skippedItems.length
+        ? `正在执行批量整理计划；已跳过 ${skippedItems.length} 个同源重复移动计划`
+        : `正在以 ${concurrency} 路并发执行批量整理计划`,
+    );
     try {
       const results = await runLimitedConcurrency(
         items,
@@ -1045,6 +1068,17 @@ export function UnmatchedVideosPage() {
           : item,
       ),
     );
+  }
+
+  function markDuplicateDestructiveBatchPlanSkipped(item: BatchOutputItem) {
+    const message =
+      "同一个源文件已有移动整理计划会先执行；此重复计划已跳过，请重新扫描后再生成预览。";
+    updateBatchOutputItem(item.path, (current) => ({
+      ...current,
+      status: "execute_failed",
+      error: message,
+    }));
+    appendBatchOutputLog(item.path, "warning", message);
   }
 
   function buildBatchDraft(
@@ -3377,6 +3411,54 @@ function canExecuteBatchOutputItem(item: BatchOutputItem): boolean {
       !item.executeResult &&
       (item.status === "succeeded" || item.status === "execute_failed"),
   );
+}
+
+function batchExecutionConcurrency(
+  items: BatchOutputItem[],
+  requestedConcurrency: number,
+): number {
+  return items.some(isDestructiveBatchOutputItem)
+    ? 1
+    : clampBatchConcurrencyValue(requestedConcurrency);
+}
+
+function splitDuplicateDestructiveBatchPlans(items: BatchOutputItem[]): {
+  executableItems: BatchOutputItem[];
+  skippedItems: BatchOutputItem[];
+} {
+  const seenDestructiveSources = new Set<string>();
+  const executableItems: BatchOutputItem[] = [];
+  const skippedItems: BatchOutputItem[] = [];
+
+  for (const item of items) {
+    if (!isDestructiveBatchOutputItem(item)) {
+      executableItems.push(item);
+      continue;
+    }
+
+    const sourcePath = batchPlanMediaSourcePath(item) ?? item.draft.video_path;
+    if (seenDestructiveSources.has(sourcePath)) {
+      skippedItems.push(item);
+      continue;
+    }
+    seenDestructiveSources.add(sourcePath);
+    executableItems.push(item);
+  }
+
+  return { executableItems, skippedItems };
+}
+
+function isDestructiveBatchOutputItem(item: BatchOutputItem): boolean {
+  return Boolean(
+    item.planPreview && DESTRUCTIVE_BATCH_PLAN_MODES.has(item.planPreview.plan.mode),
+  );
+}
+
+function batchPlanMediaSourcePath(item: BatchOutputItem): string | null {
+  const mediaStep = item.planPreview?.plan.steps.find(
+    (step) => step.category === "media" && step.source_path,
+  );
+  return mediaStep?.source_path ?? null;
 }
 
 function buildCoverPreviewRequest({

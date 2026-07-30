@@ -30,7 +30,7 @@ export function DashboardPage({ onNavigate }: { onNavigate: (page: PageId) => vo
             XChina 元数据搜索
           </button>
           <button className="secondary" type="button" onClick={() => onNavigate("tasks")}>
-            任务记录
+            整理记录
           </button>
         </div>
       </section>
@@ -51,7 +51,7 @@ export function DashboardPage({ onNavigate }: { onNavigate: (page: PageId) => vo
           <LoadingSkeleton rows={3} title="正在读取运行概览" />
         ) : null}
         <div className="workflow-strip dashboard-workflow" aria-label="整理流程">
-          {["本地文件", "元数据草稿", "封面/NFO", "整理预览", "任务记录", "回滚"].map((step, index) => (
+          {["本地文件", "元数据草稿", "封面/NFO", "整理预览", "整理记录"].map((step, index) => (
             <span className="workflow-step" key={step}>
               <b>{index + 1}</b>
               <strong>{step}</strong>
