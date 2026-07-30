@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { FileSearch, ListChecks } from "lucide-react";
+import { FileSearch, ListChecks, X } from "lucide-react";
 
 import { ApiError, apiFetch } from "../api/client";
 import type {
@@ -11,7 +11,6 @@ import { EmptyState } from "../components/EmptyState";
 import { FormField, Section } from "../components/FormField";
 import { LoadingSkeleton } from "../components/LoadingSkeleton";
 import { OperationPlanView } from "../components/OperationPlanView";
-import { codeLabel } from "../components/ProgressLog";
 
 const RERUN_VIDEO_PATH_KEY = "xona-rerun-video-path";
 
@@ -48,9 +47,28 @@ const metadataFilters: Array<{ value: MetadataFilter; label: string }> = [
   { value: "actors", label: "已生成演员" },
 ];
 
+const STATUS_LABELS: Record<string, string> = {
+  completed: "已完成",
+  failed: "失败",
+  rolled_back: "已回滚",
+  externally_modified: "目标被修改",
+  searching: "搜索中",
+  review_required: "待复核",
+  matched: "已匹配",
+  scraping: "搜刮元数据",
+  materializing_assets: "下载素材",
+  planning: "生成计划",
+  ready: "待执行",
+  executing: "执行中",
+  approved: "已审批",
+  planned: "已计划",
+  cancelled: "已取消",
+};
+
 export function TaskCenterPage({ onRerun }: { onRerun?: (path: string) => void } = {}) {
   const [records, setRecords] = useState<OrganizeRecordRead[]>([]);
   const [selectedRecord, setSelectedRecord] = useState<OrganizeRecordRead | null>(null);
+  const [modalOpen, setModalOpen] = useState(false);
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
   const [modeFilter, setModeFilter] = useState<ModeFilter>("all");
@@ -103,8 +121,9 @@ export function TaskCenterPage({ onRerun }: { onRerun?: (path: string) => void }
     void loadRecords();
   }, [query]);
 
-  async function selectRecord(record: OrganizeRecordRead) {
+  async function openDetail(record: OrganizeRecordRead) {
     setSelectedRecord(record);
+    setModalOpen(true);
     setDetailLoading(true);
     setError("");
     try {
@@ -116,6 +135,20 @@ export function TaskCenterPage({ onRerun }: { onRerun?: (path: string) => void }
       setDetailLoading(false);
     }
   }
+
+  function closeModal() {
+    setModalOpen(false);
+  }
+
+  useEffect(() => {
+    function handleKey(e: KeyboardEvent) {
+      if (e.key === "Escape") closeModal();
+    }
+    if (modalOpen) {
+      document.addEventListener("keydown", handleKey);
+    }
+    return () => document.removeEventListener("keydown", handleKey);
+  }, [modalOpen]);
 
   async function rollback(record: OrganizeRecordRead) {
     setError("");
@@ -232,14 +265,14 @@ export function TaskCenterPage({ onRerun }: { onRerun?: (path: string) => void }
               <tbody>
                 {records.map((record) => (
                   <tr className={record.record_id === selectedRecord?.record_id ? "is-selected-row" : undefined} key={record.record_id}>
-                    <td><button className="link-button" type="button" onClick={() => selectRecord(record)}>{record.display_index}</button></td>
+                    <td><button className="link-button" type="button" onClick={() => openDetail(record)}>{record.display_index}</button></td>
                     <td>
                       <div className="record-title-cell">
                         <strong>{record.name}</strong>
                         {record.short_plan_id ? <small>{record.short_plan_id}</small> : null}
                       </div>
                     </td>
-                    <td><span className={`status-pill ${statusTone(record.status, record.verification_status)}`}>{recordStatusLabel(record)}</span></td>
+                    <td><span className={`status-pill ${statusTone(record.status, record.verification_status)}`}>{recordStatusLabel(record.status)}</span></td>
                     <td>{modeLabel(record.mode)}</td>
                     <td><MetadataFlags flags={record.metadata} /></td>
                     <td><PathCell path={record.source_path} /></td>
@@ -247,7 +280,7 @@ export function TaskCenterPage({ onRerun }: { onRerun?: (path: string) => void }
                     <td>{formatDate(record.created_at)}</td>
                     <td>
                       <div className="button-row">
-                        <button className="secondary" type="button" onClick={() => selectRecord(record)}>查看</button>
+                        <button className="secondary" type="button" onClick={() => openDetail(record)}>查看</button>
                         <button disabled={!record.can_rerun} type="button" onClick={() => rerun(record)}>重新整理</button>
                         <button disabled={!record.can_rollback} type="button" onClick={() => rollback(record)}>回滚</button>
                       </div>
@@ -267,17 +300,21 @@ export function TaskCenterPage({ onRerun }: { onRerun?: (path: string) => void }
         )}
       </Section>
 
-      <Section title="记录详情">
-        {selectedRecord ? (
-          <>
+      {modalOpen && selectedRecord ? (
+        <div className="dialog-backdrop" onClick={closeModal} role="presentation">
+          <div className="dialog record-detail-modal" onClick={(e) => e.stopPropagation()} role="dialog" aria-label="整理记录详情">
+            <div className="dialog-header">
+              <h3>整理记录详情</h3>
+              <button className="secondary" type="button" onClick={closeModal} aria-label="关闭"><X size={18} /></button>
+            </div>
             <dl className="metadata-list compact history-summary">
               <div><dt>序号</dt><dd>{selectedRecord.display_index}</dd></div>
               <div><dt>名称</dt><dd>{selectedRecord.name}</dd></div>
               <div><dt>完整 plan ID</dt><dd>{selectedRecord.plan_id ? <code>{selectedRecord.plan_id}</code> : "无"}</dd></div>
-              <div><dt>源路径</dt><dd><PathCell path={selectedRecord.source_path} /></dd></div>
-              <div><dt>当前路径</dt><dd><PathCell path={selectedRecord.target_path} /></dd></div>
+              <div><dt>源路径</dt><dd><code className="path-cell" title={selectedRecord.source_path ?? ""}>{selectedRecord.source_path ?? "无"}</code></dd></div>
+              <div><dt>当前路径</dt><dd><code className="path-cell" title={selectedRecord.target_path ?? ""}>{selectedRecord.target_path ?? "无"}</code></dd></div>
               <div><dt>校验</dt><dd>{verificationLabel(selectedRecord.verification_status)}</dd></div>
-              <div><dt>重新整理路径</dt><dd><PathCell path={selectedRecord.rerun_path} /></dd></div>
+              <div><dt>重新整理路径</dt><dd>{selectedRecord.rerun_path ? <code className="path-cell" title={selectedRecord.rerun_path}>{selectedRecord.rerun_path}</code> : "无"}</dd></div>
             </dl>
             <div className="button-row">
               <button disabled={!selectedRecord.can_rerun} type="button" onClick={() => rerun(selectedRecord)}>重新整理</button>
@@ -285,11 +322,9 @@ export function TaskCenterPage({ onRerun }: { onRerun?: (path: string) => void }
             </div>
             {detailLoading ? <LoadingSkeleton rows={3} title="正在加载记录详情" /> : null}
             {selectedRecord.plan ? <OperationPlanView plan={selectedRecord.plan} /> : null}
-          </>
-        ) : (
-          <EmptyState description="从整理记录列表选择一条记录。" icon={FileSearch} title="还没有选择记录" />
-        )}
-      </Section>
+          </div>
+        </div>
+      ) : null}
 
       {status ? <p className="status floating-status">{status}</p> : null}
       {error ? <p className="status error floating-status" role="alert">{error}</p> : null}
@@ -322,11 +357,8 @@ function PathCell({ path }: { path: string | null }) {
   return <code className="path-cell" title={path}>{path}</code>;
 }
 
-function recordStatusLabel(record: OrganizeRecordRead): string {
-  if (record.status === "externally_modified" || record.verification_status === "externally_modified") {
-    return "目标被修改";
-  }
-  return codeLabel(record.status);
+function recordStatusLabel(status: string): string {
+  return STATUS_LABELS[status] ?? status;
 }
 
 function verificationLabel(status: string): string {
@@ -348,10 +380,11 @@ function modeLabel(mode: string | null): string {
 }
 
 function statusTone(status: string, verification: string): string {
-  if (status === "failed" || status === "rollback_failed") return "status-pill-danger";
+  if (status === "failed") return "status-pill-danger";
   if (status === "rolled_back") return "status-pill-neutral";
   if (verification === "externally_modified" || verification === "partial" || verification === "pending") return "status-pill-warning";
   if (status === "completed") return "status-pill-success";
+  if (status === "executing" || status === "scraping" || status === "materializing_assets" || status === "planning") return "status-pill-primary";
   return "status-pill-neutral";
 }
 

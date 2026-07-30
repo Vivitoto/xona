@@ -3552,3 +3552,55 @@ td {
     width: 100%;
   }
 }
+
+/* Path cell truncation */
+.path-cell {
+  display: block;
+  max-width: 260px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.82rem;
+}
+
+/* Organize records table */
+.organize-records-page .table-wrap {
+  overflow-x: auto;
+}
+
+.organize-records-page td {
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.organize-records-page td:has(.button-row),
+.organize-records-page td:has(.metadata-flags) {
+  white-space: normal;
+}
+
+/* Record detail modal */
+.record-detail-modal {
+  max-width: 720px;
+  max-height: 85vh;
+  overflow-y: auto;
+}
+
+.record-detail-modal .dialog-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 0.85rem;
+  padding-bottom: 0.65rem;
+  border-bottom: 1px solid var(--border);
+}
+
+.record-detail-modal .dialog-header h3 {
+  margin: 0;
+}
+
+.record-detail-modal .dialog-header button {
+  padding: 0.35rem 0.55rem;
+  min-height: auto;
+}

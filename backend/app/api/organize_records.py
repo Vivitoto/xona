@@ -191,13 +191,13 @@ def _verification_status(plan: OperationPlan) -> str:
 def _record_status(row: OperationPlanModel, job: Job | None, verification: str) -> str:
     if row.status == "rolled_back" or (job is not None and job.state == "rolled_back"):
         return "rolled_back"
-    if verification == "externally_modified":
-        return "externally_modified"
     if row.status == "failed" or (job is not None and job.state == "failed"):
         return "failed"
+    if verification == "externally_modified":
+        return "externally_modified"
     if job is not None and job.state not in {"completed", "rolled_back", "failed", "cancelled"}:
         return job.state
-    return row.status
+    return _classified_row_status(row.status)
 
 
 def _record_id(row: OperationPlanModel) -> str:
@@ -334,6 +334,27 @@ def _metadata_matches(flags: OrganizeMetadataFlags, metadata: str) -> bool:
     if metadata == "actors":
         return flags.actors
     return True
+
+
+_CLASSIFIED_STATUSES = frozenset({
+    "completed", "failed", "rolled_back", "approved", "planned",
+})
+_ACTIVE_STATE_LABELS: dict[str, str] = {
+    "searching": "搜索中",
+    "review_required": "待复核",
+    "matched": "已匹配",
+    "scraping": "搜刮元数据",
+    "materializing_assets": "下载素材",
+    "planning": "生成计划",
+    "ready": "待执行",
+    "executing": "执行中",
+}
+
+
+def _classified_row_status(raw: str) -> str:
+    if raw in _CLASSIFIED_STATUSES:
+        return raw
+    return _ACTIVE_STATE_LABELS.get(raw, raw)
 
 
 def _unique(values: list[str]) -> list[str]:

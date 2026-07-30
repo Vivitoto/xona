@@ -1910,7 +1910,7 @@ export function UnmatchedVideosPage() {
                                 }
                               />
                             </td>
-                            <td>{video.filename}</td>
+                            <td><span className="path-cell" title={video.path}>{video.filename}</span></td>
                             <td>{video.cleaned_title}</td>
                             <td>{formatBytes(video.size_bytes)}</td>
                             <td>
@@ -2697,11 +2697,11 @@ function CompactBatchDraftTable({
             {visibleItems.map((item) => (
               <tr key={item.path}>
                 <td>
-                  <strong>{item.filename}</strong>
-                  <small>{item.path}</small>
+                  <strong title={item.filename}>{item.filename}</strong>
+                  <small className="path-cell" title={item.path}>{item.path}</small>
                 </td>
                 <td>{item.draft.title}</td>
-                <td>{item.draft.organize_filename || "使用文件名模板"}</td>
+                <td className="path-cell" title={item.draft.organize_filename ?? undefined}>{item.draft.organize_filename || "使用文件名模板"}</td>
                 <td>{coverSettingsSummary(item.coverSettings)}</td>
                 <td>
                   <span className={`status-pill ${batchStatusClass(item.status)}`}>
@@ -2762,8 +2762,8 @@ function CompactBatchOutputTable({
             {visibleItems.map((item) => (
               <tr key={item.path}>
                 <td>
-                  <strong>{item.filename}</strong>
-                  <small>{item.path}</small>
+                  <strong title={item.filename}>{item.filename}</strong>
+                  <small className="path-cell" title={item.path}>{item.path}</small>
                 </td>
                 <td>
                   <strong>{item.draft.title}</strong>
