@@ -324,6 +324,77 @@ describe("UnmatchedVideosPage", () => {
     expect(editor.getByLabelText("标题 (title)")).toHaveValue("");
   });
 
+  it("selects all scanned batch videos by default and can clear or restore the selection", async () => {
+    const videos = Array.from({ length: 7 }, (_, index) => {
+      const number = index + 1;
+      return scannedVideoFixture({
+        path: `/media/incoming/Scene.${number}.mp4`,
+        filename: `Scene.${number}.mp4`,
+        cleaned_title: `Scene ${number}`,
+        default_organize_filename: `Scene ${number}`,
+        size_bytes: 1024 * number,
+      });
+    });
+    installFetchMock([
+      { path: "/api/settings", response: settingsFixture() },
+      {
+        method: "POST",
+        path: "/api/local-metadata/scan",
+        response: {
+          scanned_count: videos.length,
+          videos,
+        },
+      },
+    ]);
+
+    render(<UnmatchedVideosPage />);
+
+    await waitFor(() =>
+      expect(screen.getByLabelText("目标目录")).toHaveValue("/media/organized"),
+    );
+
+    fireEvent.click(screen.getByRole("tab", { name: "批量整理" }));
+    const batchSection = screen
+      .getByRole("heading", { name: "批量整理列表" })
+      .closest("section");
+    expect(batchSection).toBeTruthy();
+    const batch = within(batchSection as HTMLElement);
+
+    fireEvent.change(batch.getByLabelText("目录路径"), {
+      target: { value: "/media/incoming" },
+    });
+    fireEvent.click(batch.getByRole("button", { name: "扫描目录" }));
+
+    await waitFor(() => expect(batch.getByText("Scene.7.mp4")).toBeTruthy());
+    expect(
+      batch.getByRole("status", { name: "批量整理进度" }),
+    ).toHaveTextContent("已扫描 7 个视频，已选择 7 个");
+    expect(batch.getByRole("button", { name: "全选" })).toBeDisabled();
+    expect(batch.getByRole("button", { name: "取消全部选中" })).not.toBeDisabled();
+    batch
+      .getAllByRole("checkbox", { name: /^选择 / })
+      .forEach((checkbox) => expect(checkbox).toBeChecked());
+
+    fireEvent.click(batch.getByRole("button", { name: "取消全部选中" }));
+    expect(
+      batch.getByRole("status", { name: "批量整理进度" }),
+    ).toHaveTextContent("已扫描 7 个视频，已选择 0 个");
+    expect(batch.getByRole("button", { name: "生成批量元数据" })).toBeDisabled();
+    expect(batch.getByRole("button", { name: "全选" })).not.toBeDisabled();
+    expect(batch.getByRole("button", { name: "取消全部选中" })).toBeDisabled();
+    batch
+      .getAllByRole("checkbox", { name: /^选择 / })
+      .forEach((checkbox) => expect(checkbox).not.toBeChecked());
+
+    fireEvent.click(batch.getByRole("button", { name: "全选" }));
+    expect(
+      batch.getByRole("status", { name: "批量整理进度" }),
+    ).toHaveTextContent("已扫描 7 个视频，已选择 7 个");
+    batch
+      .getAllByRole("checkbox", { name: /^选择 / })
+      .forEach((checkbox) => expect(checkbox).toBeChecked());
+  });
+
   it("shows batch random cover settings as compact row summaries", async () => {
     installFetchMock([
       { path: "/api/settings", response: settingsFixture() },
@@ -432,6 +503,177 @@ describe("UnmatchedVideosPage", () => {
     expect(batch.getAllByText(/TangXin Vlog/).length).toBeGreaterThan(1);
     expect(batch.queryByRole("button", { name: /载入整理信息/ })).toBeNull();
     expect(batch.queryByRole("button", { name: /保存当前草稿/ })).toBeNull();
+  });
+
+  it("sends fixed or randomized batch cover settings according to the random title format checkbox", async () => {
+    const videoPath = "/media/incoming/Tangxin.Style.mp4";
+    const selectedFrameIds = Array.from(
+      { length: 9 },
+      (_, index) => `frames/tangxin-${index + 1}.jpg`,
+    );
+    const { calls } = installFetchMock([
+      { path: "/api/settings", response: settingsFixture() },
+      {
+        method: "POST",
+        path: "/api/local-metadata/scan",
+        response: {
+          scanned_count: 1,
+          videos: [
+            scannedVideoFixture({
+              path: videoPath,
+              filename: "Tangxin.Style.mp4",
+              cleaned_title: "Tangxin Style",
+              default_organize_filename: "Tangxin Style",
+              size_bytes: 2048,
+            }),
+          ],
+        },
+      },
+      {
+        method: "POST",
+        path: "/api/local-metadata/analyze",
+        response: analyzeResponseFixture(videoPath),
+      },
+      {
+        method: "POST",
+        path: "/api/local-metadata/frames",
+        response: {
+          video_path: videoPath,
+          frames: selectedFrameIds.map((id, index) =>
+            cachedAssetFixture({
+              id,
+              url: `/api/local-metadata/cache/${id}`,
+              time_seconds: (index + 1) * 20,
+            }),
+          ),
+          warnings: [],
+        },
+      },
+      {
+        method: "POST",
+        path: "/api/local-metadata/cover-preview",
+        response: (call) => {
+          const body = call.body as Record<string, unknown>;
+          return {
+            poster: cachedAssetFixture({
+              id: "covers/tangxin-poster.jpg",
+              kind: "poster",
+              url: "/api/local-metadata/cache/covers/tangxin-poster.jpg",
+              width: 900,
+              height: 1350,
+            }),
+            fanart: cachedAssetFixture({
+              id: "covers/tangxin-fanart.jpg",
+              kind: "fanart",
+              url: "/api/local-metadata/cache/covers/tangxin-fanart.jpg",
+              width: 1600,
+              height: 900,
+            }),
+            thumb: cachedAssetFixture({
+              id: "covers/tangxin-thumb.jpg",
+              kind: "thumb",
+              url: "/api/local-metadata/cache/covers/tangxin-thumb.jpg",
+              width: 1600,
+              height: 900,
+            }),
+            template: body.template,
+            title_font_id: body.title_font_id,
+            selected_frame_ids: body.selected_frame_ids,
+            warnings: [],
+          };
+        },
+      },
+      {
+        method: "POST",
+        path: "/api/local-metadata/preview-plan",
+        response: {
+          plan_id: "plan-tangxin-style",
+          metadata: { title: "Tangxin Style" },
+          materialized_assets: [],
+          nfo_xml: "<movie><title>Tangxin Style</title></movie>",
+          plan: operationPlanFixture({ plan_id: "plan-tangxin-style" }),
+        },
+      },
+    ]);
+
+    render(<UnmatchedVideosPage />);
+
+    await waitFor(() =>
+      expect(screen.getByLabelText("目标目录")).toHaveValue("/media/organized"),
+    );
+
+    fireEvent.click(screen.getByRole("tab", { name: "批量整理" }));
+    const batchSection = screen
+      .getByRole("heading", { name: "批量整理列表" })
+      .closest("section");
+    expect(batchSection).toBeTruthy();
+    const batch = within(batchSection as HTMLElement);
+
+    fireEvent.change(batch.getByLabelText("目录路径"), {
+      target: { value: "/media/incoming" },
+    });
+    fireEvent.click(batch.getByRole("button", { name: "扫描目录" }));
+    await waitFor(() => expect(batch.getByText("Tangxin.Style.mp4")).toBeTruthy());
+
+    fireEvent.change(batch.getByLabelText("批量模板"), {
+      target: { value: "tangxin_vlog" },
+    });
+    expect(batch.getByLabelText("批量标题字体")).toHaveValue("smiley_sans");
+
+    fireEvent.click(batch.getByLabelText("随机标题格式"));
+    expect(batch.getByLabelText("随机标题格式")).not.toBeChecked();
+    fireEvent.click(batch.getByRole("button", { name: "生成批量元数据" }));
+    await waitFor(() => expect(batch.getByRole("heading", { name: "已生成的批量元数据" })).toBeTruthy());
+    fireEvent.click(batch.getByRole("button", { name: "生成全部预览" }));
+    await waitFor(() => expect(coverPreviewRequestBodies(calls)).toHaveLength(1));
+
+    const fixedRequest = coverPreviewRequestBodies(calls)[0];
+    const fixedBaseline = {
+      template: "tangxin_vlog",
+      title_font_id: "smiley_sans",
+      title_font_size: 86,
+      title_fill_color: "#ffffff",
+      title_stroke_color: "#0e1518",
+      title_stroke_width: 6,
+      title_effect: "glow",
+      title_angle_degrees: -8,
+      title_position_x_percent: 50,
+      title_position_y_percent: 90,
+    };
+    expect(fixedRequest).toMatchObject(fixedBaseline);
+
+    fireEvent.click(batch.getByLabelText("随机标题格式"));
+    expect(batch.getByLabelText("随机标题格式")).toBeChecked();
+    fireEvent.click(batch.getByRole("button", { name: "生成批量元数据" }));
+    fireEvent.click(batch.getByRole("button", { name: "生成全部预览" }));
+    await waitFor(() => expect(coverPreviewRequestBodies(calls)).toHaveLength(2));
+
+    const randomRequest = coverPreviewRequestBodies(calls)[1];
+    expect(randomRequest.template).toBe("tangxin_vlog");
+    expect(["smiley_sans", "zcool_qingke_huangyou", "zcool_kuaile"]).toContain(
+      randomRequest.title_font_id,
+    );
+    expect({
+      title_font_id: randomRequest.title_font_id,
+      title_font_size: randomRequest.title_font_size,
+      title_fill_color: randomRequest.title_fill_color,
+      title_stroke_color: randomRequest.title_stroke_color,
+      title_stroke_width: randomRequest.title_stroke_width,
+      title_effect: randomRequest.title_effect,
+      title_angle_degrees: randomRequest.title_angle_degrees,
+      title_position_x_percent: randomRequest.title_position_x_percent,
+      title_position_y_percent: randomRequest.title_position_y_percent,
+    }).not.toEqual({
+      title_font_id: fixedBaseline.title_font_id,
+      title_font_size: fixedBaseline.title_font_size,
+      title_fill_color: fixedBaseline.title_fill_color,
+      title_stroke_color: fixedBaseline.title_stroke_color,
+      title_stroke_width: fixedBaseline.title_stroke_width,
+      title_effect: fixedBaseline.title_effect,
+      title_angle_degrees: fixedBaseline.title_angle_degrees,
+      title_position_x_percent: fixedBaseline.title_position_x_percent,
+      title_position_y_percent: fixedBaseline.title_position_y_percent,
+    });
   });
 
   it("keeps fixed batch cover baseline in compact summaries when random title format is disabled", async () => {
@@ -1286,6 +1528,17 @@ function requestPlanMetadata(body: unknown): Record<string, unknown> {
     return body.metadata as Record<string, unknown>;
   }
   throw new Error("Expected plan request body with metadata");
+}
+
+function coverPreviewRequestBodies(
+  calls: { method: string; url: string; body: unknown }[],
+): Record<string, unknown>[] {
+  return calls
+    .filter(
+      (call) =>
+        call.method === "POST" && call.url === "/api/local-metadata/cover-preview",
+    )
+    .map((call) => call.body as Record<string, unknown>);
 }
 
 function slugFromPath(path: string): string {

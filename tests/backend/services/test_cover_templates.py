@@ -58,6 +58,12 @@ def test_cover_preview_request_accepts_bounded_title_controls_defaults() -> None
         title="Poster Title",
         title_font_id="smiley_sans",
     ).title_font_id == "smiley_sans"
+    assert LocalCoverPreviewRequest(
+        video_path=Path("/media/source.mp4"),
+        title="Poster Title",
+        title_font_id="zcool_kuaile",
+    ).title_font_id == "zcool_kuaile"
+    assert _font(36, title_font_id="zcool_kuaile")
     with pytest.raises(ValidationError):
         LocalCoverPreviewRequest(
             video_path=Path("/media/source.mp4"),

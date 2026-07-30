@@ -116,6 +116,30 @@ POSTER_FONTS: dict[PosterFontId, PosterFont] = {
             "/usr/share/fonts/opentype/noto/NotoSansCJK-Bold.ttc",
         ),
     ),
+    "noto_sans_cjk_regular": PosterFont(
+        id="noto_sans_cjk_regular",
+        display_name="Noto Sans CJK Regular / Noto 黑体常规",
+        candidate_paths=(
+            str(ASSET_FONT_DIR / "NotoSansCJK-Regular.ttc"),
+            "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
+        ),
+    ),
+    "noto_serif_cjk": PosterFont(
+        id="noto_serif_cjk",
+        display_name="Noto Serif CJK / Noto 宋体",
+        candidate_paths=(
+            str(ASSET_FONT_DIR / "NotoSerifCJK-Regular.ttc"),
+            "/usr/share/fonts/opentype/noto/NotoSerifCJK-Regular.ttc",
+        ),
+    ),
+    "noto_serif_cjk_bold": PosterFont(
+        id="noto_serif_cjk_bold",
+        display_name="Noto Serif CJK Bold / Noto 粗宋",
+        candidate_paths=(
+            str(ASSET_FONT_DIR / "NotoSerifCJK-Bold.ttc"),
+            "/usr/share/fonts/opentype/noto/NotoSerifCJK-Bold.ttc",
+        ),
+    ),
     "dela_gothic_one": PosterFont(
         id="dela_gothic_one",
         display_name="Dela Gothic One",
@@ -154,6 +178,14 @@ POSTER_FONTS: dict[PosterFontId, PosterFont] = {
         display_name="ZCOOL QingKe HuangYou / 站酷庆科黄油体",
         candidate_paths=(
             str(ASSET_FONT_DIR / "ZCOOLQingKeHuangYou-Regular.ttf"),
+            "/usr/share/fonts/opentype/noto/NotoSansCJK-Bold.ttc",
+        ),
+    ),
+    "zcool_kuaile": PosterFont(
+        id="zcool_kuaile",
+        display_name="ZCOOL KuaiLe / 站酷快乐体",
+        candidate_paths=(
+            str(ASSET_FONT_DIR / "ZCOOLKuaiLe-Regular.ttf"),
             "/usr/share/fonts/opentype/noto/NotoSansCJK-Bold.ttc",
         ),
     ),

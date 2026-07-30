@@ -49,17 +49,41 @@ const coverTemplates: { value: CoverTemplateName; label: string }[] = [
 const posterFonts: { value: PosterFontId; label: string }[] = [
   { value: "source_han_sans", label: "思源黑体 / Source Han Sans" },
   { value: "noto_sans_jp", label: "Noto Sans JP" },
+  { value: "noto_sans_cjk_regular", label: "Noto 黑体常规 / Noto Sans CJK" },
+  { value: "noto_serif_cjk", label: "Noto 宋体 / Noto Serif CJK" },
+  { value: "noto_serif_cjk_bold", label: "Noto 粗宋 / Noto Serif CJK Bold" },
   { value: "dela_gothic_one", label: "Dela Gothic One" },
   { value: "bebas_neue", label: "Bebas Neue" },
   { value: "anton", label: "Anton" },
   { value: "smiley_sans", label: "得意黑 / Smiley Sans" },
   { value: "zcool_qingke_huangyou", label: "站酷庆科黄油体" },
+  { value: "zcool_kuaile", label: "站酷快乐体 / ZCOOL KuaiLe" },
   { value: "lxgw_wenkai", label: "霞鹜文楷 / LXGW WenKai" },
 ];
 const DEFAULT_TITLE_FONT_BY_TEMPLATE: Record<CoverTemplateName, PosterFontId> = {
   simple_poster: "source_han_sans",
   jav_classic_left_strip: "dela_gothic_one",
   tangxin_vlog: "smiley_sans",
+};
+const RANDOM_TITLE_FONT_POOL_BY_TEMPLATE: Record<
+  CoverTemplateName,
+  PosterFontId[]
+> = {
+  simple_poster: [
+    "source_han_sans",
+    "noto_sans_cjk_regular",
+    "noto_serif_cjk",
+    "noto_serif_cjk_bold",
+    "lxgw_wenkai",
+  ],
+  jav_classic_left_strip: [
+    "dela_gothic_one",
+    "noto_sans_jp",
+    "source_han_sans",
+    "bebas_neue",
+    "anton",
+  ],
+  tangxin_vlog: ["smiley_sans", "zcool_qingke_huangyou", "zcool_kuaile"],
 };
 const DEFAULT_TITLE_ANGLE_DEGREES = -8;
 const MIN_TITLE_ANGLE_DEGREES = -20;
@@ -326,6 +350,35 @@ export function UnmatchedVideosPage() {
     () => scannedVideos.filter((video) => selectedBatchPaths.includes(video.path)),
     [scannedVideos, selectedBatchPaths],
   );
+
+  useEffect(() => {
+    const selectedBatchCoverStyle = currentBatchCoverStyleSettings();
+    setBatchStatuses((current) =>
+      current.length
+        ? current.map((item) => ({
+            ...item,
+            coverSettings: randomizedBatchCoverSettings(
+              item.path,
+              selectedBatchCoverStyle,
+            ),
+          }))
+        : current,
+    );
+    setBatchOutputItems((current) => (current.length ? [] : current));
+  }, [
+    batchCoverTemplate,
+    batchCoverTitleFontId,
+    batchCoverTitleFontSize,
+    batchCoverTitleFillColor,
+    batchCoverTitleStrokeColor,
+    batchCoverTitleStrokeWidth,
+    batchCoverTitleEffect,
+    batchCoverTitleAngleDegrees,
+    batchCoverTitleOffsetX,
+    batchCoverTitleOffsetY,
+    batchCoverRandomTitleFormat,
+  ]);
+
   const initialCoverFrameIds = useMemo(() => selectedInitialFrameIds(frames), [frames]);
   const hasSelectedFrames = selectedFrameIds.length > 0;
   const hasEnoughSelectedCoverFrames = selectedFrameIds.length >= MIN_COVER_FRAME_COUNT;
@@ -612,7 +665,7 @@ export function UnmatchedVideosPage() {
         },
       });
       setScannedVideos(response.videos);
-      setSelectedBatchPaths(response.videos.slice(0, 5).map((video) => video.path));
+      setSelectedBatchPaths(response.videos.map((video) => video.path));
       setBatchStatuses([]);
       setBatchOutputItems([]);
       setStatus(`已扫描 ${response.scanned_count} 个视频文件`);
@@ -640,6 +693,14 @@ export function UnmatchedVideosPage() {
     setSelectedBatchPaths((current) =>
       selected ? unique([...current, path]) : current.filter((item) => item !== path),
     );
+  }
+
+  function selectAllBatchVideos() {
+    setSelectedBatchPaths(scannedVideos.map((video) => video.path));
+  }
+
+  function clearBatchSelection() {
+    setSelectedBatchPaths([]);
   }
 
   function applyBatchFields() {
@@ -1766,47 +1827,72 @@ export function UnmatchedVideosPage() {
               />
 
               {scannedVideos.length ? (
-                <div className="table-wrap">
-                  <table>
-                    <caption>本地视频批量列表</caption>
-                    <thead>
-                      <tr>
-                        <th>选择</th>
-                        <th>文件</th>
-                        <th>默认标题</th>
-                        <th>大小</th>
-                        <th>操作</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {scannedVideos.map((video) => (
-                        <tr key={video.path}>
-                          <td>
-                            <input
-                              aria-label={`选择 ${video.filename}`}
-                              checked={selectedBatchPaths.includes(video.path)}
-                              type="checkbox"
-                              onChange={(event) =>
-                                toggleBatchSelection(video.path, event.target.checked)
-                              }
-                            />
-                          </td>
-                          <td>{video.filename}</td>
-                          <td>{video.cleaned_title}</td>
-                          <td>{formatBytes(video.size_bytes)}</td>
-                          <td>
-                            <button
-                              className="secondary"
-                              type="button"
-                              onClick={() => selectVideo(video)}
-                            >
-                              编辑
-                            </button>
-                          </td>
+                <div className="batch-selection-panel">
+                  <div className="row row-between batch-selection-toolbar">
+                    <p className="muted">
+                      默认已选中全部 {scannedVideos.length} 个视频；可以按需取消单项或清空后重选。
+                    </p>
+                    <div className="button-row">
+                      <button
+                        className="secondary"
+                        disabled={selectedBatchPaths.length === scannedVideos.length}
+                        type="button"
+                        onClick={selectAllBatchVideos}
+                      >
+                        全选
+                      </button>
+                      <button
+                        className="secondary"
+                        disabled={!selectedBatchPaths.length}
+                        type="button"
+                        onClick={clearBatchSelection}
+                      >
+                        取消全部选中
+                      </button>
+                    </div>
+                  </div>
+                  <div className="table-wrap">
+                    <table>
+                      <caption>本地视频批量列表</caption>
+                      <thead>
+                        <tr>
+                          <th>选择</th>
+                          <th>文件</th>
+                          <th>默认标题</th>
+                          <th>大小</th>
+                          <th>操作</th>
                         </tr>
-                      ))}
-                    </tbody>
-                  </table>
+                      </thead>
+                      <tbody>
+                        {scannedVideos.map((video) => (
+                          <tr key={video.path}>
+                            <td>
+                              <input
+                                aria-label={`选择 ${video.filename}`}
+                                checked={selectedBatchPaths.includes(video.path)}
+                                type="checkbox"
+                                onChange={(event) =>
+                                  toggleBatchSelection(video.path, event.target.checked)
+                                }
+                              />
+                            </td>
+                            <td>{video.filename}</td>
+                            <td>{video.cleaned_title}</td>
+                            <td>{formatBytes(video.size_bytes)}</td>
+                            <td>
+                              <button
+                                className="secondary"
+                                type="button"
+                                onClick={() => selectVideo(video)}
+                              >
+                                编辑
+                              </button>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
                 </div>
               ) : (
                 <div className="empty-state">
@@ -1890,7 +1976,7 @@ export function UnmatchedVideosPage() {
                 <div>
                   <h3 id="batch-cover-style-title">批量封面风格</h3>
                   <p className="section-lead">
-                    启用后，每个视频按路径稳定随机字体、颜色、镜像角度与几何微调；范围固定为字号
+                    启用后，每个视频按路径稳定随机标题样式；字体只在当前模板的风格池内随机，颜色、镜像角度与几何微调范围固定为字号
                     +/-{BATCH_TITLE_FONT_SIZE_JITTER_RANGE}px、角度
                     +/-{BATCH_TITLE_ANGLE_JITTER_RANGE} 度、位置
                     +/-{BATCH_TITLE_OFFSET_JITTER_RANGE}。
@@ -1898,7 +1984,7 @@ export function UnmatchedVideosPage() {
                 </div>
                 <CheckboxField
                   checked={batchCoverRandomTitleFormat}
-                  description="关闭后完全使用下方基础值，不随机字体、颜色、角度、位置，也不会镜像倾斜方向。"
+                  description="关闭后完全使用下方基础值；开启后按模板风格池稳定随机字体、颜色、角度和位置。"
                   label="随机标题格式"
                   onChange={setBatchCoverRandomTitleFormat}
                 />
@@ -3387,7 +3473,11 @@ function randomizedBatchCoverSettings(
 
   return {
     template: baseline.template,
-    titleFontId: stableRandomPosterFontId(seed, baseline.titleFontId),
+    titleFontId: stableRandomPosterFontId(
+      seed,
+      baseline.template,
+      baseline.titleFontId,
+    ),
     titleFontSize: clampTitleFontSizeValue(
       Math.round(
         baseline.titleFontSize +
@@ -3480,12 +3570,11 @@ function stableRandomSign(seed: string, salt: string): 1 | -1 {
 
 function stableRandomPosterFontId(
   seed: string,
+  template: CoverTemplateName,
   baselineFontId: PosterFontId,
 ): PosterFontId {
-  const alternatives = posterFonts
-    .map((font) => font.value)
-    .filter((fontId) => fontId !== baselineFontId);
-  const candidates = alternatives.length ? alternatives : [baselineFontId];
+  const templatePool = RANDOM_TITLE_FONT_POOL_BY_TEMPLATE[template];
+  const candidates = templatePool.length ? templatePool : [baselineFontId];
   const index = Math.floor(stableUnitRandom(`${seed}\u001ffont-id`) * candidates.length);
   return candidates[Math.min(index, candidates.length - 1)];
 }

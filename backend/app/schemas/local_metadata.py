@@ -18,11 +18,15 @@ PosterTextEffect = Literal["none", "shadow", "glow"]
 PosterFontId = Literal[
     "source_han_sans",
     "noto_sans_jp",
+    "noto_sans_cjk_regular",
+    "noto_serif_cjk",
+    "noto_serif_cjk_bold",
     "dela_gothic_one",
     "bebas_neue",
     "anton",
     "smiley_sans",
     "zcool_qingke_huangyou",
+    "zcool_kuaile",
     "lxgw_wenkai",
 ]
 
