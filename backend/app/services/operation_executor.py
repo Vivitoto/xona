@@ -25,6 +25,26 @@ from backend.app.services.storage_roots import (
 logger = logging.getLogger(__name__)
 
 
+EXECUTION_ERROR_LABELS: dict[str, str] = {
+    "target_exists": "目标路径已存在文件",
+    "source_missing": "源文件丢失",
+    "temp_path_exists": "临时文件冲突（上次整理可能中断，请清理后重试）",
+    "target_integrity_mismatch": "复制后文件校验不匹配（磁盘可能存在问题）",
+    "source_integrity_mismatch": "源文件在执行中被修改",
+    "copy_failed": "文件复制失败（磁盘空间或权限问题）",
+    "move_failed": "文件移动失败",
+    "finalize_failed": "文件定案失败",
+    "hardlink_failed": "硬链接创建失败",
+    "symlink_failed": "软链接创建失败",
+    "write_generated_failed": "写入 NFO/封面失败（磁盘空间不足）",
+    "target_parent_unavailable": "目标目录不可访问",
+    "outside_storage_root": "路径超出存储根目录",
+    "symlink_ancestor": "路径包含符号链接",
+    "target_missing": "操作后目标文件不存在",
+    "unsupported_operation": "不支持的操作类型",
+}
+
+
 class OperationExecutionError(RuntimeError):
     def __init__(self, error_code: str, message: str | None = None) -> None:
         super().__init__(message or error_code)
@@ -481,3 +501,17 @@ def _hash_file(path: Path) -> str:
         for chunk in iter(lambda: handle.read(1024 * 1024), b""):
             digest.update(chunk)
     return digest.hexdigest()
+
+
+def cleanup_stale_temp_files(plan: OperationPlan) -> None:
+    for step in plan.steps:
+        temp = temp_path_for_step(plan, step)
+        if temp.exists() or temp.is_symlink():
+            try:
+                temp.unlink()
+                logger.info(
+                    "Cleaned up stale temp file plan_id=%s step_id=%s path=%s",
+                    plan.plan_id, step.step_id, temp,
+                )
+            except OSError:
+                pass

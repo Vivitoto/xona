@@ -49,6 +49,7 @@ from backend.app.services.operation_executor import (
     OperationExecutionError,
     OperationExecutor,
     OperationJournal,
+    cleanup_stale_temp_files,
 )
 from backend.app.services.normalization import normalize_filename_for_search, sanitize_path_component
 from backend.app.services.organizer_plans import (
@@ -249,7 +250,7 @@ class LocalMetadataService:
                     relative_path=movie_nfo_relative_path(template.filename),
                     artifact_type="nfo",
                     content_text=nfo_xml,
-                    allow_replace_existing=False,
+                    allow_replace_existing=True,
                 )
             )
 
@@ -314,6 +315,7 @@ class LocalMetadataService:
         )
         if plan.mode == "preview":
             raise LocalMetadataError("plan_not_executable:preview_mode")
+        cleanup_stale_temp_files(plan)
         try:
             OperationExecutor(
                 self._storage_roots,
@@ -322,7 +324,11 @@ class LocalMetadataService:
         except OperationExecutionError as exc:
             row.status = "failed"
             self._session.flush()
-            raise LocalMetadataError(exc.error_code, status_code=409) from exc
+            raise LocalMetadataError(
+                exc.error_code,
+                status_code=409,
+                reasons=[operation_executor.EXECUTION_ERROR_LABELS.get(exc.error_code, exc.error_code)],
+            ) from exc
         row.status = "completed"
         self._session.flush()
         return LocalExecutePlanResponse(

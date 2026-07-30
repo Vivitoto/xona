@@ -60,6 +60,7 @@ from backend.app.services.operation_executor import (
     OperationExecutionError,
     OperationExecutor,
     OperationJournal,
+    cleanup_stale_temp_files,
 )
 from backend.app.services.organizer_plans import (
     OperationPlanConflictError,
@@ -559,6 +560,7 @@ class ManualOrganizerService:
         job = self._session.get(Job, row.job_id) if row.job_id is not None else None
         if job is not None and job.state == "ready":
             self._jobs.transition_job(job.id, "executing", payload={"plan_id": plan_id})
+        cleanup_stale_temp_files(plan)
         try:
             OperationExecutor(
                 self._storage_roots,
@@ -579,7 +581,7 @@ class ManualOrganizerService:
                     payload={"plan_id": plan_id, "error_code": exc.error_code},
                 )
             self._session.flush()
-            raise ManualOrganizerError(exc.error_code, status_code=409) from exc
+            raise ManualOrganizerError(exc.error_code, status_code=409, reasons=[_error_label(exc.error_code)]) from exc
         row.status = "completed"
         if job is not None and job.state == "executing":
             self._jobs.transition_job(job.id, "completed", payload={"plan_id": plan_id})
