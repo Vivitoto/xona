@@ -78,6 +78,7 @@ const MIN_COVER_FRAME_COUNT = 9;
 const MIN_SCREENSHOT_COUNT = MIN_COVER_FRAME_COUNT;
 const MAX_SCREENSHOT_COUNT = 36;
 const DEFAULT_BATCH_CONCURRENCY = 2;
+const BATCH_TABLE_VISIBLE_LIMIT = 50;
 const DEFAULT_LOCAL_METADATA_VALUES = ["{actors}", "{studio}", "{resolution}"];
 const MIN_BATCH_CONCURRENCY = 1;
 const MAX_BATCH_CONCURRENCY = 3;
@@ -146,7 +147,7 @@ interface BatchDraftStatus {
   status: BatchDraftState;
 }
 
-type BatchDraftState = "drafted" | "loaded" | "updated";
+type BatchDraftState = "drafted";
 type BatchOutputState =
   | "pending"
   | "running"
@@ -631,6 +632,7 @@ export function UnmatchedVideosPage() {
       organize_filename: video.default_organize_filename || title,
       plot: title,
     });
+    setActiveWorkflowTab("single");
     setStatus(`已选择 ${video.filename}`);
   }
 
@@ -661,28 +663,14 @@ export function UnmatchedVideosPage() {
         status: "drafted" as const,
       };
     });
-    const draftToLoad =
-      statuses.find((item) => item.path === draft.video_path) ??
-      (!draft.video_path ? statuses[0] : null);
-    setBatchStatuses(
-      draftToLoad
-        ? statuses.map((item) =>
-            item.path === draftToLoad.path
-              ? { ...item, status: "loaded" as const }
-              : item,
-          )
-        : statuses,
-    );
-    if (draftToLoad) {
-      loadDraftIntoEditor(draftToLoad.draft, draftToLoad.coverSettings);
-    }
+    setBatchStatuses(statuses);
     setBatchOutputItems([]);
-    setStatus(`已为 ${statuses.length} 个视频生成整理信息`);
+    setStatus(`已生成 ${statuses.length} 个批量元数据，可直接生成全部预览`);
   }
 
   async function generateBatchOutputs() {
     if (!batchStatuses.length) {
-      setError("请先为已选视频生成整理信息。");
+      setError("请先生成批量元数据。");
       return;
     }
     if (!destinationRoot.trim()) {
@@ -704,7 +692,7 @@ export function UnmatchedVideosPage() {
     setBatchOutputItems(items);
     setBusy("batch_generate");
     setError("");
-    setStatus(`正在以 ${concurrency} 路并发生成批量 NFO、封面与整理预览`);
+    setStatus(`正在以 ${concurrency} 路并发生成全部预览`);
 
     try {
       const results = await runLimitedConcurrency(
@@ -1054,44 +1042,6 @@ export function UnmatchedVideosPage() {
     updateVideoPath(path);
     setError("");
     setStatus(`已选择视频路径：${path}`);
-  }
-
-  function loadBatchDraft(item: BatchDraftStatus) {
-    loadDraftIntoEditor(item.draft, item.coverSettings);
-    setBatchStatuses((current) =>
-      current.map((entry) =>
-        entry.path === item.path ? { ...entry, status: "loaded" } : entry,
-      ),
-    );
-    setStatus(`已载入整理信息：${item.filename}`);
-  }
-
-  function saveCurrentDraftToBatch(item: BatchDraftStatus) {
-    const nextDraft = cleanedDraft(draft);
-    const nextCoverSettings = currentCoverEditorSettings();
-    if (nextDraft.video_path !== item.path) {
-      setError("当前编辑器草稿与批量条目不匹配。");
-      return;
-    }
-    setDraft(nextDraft);
-    setVideoPath(nextDraft.video_path);
-    setBatchStatuses((current) =>
-      current.map((entry) =>
-        entry.path === item.path
-          ? {
-              ...entry,
-              draft: cloneDraft(nextDraft),
-              coverSettings: nextCoverSettings,
-              status: "updated",
-            }
-          : entry,
-      ),
-    );
-    setBatchOutputItems((current) =>
-      current.filter((entry) => entry.path !== item.path),
-    );
-    setError("");
-    setStatus(`已保存当前草稿：${item.filename}`);
   }
 
   function updateDraft<K extends keyof LocalMetadataDraft>(
@@ -2100,6 +2050,80 @@ export function UnmatchedVideosPage() {
                   </FormField>
                 </div>
               </div>
+              <div className="batch-output-rule-panel" aria-labelledby="batch-output-rule-title">
+                <div>
+                  <h3 id="batch-output-rule-title">批量输出规则</h3>
+                  <p className="section-lead">
+                    这些规则会一次性应用到所有已生成的批量元数据；点生成全部预览后，Xona 只展示汇总和紧凑列表。
+                  </p>
+                </div>
+                <div className="grid four organize-preview-grid">
+                  <div className="path-field">
+                    <FormField label="目标目录">
+                      <input
+                        placeholder="/media/organized"
+                        value={destinationRoot}
+                        onChange={(event) =>
+                          updatePlanInput(() => setDestinationRoot(event.target.value))
+                        }
+                      />
+                    </FormField>
+                    <DirectoryPicker
+                      initialPath={destinationRoot}
+                      onSelect={(path) => updatePlanInput(() => setDestinationRoot(path))}
+                      title="选择目标目录"
+                    />
+                  </div>
+                  <FormField label="模式">
+                    <select
+                      value={mode}
+                      onChange={(event) =>
+                        updatePlanInput(() =>
+                          setMode(event.target.value as OrganizationMode),
+                        )
+                      }
+                    >
+                      <option value="preview">仅预览</option>
+                      <option value="copy">复制</option>
+                      <option value="move">移动</option>
+                      <option value="hardlink">硬链接</option>
+                      <option value="symlink">符号链接</option>
+                    </select>
+                  </FormField>
+                  <FormField label="文件夹模板">
+                    <textarea
+                      value={folderTemplates}
+                      onChange={(event) =>
+                        updatePlanInput(() => setFolderTemplates(event.target.value))
+                      }
+                    />
+                  </FormField>
+                  <FormField label="文件名模板">
+                    <input
+                      value={filenameTemplate}
+                      onChange={(event) =>
+                        updatePlanInput(() => setFilenameTemplate(event.target.value))
+                      }
+                    />
+                  </FormField>
+                  <FormField label="额外背景图数量">
+                    <input
+                      max={10}
+                      min={0}
+                      step={1}
+                      type="number"
+                      value={extraBackdropCount}
+                      onChange={(event) => {
+                        updatePlanInput(() =>
+                          setExtraBackdropCount(
+                            clampExtraBackdropCount(event.target.value),
+                          ),
+                        );
+                      }}
+                    />
+                  </FormField>
+                </div>
+              </div>
               <div className="button-row batch-actions-row">
                 <FormField
                   label="批量并发数"
@@ -2123,7 +2147,7 @@ export function UnmatchedVideosPage() {
                   type="button"
                   onClick={applyBatchFields}
                 >
-                  为已选视频生成整理信息
+                  生成批量元数据
                 </button>
                 <button
                   className="secondary"
@@ -2133,7 +2157,7 @@ export function UnmatchedVideosPage() {
                 >
                   {busy === "batch_generate"
                     ? "批量生成中..."
-                    : "生成批量 NFO/封面/整理预览"}
+                    : "生成全部预览"}
                 </button>
                 <button
                   className="secondary"
@@ -2143,145 +2167,20 @@ export function UnmatchedVideosPage() {
                 >
                   {busy === "batch_execute"
                     ? "批量执行中..."
-                    : "执行已生成的批量整理计划"}
+                    : "执行全部可执行计划"}
                 </button>
               </div>
 
               <BatchOutputSummary batchOutputItems={batchOutputItems} busy={busy} />
 
               {batchStatuses.length ? (
-                <div className="table-wrap">
-                  <table>
-                    <caption>已生成的整理信息</caption>
-                    <thead>
-                      <tr>
-                        <th>视频</th>
-                        <th>标题</th>
-                        <th>整理文件名</th>
-                        <th>封面风格</th>
-                        <th>状态</th>
-                        <th>操作</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {batchStatuses.map((item) => {
-                        const isLoadedDraft = draft.video_path === item.path;
-                        return (
-                          <tr
-                            className={isLoadedDraft ? "is-selected-row" : undefined}
-                            key={item.path}
-                          >
-                            <td>{item.path}</td>
-                            <td>{item.draft.title}</td>
-                            <td>{item.draft.organize_filename || "使用文件名模板"}</td>
-                            <td>{coverSettingsSummary(item.coverSettings)}</td>
-                            <td>
-                              <span
-                                className={`status-pill ${batchStatusClass(item.status)}`}
-                              >
-                                {batchStatusLabel(item.status)}
-                              </span>
-                            </td>
-                            <td>
-                              <div className="button-row">
-                                <button
-                                  className="secondary"
-                                  type="button"
-                                  aria-label={`载入整理信息 ${item.filename}`}
-                                  onClick={() => loadBatchDraft(item)}
-                                >
-                                  载入
-                                </button>
-                                <button
-                                  className="secondary"
-                                  disabled={!isLoadedDraft}
-                                  type="button"
-                                  aria-label={`保存当前草稿到 ${item.filename}`}
-                                  onClick={() => saveCurrentDraftToBatch(item)}
-                                >
-                                  保存当前
-                                </button>
-                              </div>
-                            </td>
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
-                </div>
+                <CompactBatchDraftTable batchStatuses={batchStatuses} />
               ) : null}
 
               {batchOutputItems.length ? (
-                <div className="table-wrap batch-output-results">
-                  <table>
-                    <caption>批量生成结果</caption>
-                    <thead>
-                      <tr>
-                        <th>视频</th>
-                        <th>状态</th>
-                        <th>NFO / 封面 / 计划</th>
-                        <th>执行</th>
-                        <th>日志</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {batchOutputItems.map((item) => (
-                        <tr key={item.path}>
-                          <td>{item.path}</td>
-                          <td>
-                            <span
-                              className={`status-pill ${batchOutputStatusClass(
-                                item.status,
-                              )}`}
-                            >
-                              {batchOutputStatusLabel(item.status)}
-                            </span>
-                            {item.error ? (
-                              <p className="status error batch-output-error">
-                                {item.error}
-                              </p>
-                            ) : null}
-                          </td>
-                          <td>
-                            <div className="batch-output-details">
-                              <span>
-                                {item.planPreview ? "NFO 已生成" : "NFO 未生成"}
-                              </span>
-                              <span>
-                                {item.coverPreview
-                                  ? `封面 ${item.coverPreview.poster.id}`
-                                  : "封面未生成"}
-                              </span>
-                              <span>
-                                {item.planPreview
-                                  ? `计划 ${item.planPreview.plan_id}`
-                                  : "计划未生成"}
-                              </span>
-                            </div>
-                          </td>
-                          <td>
-                            {item.executeResult
-                              ? item.executeResult.state === "completed"
-                                ? "整理完成"
-                                : `状态 ${item.executeResult.state}`
-                              : item.planPreview?.plan.mode === "preview"
-                                ? "仅预览"
-                                : item.planPreview
-                                  ? "等待显式执行"
-                                  : "未生成计划"}
-                          </td>
-                          <td className="batch-output-log-cell">
-                            <BatchOutputLogView logs={item.logs} />
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
+                <CompactBatchOutputTable batchOutputItems={batchOutputItems} />
               ) : null}
             </Section>
-
-            {renderOrganizePreviewSection("batch")}
           </>
         )}
       </div>
@@ -2591,15 +2490,212 @@ function BatchOutputSummary({
   batchOutputItems: BatchOutputItem[];
   busy: BusyAction;
 }) {
+  const stats = batchOutputStats(batchOutputItems);
   return (
-    <p
-      aria-label="批量生成摘要"
-      aria-live="polite"
-      className="status"
-      role="status"
-    >
-      {batchOutputSummaryText({ batchOutputItems, busy })}
-    </p>
+    <div className="batch-summary-panel">
+      <p
+        aria-label="批量生成摘要"
+        aria-live="polite"
+        className="status"
+        role="status"
+      >
+        {batchOutputSummaryText({ batchOutputItems, busy })}
+      </p>
+      {batchOutputItems.length ? (
+        <dl className="batch-summary-metrics" aria-label="批量生成统计">
+          <div>
+            <dt>总数</dt>
+            <dd>{stats.total}</dd>
+          </div>
+          <div>
+            <dt>等待</dt>
+            <dd>{stats.pending}</dd>
+          </div>
+          <div>
+            <dt>处理中</dt>
+            <dd>{stats.running}</dd>
+          </div>
+          <div>
+            <dt>已生成</dt>
+            <dd>{stats.succeeded}</dd>
+          </div>
+          <div>
+            <dt>可执行</dt>
+            <dd>{stats.executable}</dd>
+          </div>
+          <div>
+            <dt>失败</dt>
+            <dd>{stats.failed + stats.executeFailed}</dd>
+          </div>
+          <div>
+            <dt>已执行</dt>
+            <dd>{stats.executed}</dd>
+          </div>
+        </dl>
+      ) : null}
+    </div>
+  );
+}
+
+function CompactBatchDraftTable({
+  batchStatuses,
+}: {
+  batchStatuses: BatchDraftStatus[];
+}) {
+  const visibleItems = batchStatuses.slice(0, BATCH_TABLE_VISIBLE_LIMIT);
+  const hiddenCount = Math.max(batchStatuses.length - visibleItems.length, 0);
+
+  return (
+    <div className="batch-compact-panel">
+      <div className="row row-between batch-table-heading">
+        <div>
+          <h3>已生成的批量元数据</h3>
+          <p className="muted">
+            共 {batchStatuses.length} 个；当前只显示前 {visibleItems.length} 个，批量预览和执行仍作用于全部条目。
+          </p>
+        </div>
+        <span className="status-pill status-pill-neutral">无需载入或保存</span>
+      </div>
+      {hiddenCount ? (
+        <p className="status batch-limit-note">
+          为避免页面过长，已折叠 {hiddenCount} 个成功元数据条目。
+        </p>
+      ) : null}
+      <div className="table-wrap batch-compact-table">
+        <table>
+          <caption>已生成的批量元数据</caption>
+          <thead>
+            <tr>
+              <th>文件</th>
+              <th>标题</th>
+              <th>整理文件名</th>
+              <th>封面</th>
+              <th>状态</th>
+            </tr>
+          </thead>
+          <tbody>
+            {visibleItems.map((item) => (
+              <tr key={item.path}>
+                <td>
+                  <strong>{item.filename}</strong>
+                  <small>{item.path}</small>
+                </td>
+                <td>{item.draft.title}</td>
+                <td>{item.draft.organize_filename || "使用文件名模板"}</td>
+                <td>{coverSettingsSummary(item.coverSettings)}</td>
+                <td>
+                  <span className={`status-pill ${batchStatusClass(item.status)}`}>
+                    {batchStatusLabel(item.status)}
+                  </span>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+function CompactBatchOutputTable({
+  batchOutputItems,
+}: {
+  batchOutputItems: BatchOutputItem[];
+}) {
+  const visibleItems = prioritizedBatchOutputItems(batchOutputItems).slice(
+    0,
+    BATCH_TABLE_VISIBLE_LIMIT,
+  );
+  const hiddenCount = Math.max(batchOutputItems.length - visibleItems.length, 0);
+
+  return (
+    <div className="batch-compact-panel batch-output-results">
+      <div className="row row-between batch-table-heading">
+        <div>
+          <h3>批量预览结果</h3>
+          <p className="muted">
+            优先显示失败、处理中和可执行条目；日志、封面和计划细节默认折叠。
+          </p>
+        </div>
+        <span className="status-pill status-pill-neutral">
+          显示 {visibleItems.length} / {batchOutputItems.length}
+        </span>
+      </div>
+      {hiddenCount ? (
+        <p className="status batch-limit-note">
+          已隐藏 {hiddenCount} 个低优先级条目，避免 100+ 文件时页面过长；批量执行仍覆盖全部可执行计划。
+        </p>
+      ) : null}
+      <div className="table-wrap batch-compact-table">
+        <table>
+          <caption>批量预览结果</caption>
+          <thead>
+            <tr>
+              <th>文件</th>
+              <th>标题 / 计划</th>
+              <th>状态</th>
+              <th>执行</th>
+              <th>详情</th>
+            </tr>
+          </thead>
+          <tbody>
+            {visibleItems.map((item) => (
+              <tr key={item.path}>
+                <td>
+                  <strong>{item.filename}</strong>
+                  <small>{item.path}</small>
+                </td>
+                <td>
+                  <strong>{item.draft.title}</strong>
+                  <small>
+                    {item.planPreview
+                      ? `计划 ${item.planPreview.plan_id}`
+                      : item.draft.organize_filename || "等待计划"}
+                  </small>
+                </td>
+                <td>
+                  <span
+                    className={`status-pill ${batchOutputStatusClass(item.status)}`}
+                  >
+                    {batchOutputStatusLabel(item.status)}
+                  </span>
+                  {item.error ? (
+                    <p className="status error batch-output-error">
+                      {shortBatchError(item.error)}
+                    </p>
+                  ) : null}
+                </td>
+                <td>{batchOutputExecutionLabel(item)}</td>
+                <td>
+                  <BatchOutputDetails item={item} />
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+function BatchOutputDetails({ item }: { item: BatchOutputItem }) {
+  return (
+    <details className="batch-output-disclosure">
+      <summary>查看详情</summary>
+      <div className="batch-output-details">
+        <span>{item.planPreview ? "NFO 已生成" : "NFO 未生成"}</span>
+        <span>
+          {item.coverPreview ? `封面 ${item.coverPreview.poster.id}` : "封面未生成"}
+        </span>
+        <span>
+          {item.planPreview ? `计划 ${item.planPreview.plan_id}` : "计划未生成"}
+        </span>
+        {item.planPreview ? (
+          <span>目标 {item.planPreview.plan.target_directory}</span>
+        ) : null}
+      </div>
+      <BatchOutputLogView logs={item.logs} />
+    </details>
   );
 }
 
@@ -3005,7 +3101,7 @@ function organizeProgressText({
     return `${workflowLabel}预览状态：正在执行整理计划。`;
   }
   if (busy === "batch_generate") {
-    return `${workflowLabel}预览状态：正在生成批量 NFO、封面与整理预览。`;
+    return `${workflowLabel}预览状态：正在生成全部预览。`;
   }
   if (busy === "batch_execute") {
     return `${workflowLabel}预览状态：正在执行批量整理计划。`;
@@ -3044,19 +3140,13 @@ function batchDraftProgressText({
     return "批量整理进度：正在扫描目录。";
   }
   if (busy === "batch_generate") {
-    return "批量整理进度：正在生成批量 NFO、封面与整理预览。";
+    return "批量整理进度：正在生成全部预览。";
   }
   if (busy === "batch_execute") {
     return "批量整理进度：正在执行批量整理计划。";
   }
   if (batchStatuses.length) {
-    const loadedCount = batchStatuses.filter(
-      (item) => item.status === "loaded",
-    ).length;
-    const updatedCount = batchStatuses.filter(
-      (item) => item.status === "updated",
-    ).length;
-    return `批量整理进度：已生成 ${batchStatuses.length} 个视频整理信息，${loadedCount} 个已载入，${updatedCount} 个已更新。`;
+    return `批量整理进度：已生成 ${batchStatuses.length} 个批量元数据，可直接生成全部预览。`;
   }
   if (scannedCount) {
     return `批量整理进度：已扫描 ${scannedCount} 个视频，已选择 ${selectedCount} 个。`;
@@ -3074,54 +3164,82 @@ function batchOutputSummaryText({
   if (!batchOutputItems.length) {
     return "批量生成摘要：等待生成 NFO、封面与整理预览。";
   }
-  const succeededCount = batchOutputItems.filter(
-    (item) =>
-      item.status === "succeeded" ||
-      item.status === "executing" ||
-      item.status === "executed",
-  ).length;
-  const failedCount = batchOutputItems.filter((item) => item.status === "failed").length;
-  const runningCount = batchOutputItems.filter(
-    (item) => item.status === "running" || item.status === "executing",
-  ).length;
-  const pendingCount = batchOutputItems.filter(
-    (item) => item.status === "pending",
-  ).length;
-  const executedCount = batchOutputItems.filter(
-    (item) => item.status === "executed",
-  ).length;
-  const executeFailedCount = batchOutputItems.filter(
-    (item) => item.status === "execute_failed",
-  ).length;
+  const stats = batchOutputStats(batchOutputItems);
 
   if (busy === "batch_generate" || busy === "batch_execute") {
-    return `批量生成摘要：共 ${batchOutputItems.length} 个，处理中 ${runningCount} 个，等待 ${pendingCount} 个，成功 ${succeededCount} 个，失败 ${failedCount + executeFailedCount} 个。`;
+    return `批量生成摘要：共 ${stats.total} 个，处理中 ${stats.running} 个，等待 ${stats.pending} 个，成功 ${stats.succeeded} 个，失败 ${stats.failed + stats.executeFailed} 个，可执行 ${stats.executable} 个。`;
   }
-  return `批量生成摘要：共 ${batchOutputItems.length} 个，成功 ${succeededCount} 个，失败 ${failedCount} 个，已执行 ${executedCount} 个，执行失败 ${executeFailedCount} 个。`;
+  return `批量生成摘要：共 ${stats.total} 个，成功 ${stats.succeeded} 个，失败 ${stats.failed} 个，可执行 ${stats.executable} 个，已执行 ${stats.executed} 个，执行失败 ${stats.executeFailed} 个。`;
+}
+
+function batchOutputStats(items: BatchOutputItem[]) {
+  return {
+    total: items.length,
+    pending: items.filter((item) => item.status === "pending").length,
+    running: items.filter(
+      (item) => item.status === "running" || item.status === "executing",
+    ).length,
+    succeeded: items.filter(
+      (item) =>
+        item.status === "succeeded" ||
+        item.status === "executing" ||
+        item.status === "executed",
+    ).length,
+    executable: items.filter(canExecuteBatchOutputItem).length,
+    failed: items.filter((item) => item.status === "failed").length,
+    executed: items.filter((item) => item.status === "executed").length,
+    executeFailed: items.filter((item) => item.status === "execute_failed").length,
+  };
+}
+
+function prioritizedBatchOutputItems(items: BatchOutputItem[]): BatchOutputItem[] {
+  const priority: Record<BatchOutputState, number> = {
+    failed: 0,
+    execute_failed: 1,
+    running: 2,
+    executing: 3,
+    succeeded: 4,
+    pending: 5,
+    executed: 6,
+  };
+  return [...items].sort((left, right) => {
+    const leftPriority = priority[left.status];
+    const rightPriority = priority[right.status];
+    if (leftPriority !== rightPriority) {
+      return leftPriority - rightPriority;
+    }
+    return left.filename.localeCompare(right.filename, "zh-Hans-CN");
+  });
+}
+
+function batchOutputExecutionLabel(item: BatchOutputItem): string {
+  if (item.executeResult) {
+    return item.executeResult.state === "completed"
+      ? "整理完成"
+      : `状态 ${item.executeResult.state}`;
+  }
+  if (item.planPreview?.plan.mode === "preview") {
+    return "仅预览";
+  }
+  if (canExecuteBatchOutputItem(item)) {
+    return "可执行";
+  }
+  if (item.planPreview) {
+    return "等待批量执行";
+  }
+  return "未生成计划";
+}
+
+function shortBatchError(message: string): string {
+  return message.length > 96 ? `${message.slice(0, 96)}...` : message;
 }
 
 function batchStatusLabel(status: BatchDraftState): string {
-  switch (status) {
-    case "loaded":
-      return "已载入";
-    case "updated":
-      return "已更新";
-    case "drafted":
-    default:
-      return "草稿";
-  }
+  return status === "drafted" ? "已生成" : "已生成";
 }
 
 function batchStatusClass(status: BatchDraftState): string {
-  switch (status) {
-    case "loaded":
-      return "status-pill-neutral";
-    case "updated":
-      return "status-pill-success";
-    case "drafted":
-    default:
-      return "status-pill-warning";
-  }
+  return status === "drafted" ? "status-pill-success" : "status-pill-success";
 }
 
 function batchOutputStatusLabel(status: BatchOutputState): string {

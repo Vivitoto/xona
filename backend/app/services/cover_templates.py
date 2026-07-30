@@ -361,17 +361,21 @@ def _focus_metric(image: Image.Image) -> float:
     width, height = image.size
     if width < 3 or height < 3:
         return 0.0
-    pixels = image.load()
+    pixels = list(image.convert("L").tobytes())
+
+    def pixel_at(x: int, y: int) -> int:
+        return pixels[y * width + x]
+
     total = 0.0
     count = 0
     for y in range(1, height - 1):
         for x in range(1, width - 1):
-            center = int(pixels[x, y])
+            center = pixel_at(x, y)
             laplacian = (
-                int(pixels[x - 1, y])
-                + int(pixels[x + 1, y])
-                + int(pixels[x, y - 1])
-                + int(pixels[x, y + 1])
+                pixel_at(x - 1, y)
+                + pixel_at(x + 1, y)
+                + pixel_at(x, y - 1)
+                + pixel_at(x, y + 1)
                 - 4 * center
             )
             total += abs(laplacian)

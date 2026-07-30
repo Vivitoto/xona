@@ -193,7 +193,7 @@ describe("UnmatchedVideosPage", () => {
     expect(screen.queryByRole("dialog", { name: "选择视频文件" })).toBeNull();
   });
 
-  it("creates loadable page-local batch drafts and previews the loaded draft", async () => {
+  it("creates self-contained batch metadata without loading rows into the single editor", async () => {
     const { calls } = installFetchMock([
       { path: "/api/settings", response: settingsFixture() },
       {
@@ -219,17 +219,6 @@ describe("UnmatchedVideosPage", () => {
           ],
         },
       },
-      {
-        method: "POST",
-        path: "/api/local-metadata/preview-plan",
-        response: {
-          plan_id: "plan-batch",
-          metadata: { title: "Edited Beta Scene" },
-          materialized_assets: [],
-          nfo_xml: "<movie><title>Edited Beta Scene</title></movie>",
-          plan: operationPlanFixture(),
-        },
-      },
     ]);
 
     render(<UnmatchedVideosPage />);
@@ -252,13 +241,11 @@ describe("UnmatchedVideosPage", () => {
     expect(batchTab).toHaveAttribute("aria-selected", "true");
     expect(screen.getByRole("heading", { name: "批量整理列表" })).toBeTruthy();
     expect(screen.queryByRole("heading", { name: "单个视频" })).toBeNull();
-    expect(screen.getByRole("heading", { name: "整理预览" })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "批量输出规则" })).toBeTruthy();
+    expect(screen.queryByRole("heading", { name: "整理预览" })).toBeNull();
     expect(
       screen.getByRole("status", { name: "批量整理进度" }),
     ).toHaveTextContent("等待扫描目录");
-    expect(
-      screen.getByRole("status", { name: "批量整理预览状态" }),
-    ).toHaveTextContent("批量整理预览状态");
 
     const batchSection = screen
       .getByRole("heading", { name: "批量整理列表" })
@@ -313,20 +300,19 @@ describe("UnmatchedVideosPage", () => {
       target: { value: "Batch plot text." },
     });
 
-    fireEvent.click(batch.getByRole("button", { name: "为已选视频生成整理信息" }));
+    fireEvent.click(batch.getByRole("button", { name: "生成批量元数据" }));
 
-    await waitFor(() => expect(batch.getByText("已生成的整理信息")).toBeTruthy());
+    await waitFor(() => expect(batch.getByRole("heading", { name: "已生成的批量元数据" })).toBeTruthy());
     expect(
       batch.getByRole("status", { name: "批量整理进度" }),
-    ).toHaveTextContent("已生成 2 个视频整理信息");
+    ).toHaveTextContent("已生成 2 个批量元数据");
     expect(batch.getByText("[Batch] Alpha Scene - Draft")).toBeTruthy();
     expect(batch.getByText("OF_Alpha Scene_OUT")).toBeTruthy();
     expect(batch.getByText("[Batch] Beta Scene - Draft")).toBeTruthy();
     expect(batch.getByText("OF_Beta Custom_OUT")).toBeTruthy();
-
-    fireEvent.click(
-      batch.getByRole("button", { name: "载入整理信息 Beta.Scene.mkv" }),
-    );
+    expect(batch.getByText("无需载入或保存")).toBeTruthy();
+    expect(batch.queryByRole("button", { name: /载入整理信息/ })).toBeNull();
+    expect(batch.queryByRole("button", { name: /保存当前草稿/ })).toBeNull();
 
     fireEvent.click(singleTab);
     const editorSection = screen
@@ -334,87 +320,12 @@ describe("UnmatchedVideosPage", () => {
       .closest("section");
     expect(editorSection).toBeTruthy();
     const editor = within(editorSection as HTMLElement);
-
-    await waitFor(() =>
-      expect(editor.getByLabelText("标题 (title)")).toHaveValue("[Batch] Beta Scene - Draft"),
-    );
-    expect(editor.getByLabelText("整理文件名 (organize_filename)")).toHaveValue("OF_Beta Custom_OUT");
-    expect(editor.getByLabelText("制作方 (studio)")).toHaveValue("Batch Studio");
-    expect(editor.getByLabelText("系列 (set)")).toHaveValue("Batch Series");
-    expect(editor.getByLabelText("演员 (actor)")).toHaveValue("Actor One\nActor Two");
-    expect(editor.getByLabelText("简介 (plot)")).toHaveValue("Batch plot text.");
-    expect(editor.getByLabelText("标签 (tag)")).toHaveValue("batch-tag\nmanual-tag");
-    expect(editor.getByLabelText("类型 (genre)")).toHaveValue("Drama\nLocal");
-
-    fireEvent.change(editor.getByLabelText("标题 (title)"), {
-      target: { value: "Edited Beta Scene" },
-    });
-
-    fireEvent.click(batchTab);
-    const updatedBatchSection = screen
-      .getByRole("heading", { name: "批量整理列表" })
-      .closest("section");
-    expect(updatedBatchSection).toBeTruthy();
-    const updatedBatch = within(updatedBatchSection as HTMLElement);
-    fireEvent.click(
-      updatedBatch.getByRole("button", { name: "保存当前草稿到 Beta.Scene.mkv" }),
-    );
-    expect(updatedBatch.getByText("Edited Beta Scene")).toBeTruthy();
-    expect(updatedBatch.getByText("已更新")).toBeTruthy();
-
-    const batchPreviewSection = screen
-      .getByRole("heading", { name: "整理预览" })
-      .closest("section");
-    expect(batchPreviewSection).toBeTruthy();
-    const batchPreview = within(batchPreviewSection as HTMLElement);
-    expect(
-      batchPreview.getByRole("status", { name: "批量整理预览状态" }),
-    ).toHaveTextContent("可生成整理预览");
-
-    fireEvent.click(batchPreview.getByRole("button", { name: "生成整理预览" }));
-
-    await waitFor(() =>
-      expect(
-        calls.some(
-          (call) =>
-            call.method === "POST" &&
-            call.url === "/api/local-metadata/preview-plan",
-        ),
-      ).toBe(true),
-    );
-    await waitFor(() =>
-      expect(
-        batchPreview.getByRole("status", { name: "批量整理预览状态" }),
-      ).toHaveTextContent("整理预览已生成"),
-    );
-    const previewCall = calls.find(
-      (call) => call.method === "POST" && call.url === "/api/local-metadata/preview-plan",
-    );
-    expect(previewCall?.body).toMatchObject({
-      metadata: {
-        video_path: "/media/incoming/Beta.Scene.mkv",
-        title: "Edited Beta Scene",
-        organize_filename: "OF_Beta Custom_OUT",
-        studio: "Batch Studio",
-        series: "Batch Series",
-        actors: ["Actor One", "Actor Two"],
-        plot: "Batch plot text.",
-        tags: ["batch-tag", "manual-tag"],
-        genres: ["Drama", "Local"],
-      },
-      destination_root: "/media/organized",
-      mode: "copy",
-      folder_templates: ["{studio}", "{title}"],
-      filename_template: "{title}",
-    });
+    expect(screen.getByLabelText("视频路径")).toHaveValue("");
+    expect(editor.getByLabelText("标题 (title)")).toHaveValue("");
   });
 
-  it("applies default batch random title format to loaded cover previews", async () => {
-    const selectedFrameIds = Array.from(
-      { length: 9 },
-      (_, index) => `frames/beta-${index + 1}.jpg`,
-    );
-    const { calls } = installFetchMock([
+  it("shows batch random cover settings as compact row summaries", async () => {
+    installFetchMock([
       { path: "/api/settings", response: settingsFixture() },
       {
         method: "POST",
@@ -439,77 +350,6 @@ describe("UnmatchedVideosPage", () => {
           ],
         },
       },
-      {
-        method: "POST",
-        path: "/api/local-metadata/analyze",
-        response: {
-          video_path: "/media/incoming/Beta.Scene.mkv",
-          cleaned_title: "Beta Scene",
-          default_organize_filename: "Beta Scene",
-          default_plot: "Beta Scene",
-          default_tags: ["{actors}", "{studio}", "{resolution}"],
-          default_genres: ["{actors}", "{studio}", "{resolution}"],
-          technical: {
-            path: "/media/incoming/Beta.Scene.mkv",
-            size_bytes: 4096,
-            duration_seconds: 180,
-            width: 1920,
-            height: 1080,
-            video_codec: "h264",
-            audio_codec: "aac",
-            format_name: "matroska",
-            bit_rate: 6000000,
-            fps: 29.97,
-          },
-          warnings: [],
-        },
-      },
-      {
-        method: "POST",
-        path: "/api/local-metadata/frames",
-        response: {
-          video_path: "/media/incoming/Beta.Scene.mkv",
-          frames: selectedFrameIds.map((id, index) =>
-            cachedAssetFixture({
-              id,
-              url: `/api/local-metadata/cache/${id}`,
-              time_seconds: (index + 1) * 15,
-            }),
-          ),
-          warnings: [],
-        },
-      },
-      {
-        method: "POST",
-        path: "/api/local-metadata/cover-preview",
-        response: {
-          poster: cachedAssetFixture({
-            id: "covers/beta-poster.jpg",
-            kind: "poster",
-            url: "/api/local-metadata/cache/covers/beta-poster.jpg",
-            width: 900,
-            height: 1350,
-          }),
-          fanart: cachedAssetFixture({
-            id: "covers/beta-fanart.jpg",
-            kind: "fanart",
-            url: "/api/local-metadata/cache/covers/beta-fanart.jpg",
-            width: 1600,
-            height: 900,
-          }),
-          thumb: cachedAssetFixture({
-            id: "covers/beta-thumb.jpg",
-            kind: "thumb",
-            url: "/api/local-metadata/cache/covers/beta-thumb.jpg",
-            width: 1600,
-            height: 900,
-          }),
-          template: "tangxin_vlog",
-          title_font_id: "lxgw_wenkai",
-          selected_frame_ids: selectedFrameIds,
-          warnings: [],
-        },
-      },
     ]);
 
     render(<UnmatchedVideosPage />);
@@ -518,10 +358,7 @@ describe("UnmatchedVideosPage", () => {
       expect(screen.getByLabelText("目标目录")).toHaveValue("/media/organized"),
     );
 
-    const singleTab = screen.getByRole("tab", { name: "单个整理" });
-    const batchTab = screen.getByRole("tab", { name: "批量整理" });
-    fireEvent.click(batchTab);
-
+    fireEvent.click(screen.getByRole("tab", { name: "批量整理" }));
     const batchSection = screen
       .getByRole("heading", { name: "批量整理列表" })
       .closest("section");
@@ -590,114 +427,14 @@ describe("UnmatchedVideosPage", () => {
       target: { value: "-6" },
     });
 
-    fireEvent.click(batch.getByRole("button", { name: "为已选视频生成整理信息" }));
-    await waitFor(() => expect(batch.getByText("已生成的整理信息")).toBeTruthy());
+    fireEvent.click(batch.getByRole("button", { name: "生成批量元数据" }));
+    await waitFor(() => expect(batch.getByRole("heading", { name: "已生成的批量元数据" })).toBeTruthy());
     expect(batch.getAllByText(/TangXin Vlog/).length).toBeGreaterThan(1);
-
-    fireEvent.click(
-      batch.getByRole("button", { name: "载入整理信息 Beta.Scene.mkv" }),
-    );
-    fireEvent.click(singleTab);
-
-    let editorSection = screen
-      .getByRole("heading", { name: "元数据草稿" })
-      .closest("section");
-    expect(editorSection).toBeTruthy();
-    let editor = within(editorSection as HTMLElement);
-    await waitFor(() => expect(editor.getByLabelText("模板")).toHaveValue("tangxin_vlog"));
-    const computedSettings = readCoverSettings(editorSection as HTMLElement);
-    expect(computedSettings.titleFontId).not.toBe("lxgw_wenkai");
-    expect(computedSettings.titleFontId).toMatch(
-      /^(source_han_sans|noto_sans_jp|dela_gothic_one|bebas_neue|anton|smiley_sans|zcool_qingke_huangyou|lxgw_wenkai)$/,
-    );
-    expect(computedSettings.titleFontSize).toBeGreaterThanOrEqual(70);
-    expect(computedSettings.titleFontSize).toBeLessThanOrEqual(90);
-    expect(Math.abs(computedSettings.titleAngleDegrees)).toBeGreaterThanOrEqual(5);
-    expect(Math.abs(computedSettings.titleAngleDegrees)).toBeLessThanOrEqual(15);
-    expect(computedSettings.titleOffsetX).toBeGreaterThanOrEqual(-6);
-    expect(computedSettings.titleOffsetX).toBeLessThanOrEqual(14);
-    expect(computedSettings.titleOffsetY).toBeGreaterThanOrEqual(-16);
-    expect(computedSettings.titleOffsetY).toBeLessThanOrEqual(4);
-    expect(computedSettings.titleFillColor).not.toBe("#808080");
-    expect(computedSettings.titleStrokeColor).not.toBe("#808080");
-    expect(computedSettings.titleFillColor).not.toBe(computedSettings.titleStrokeColor);
-    expect(
-      colorContrastRatio(
-        computedSettings.titleFillColor,
-        computedSettings.titleStrokeColor,
-      ),
-    ).toBeGreaterThanOrEqual(4.5);
-
-    fireEvent.click(batchTab);
-    const regeneratedBatchSection = screen
-      .getByRole("heading", { name: "批量整理列表" })
-      .closest("section");
-    expect(regeneratedBatchSection).toBeTruthy();
-    const regeneratedBatch = within(regeneratedBatchSection as HTMLElement);
-    fireEvent.click(
-      regeneratedBatch.getByRole("button", { name: "为已选视频生成整理信息" }),
-    );
-    fireEvent.click(singleTab);
-    editorSection = screen
-      .getByRole("heading", { name: "元数据草稿" })
-      .closest("section");
-    expect(editorSection).toBeTruthy();
-    editor = within(editorSection as HTMLElement);
-    await waitFor(() =>
-      expect(readCoverSettings(editorSection as HTMLElement)).toEqual(computedSettings),
-    );
-
-    fireEvent.click(screen.getByRole("button", { name: "分析并生成截图" }));
-    await screen.findByRole("button", { name: /截图 0:15/ });
-    expect(readCoverSettings(editorSection as HTMLElement)).toEqual(computedSettings);
-
-    fireEvent.click(screen.getByRole("button", { name: "生成封面预览" }));
-    await screen.findByRole("img", { name: "Poster preview" });
-    const coverCall = calls.find(
-      (call) =>
-        call.method === "POST" && call.url === "/api/local-metadata/cover-preview",
-    );
-    expect(coverCall?.body).toMatchObject({
-      video_path: "/media/incoming/Beta.Scene.mkv",
-      template: computedSettings.template,
-      title_font_id: computedSettings.titleFontId,
-      title_font_size: computedSettings.titleFontSize,
-      title_fill_color: computedSettings.titleFillColor,
-      title_stroke_color: computedSettings.titleStrokeColor,
-      title_stroke_width: computedSettings.titleStrokeWidth,
-      title_effect: computedSettings.titleEffect,
-      title_angle_degrees: computedSettings.titleAngleDegrees,
-      title_position_x_percent: computedSettings.titleOffsetX + 50,
-      title_position_y_percent: computedSettings.titleOffsetY + 50,
-      selected_frame_ids: selectedFrameIds,
-    });
-
-    fireEvent.change(editor.getByLabelText("封面字号"), {
-      target: { value: "91" },
-    });
-    fireEvent.click(batchTab);
-    const updatedBatchSection = screen
-      .getByRole("heading", { name: "批量整理列表" })
-      .closest("section");
-    expect(updatedBatchSection).toBeTruthy();
-    const updatedBatch = within(updatedBatchSection as HTMLElement);
-    fireEvent.click(
-      updatedBatch.getByRole("button", { name: "保存当前草稿到 Beta.Scene.mkv" }),
-    );
-    expect(updatedBatch.getByText(/91px/)).toBeTruthy();
-    fireEvent.click(
-      updatedBatch.getByRole("button", { name: "载入整理信息 Beta.Scene.mkv" }),
-    );
-    fireEvent.click(singleTab);
-    editorSection = screen
-      .getByRole("heading", { name: "元数据草稿" })
-      .closest("section");
-    expect(editorSection).toBeTruthy();
-    editor = within(editorSection as HTMLElement);
-    await waitFor(() => expect(editor.getByLabelText("封面字号")).toHaveValue(91));
+    expect(batch.queryByRole("button", { name: /载入整理信息/ })).toBeNull();
+    expect(batch.queryByRole("button", { name: /保存当前草稿/ })).toBeNull();
   });
 
-  it("keeps batch cover baseline stable when random title format is disabled", async () => {
+  it("keeps fixed batch cover baseline in compact summaries when random title format is disabled", async () => {
     installFetchMock([
       { path: "/api/settings", response: settingsFixture() },
       {
@@ -731,10 +468,7 @@ describe("UnmatchedVideosPage", () => {
       expect(screen.getByLabelText("目标目录")).toHaveValue("/media/organized"),
     );
 
-    const singleTab = screen.getByRole("tab", { name: "单个整理" });
-    const batchTab = screen.getByRole("tab", { name: "批量整理" });
-    fireEvent.click(batchTab);
-
+    fireEvent.click(screen.getByRole("tab", { name: "批量整理" }));
     const batchSection = screen
       .getByRole("heading", { name: "批量整理列表" })
       .closest("section");
@@ -781,60 +515,13 @@ describe("UnmatchedVideosPage", () => {
       target: { value: "-6" },
     });
 
-    fireEvent.click(batch.getByRole("button", { name: "为已选视频生成整理信息" }));
-    await waitFor(() => expect(batch.getByText("已生成的整理信息")).toBeTruthy());
-    fireEvent.click(
-      batch.getByRole("button", { name: "载入整理信息 Beta.Scene.mkv" }),
-    );
-    fireEvent.click(singleTab);
-
-    let editorSection = screen
-      .getByRole("heading", { name: "元数据草稿" })
-      .closest("section");
-    expect(editorSection).toBeTruthy();
-    await waitFor(() =>
-      expect(readCoverSettings(editorSection as HTMLElement)).toEqual({
-        template: "tangxin_vlog",
-        titleFontId: "lxgw_wenkai",
-        titleFontSize: 80,
-        titleFillColor: "#808080",
-        titleStrokeColor: "#808080",
-        titleStrokeWidth: 3,
-        titleEffect: "glow",
-        titleAngleDegrees: 10,
-        titleOffsetX: 4,
-        titleOffsetY: -6,
-      }),
-    );
-
-    fireEvent.click(batchTab);
-    const regeneratedBatchSection = screen
-      .getByRole("heading", { name: "批量整理列表" })
-      .closest("section");
-    expect(regeneratedBatchSection).toBeTruthy();
-    const regeneratedBatch = within(regeneratedBatchSection as HTMLElement);
-    fireEvent.click(
-      regeneratedBatch.getByRole("button", { name: "为已选视频生成整理信息" }),
-    );
-    fireEvent.click(singleTab);
-    editorSection = screen
-      .getByRole("heading", { name: "元数据草稿" })
-      .closest("section");
-    expect(editorSection).toBeTruthy();
-    await waitFor(() =>
-      expect(readCoverSettings(editorSection as HTMLElement)).toEqual({
-        template: "tangxin_vlog",
-        titleFontId: "lxgw_wenkai",
-        titleFontSize: 80,
-        titleFillColor: "#808080",
-        titleStrokeColor: "#808080",
-        titleStrokeWidth: 3,
-        titleEffect: "glow",
-        titleAngleDegrees: 10,
-        titleOffsetX: 4,
-        titleOffsetY: -6,
-      }),
-    );
+    fireEvent.click(batch.getByRole("button", { name: "生成批量元数据" }));
+    await waitFor(() => expect(batch.getByRole("heading", { name: "已生成的批量元数据" })).toBeTruthy());
+    expect(batch.getAllByText(/TangXin Vlog/).length).toBeGreaterThan(1);
+    expect(batch.getAllByText(/LXGW WenKai/).length).toBeGreaterThan(1);
+    expect(batch.getAllByText(/80px/).length).toBeGreaterThan(1);
+    expect(batch.getAllByText(/#808080 -> #808080/).length).toBeGreaterThan(1);
+    expect(batch.getAllByText(/\+10 度 \/ X \+4 Y -6/).length).toBeGreaterThan(1);
   });
 
   it("generates batch NFO cover and plans with logs while continuing after one item fails", async () => {
@@ -1007,11 +694,11 @@ describe("UnmatchedVideosPage", () => {
     fireEvent.change(batch.getByLabelText("批量并发数"), {
       target: { value: "2" },
     });
-    fireEvent.click(batch.getByRole("button", { name: "为已选视频生成整理信息" }));
-    await waitFor(() => expect(batch.getByText("已生成的整理信息")).toBeTruthy());
+    fireEvent.click(batch.getByRole("button", { name: "生成批量元数据" }));
+    await waitFor(() => expect(batch.getByRole("heading", { name: "已生成的批量元数据" })).toBeTruthy());
 
     const generateButton = batch.getByRole("button", {
-      name: "生成批量 NFO/封面/整理预览",
+      name: "生成全部预览",
     });
     fireEvent.click(generateButton);
 
@@ -1021,8 +708,8 @@ describe("UnmatchedVideosPage", () => {
       ).toHaveTextContent("成功 2 个，失败 1 个"),
     );
     expect(screen.getByText("失败：Beta screenshots failed")).toBeTruthy();
-    expect(screen.getByText("计划 plan-alpha-scene")).toBeTruthy();
-    expect(screen.getByText("计划 plan-gamma-scene")).toBeTruthy();
+    expect(screen.getAllByText("计划 plan-alpha-scene").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("计划 plan-gamma-scene").length).toBeGreaterThan(0);
     expect(screen.queryByText("计划 plan-beta-scene")).toBeNull();
     expect(screen.getAllByText("已生成").length).toBeGreaterThanOrEqual(2);
     expect(screen.getByText("生成失败")).toBeTruthy();
@@ -1062,11 +749,11 @@ describe("UnmatchedVideosPage", () => {
 
     fireEvent.click(
       batch.getByRole("button", {
-        name: "执行已生成的批量整理计划",
+        name: "执行全部可执行计划",
       }),
     );
     await waitFor(() =>
-      expect(screen.getAllByText("已执行")).toHaveLength(2),
+      expect(screen.getAllByText("整理完成")).toHaveLength(2),
     );
     await waitFor(() =>
       expect(screen.getAllByText(/本地元数据缓存已清理：1 个目录，12 个文件/)).toHaveLength(2),

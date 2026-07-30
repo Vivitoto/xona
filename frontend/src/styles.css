@@ -3022,6 +3022,80 @@ td {
   padding-block-start: 0.2rem;
 }
 
+.batch-output-rule-panel,
+.batch-summary-panel,
+.batch-compact-panel {
+  display: grid;
+  gap: 0.75rem;
+  padding: 0.85rem;
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  background: var(--panel-soft);
+}
+
+.batch-output-rule-panel h3,
+.batch-table-heading h3 {
+  margin: 0 0 0.25rem;
+}
+
+.batch-summary-metrics {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(92px, 1fr));
+  gap: 0.55rem;
+  margin: 0;
+}
+
+.batch-summary-metrics div {
+  min-width: 0;
+  padding: 0.55rem 0.65rem;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--panel-elevated);
+}
+
+.batch-summary-metrics dt {
+  color: var(--muted);
+  font-size: 0.72rem;
+  font-weight: 800;
+}
+
+.batch-summary-metrics dd {
+  margin: 0.1rem 0 0;
+  color: var(--text);
+  font-size: 1.05rem;
+  font-weight: 900;
+}
+
+.batch-limit-note {
+  margin: 0;
+}
+
+.batch-compact-table table {
+  min-width: 980px;
+}
+
+.batch-compact-table td strong,
+.batch-compact-table td small {
+  display: block;
+}
+
+.batch-compact-table td small {
+  margin-top: 0.12rem;
+  color: var(--muted);
+  font-size: 0.76rem;
+  overflow-wrap: anywhere;
+}
+
+.batch-output-disclosure summary {
+  cursor: pointer;
+  color: var(--primary);
+  font-weight: 800;
+}
+
+.batch-output-disclosure[open] summary {
+  margin-bottom: 0.45rem;
+}
+
 .batch-cover-style-panel h3 {
   margin: 0 0 0.3rem;
 }
