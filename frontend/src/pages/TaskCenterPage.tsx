@@ -104,8 +104,10 @@ export function TaskCenterPage({ onRerun }: { onRerun?: (path: string) => void }
       const nextRecords = Array.isArray(response.records) ? response.records : [];
       setRecords(nextRecords);
       setSelectedRecord((current) => {
-        if (current && nextRecords.some((record) => record.record_id === current.record_id)) {
-          return current;
+        if (current) {
+          return (
+            nextRecords.find((record) => record.record_id === current.record_id) ?? null
+          );
         }
         return nextRecords[0] ?? null;
       });
@@ -158,8 +160,8 @@ export function TaskCenterPage({ onRerun }: { onRerun?: (path: string) => void }
         `/api/organize-records/${record.record_id}/rollback`,
         { method: "POST" },
       );
-      setStatus(`回滚完成；已反转 ${response.reversed_steps.length} 个步骤`);
       await loadRecords();
+      setStatus(`回滚完成；已反转 ${response.reversed_steps.length} 个步骤`);
     } catch (exc) {
       if (exc instanceof ApiError && isRollbackRefusal(exc.detail)) {
         setError(`回滚被拒绝：${exc.detail.detail.reason}`);
@@ -256,8 +258,7 @@ export function TaskCenterPage({ onRerun }: { onRerun?: (path: string) => void }
                   <th>状态</th>
                   <th>方式</th>
                   <th>元数据</th>
-                  <th>原始路径</th>
-                  <th>当前路径</th>
+                  <th>原始 / 当前路径</th>
                   <th>时间</th>
                   <th>操作</th>
                 </tr>
@@ -275,8 +276,7 @@ export function TaskCenterPage({ onRerun }: { onRerun?: (path: string) => void }
                     <td><span className={`status-pill ${statusTone(record.status, record.verification_status)}`}>{recordStatusLabel(record.status)}</span></td>
                     <td>{modeLabel(record.mode)}</td>
                     <td><MetadataFlags flags={record.metadata} /></td>
-                    <td><PathCell path={record.source_path} /></td>
-                    <td><PathCell path={record.target_path} /></td>
+                    <td><PathOverview sourcePath={record.source_path} targetPath={record.target_path} /></td>
                     <td>{formatDate(record.created_at)}</td>
                     <td>
                       <div className="button-row">
@@ -307,14 +307,14 @@ export function TaskCenterPage({ onRerun }: { onRerun?: (path: string) => void }
               <h3>整理记录详情</h3>
               <button className="secondary" type="button" onClick={closeModal} aria-label="关闭"><X size={18} /></button>
             </div>
-            <dl className="metadata-list compact history-summary">
+            <dl className="metadata-list compact history-summary record-detail-summary">
               <div><dt>序号</dt><dd>{selectedRecord.display_index}</dd></div>
-              <div><dt>名称</dt><dd>{selectedRecord.name}</dd></div>
+              <div className="wide"><dt>名称</dt><dd>{selectedRecord.name}</dd></div>
               <div><dt>完整 plan ID</dt><dd>{selectedRecord.plan_id ? <code>{selectedRecord.plan_id}</code> : "无"}</dd></div>
-              <div><dt>源路径</dt><dd><code className="path-cell" title={selectedRecord.source_path ?? ""}>{selectedRecord.source_path ?? "无"}</code></dd></div>
-              <div><dt>当前路径</dt><dd><code className="path-cell" title={selectedRecord.target_path ?? ""}>{selectedRecord.target_path ?? "无"}</code></dd></div>
               <div><dt>校验</dt><dd>{verificationLabel(selectedRecord.verification_status)}</dd></div>
-              <div><dt>重新整理路径</dt><dd>{selectedRecord.rerun_path ? <code className="path-cell" title={selectedRecord.rerun_path}>{selectedRecord.rerun_path}</code> : "无"}</dd></div>
+              <div className="wide"><dt>源路径</dt><dd><code className="path-cell" title={selectedRecord.source_path ?? ""}>{selectedRecord.source_path ?? "无"}</code></dd></div>
+              <div className="wide"><dt>当前路径</dt><dd><code className="path-cell" title={selectedRecord.target_path ?? ""}>{selectedRecord.target_path ?? "无"}</code></dd></div>
+              <div className="full"><dt>重新整理将使用</dt><dd>{selectedRecord.rerun_path ? <code className="path-cell" title={selectedRecord.rerun_path}>{selectedRecord.rerun_path}</code> : "无"}</dd></div>
             </dl>
             <div className="button-row">
               <button disabled={!selectedRecord.can_rerun} type="button" onClick={() => rerun(selectedRecord)}>重新整理</button>
@@ -346,6 +346,27 @@ function MetadataFlags({ flags }: { flags: OrganizeRecordRead["metadata"] }) {
       {items.map(([label, enabled]) => (
         <span className={`status-pill ${enabled ? "status-pill-success" : "status-pill-neutral"}`} key={label}>{label}</span>
       ))}
+    </div>
+  );
+}
+
+function PathOverview({
+  sourcePath,
+  targetPath,
+}: {
+  sourcePath: string | null;
+  targetPath: string | null;
+}) {
+  return (
+    <div className="path-overview-cell">
+      <div>
+        <span>原始</span>
+        <PathCell path={sourcePath} />
+      </div>
+      <div>
+        <span>当前</span>
+        <PathCell path={targetPath} />
+      </div>
     </div>
   );
 }

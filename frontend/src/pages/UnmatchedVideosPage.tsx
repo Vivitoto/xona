@@ -18,12 +18,18 @@ import type {
   CoverTemplateName,
   LocalAnalyzeResponse,
   LocalCacheCleanupResponse,
+  LocalBatchCoverSettings,
   LocalCachedAsset,
   LocalCoverPreviewRequest,
   LocalCoverPreviewResponse,
   LocalExecutePlanResponse,
   LocalFrameRequest,
   LocalFrameResponse,
+  LocalMetadataBatchCreateRequest,
+  LocalMetadataBatchListResponse,
+  LocalMetadataBatchRead,
+  LocalMetadataBatchStatus,
+  LocalMetadataBatchSummary,
   LocalMetadataDraft,
   LocalNfoPreviewResponse,
   LocalPlanPreviewRequest,
@@ -105,7 +111,7 @@ const DEFAULT_BATCH_CONCURRENCY = 2;
 const BATCH_TABLE_VISIBLE_LIMIT = 50;
 const DEFAULT_LOCAL_METADATA_VALUES = ["{actors}", "{studio}", "{resolution}"];
 const MIN_BATCH_CONCURRENCY = 1;
-const MAX_BATCH_CONCURRENCY = 3;
+const MAX_BATCH_CONCURRENCY = 4;
 const DESTRUCTIVE_BATCH_PLAN_MODES = new Set<OrganizationMode | string>([
   "move",
   "in_place",
@@ -183,7 +189,8 @@ type BatchOutputState =
   | "failed"
   | "executing"
   | "executed"
-  | "execute_failed";
+  | "execute_failed"
+  | "cancelled";
 type BatchOutputLogTone = "active" | "success" | "warning" | "danger" | "neutral";
 type LocalMetadataWorkflowTab = "single" | "batch";
 
@@ -344,12 +351,15 @@ export function UnmatchedVideosPage() {
     DEFAULT_BATCH_CONCURRENCY,
   );
   const [batchOutputItems, setBatchOutputItems] = useState<BatchOutputItem[]>([]);
+  const [activeBatch, setActiveBatch] = useState<LocalMetadataBatchRead | null>(null);
+  const [recentBatches, setRecentBatches] = useState<LocalMetadataBatchSummary[]>([]);
   const [busy, setBusy] = useState<BusyAction>(null);
   const [status, setStatus] = useState("");
   const [error, setError] = useState("");
   const posterTitleTouched = useRef(false);
   const titleFontTouched = useRef(false);
   const batchTitleFontTouched = useRef(false);
+  const batchSummaryPollCount = useRef(0);
 
   const selectedVideos = useMemo(
     () => scannedVideos.filter((video) => selectedBatchPaths.includes(video.path)),
@@ -402,13 +412,18 @@ export function UnmatchedVideosPage() {
     Boolean(planPreview && planPreview.plan.mode !== "preview" && !executeResult) &&
     busy !== "execute";
   const canGenerateBatchOutputs =
-    Boolean(batchStatuses.length && destinationRoot.trim()) && busy === null;
+    Boolean(batchStatuses.length && destinationRoot.trim()) &&
+    busy === null &&
+    !isActiveLocalMetadataBatch(activeBatch?.status);
   const executableBatchOutputItems = useMemo(
     () => batchOutputItems.filter(canExecuteBatchOutputItem),
     [batchOutputItems],
   );
   const canExecuteBatchOutputs =
-    Boolean(executableBatchOutputItems.length) && busy === null;
+    Boolean(executableBatchOutputItems.length) &&
+    busy === null &&
+    Boolean(activeBatch) &&
+    !isActiveLocalMetadataBatch(activeBatch?.status);
 
   useEffect(() => {
     let active = true;
@@ -440,6 +455,20 @@ export function UnmatchedVideosPage() {
       active = false;
     };
   }, []);
+
+  useEffect(() => {
+    void loadRecentBatches({ recoverActive: true });
+  }, []);
+
+  useEffect(() => {
+    if (!activeBatch || !isActiveLocalMetadataBatch(activeBatch.status)) {
+      return;
+    }
+    const timer = window.setInterval(() => {
+      void pollBatchSummary(activeBatch.batch_id);
+    }, 1500);
+    return () => window.clearInterval(timer);
+  }, [activeBatch?.batch_id, activeBatch?.status]);
 
   useEffect(() => {
     const rerunPath = window.localStorage.getItem(RERUN_VIDEO_PATH_KEY);
@@ -485,7 +514,11 @@ export function UnmatchedVideosPage() {
       setDraft(nextDraft);
       resetPosterTitle(nextDraft.title);
       setStatus("正在生成截图");
-      const frameResponse = await requestFrames(response.video_path);
+      const frameResponse = await requestFrames(
+        response.video_path,
+        screenshotCount,
+        response.technical.duration_seconds,
+      );
       setFrames(frameResponse.frames);
       setSelectedFrameIds(selectedInitialFrameIds(frameResponse.frames));
       setStatus(`分析完成，已生成 ${frameResponse.frames.length} 张截图`);
@@ -512,11 +545,15 @@ export function UnmatchedVideosPage() {
   async function requestFrames(
     sourceVideoPath: string,
     frameCount = screenshotCount,
+    durationSeconds: number | null = technical?.duration_seconds ?? null,
   ): Promise<LocalFrameResponse> {
     const body: LocalFrameRequest = {
       video_path: sourceVideoPath,
       frame_count: frameCount,
     };
+    if (durationSeconds) {
+      body.duration_seconds = durationSeconds;
+    }
     return apiFetch<LocalFrameResponse>("/api/local-metadata/frames", {
       method: "POST",
       body,
@@ -684,6 +721,7 @@ export function UnmatchedVideosPage() {
       setSelectedBatchPaths(response.videos.map((video) => video.path));
       setBatchStatuses([]);
       setBatchOutputItems([]);
+      setActiveBatch(null);
       setStatus(`已扫描 ${response.scanned_count} 个视频文件`);
     } catch (exc) {
       setError(exc instanceof Error ? exc.message : "目录扫描失败");
@@ -742,7 +780,7 @@ export function UnmatchedVideosPage() {
     });
     setBatchStatuses(statuses);
     setBatchOutputItems([]);
-    setStatus(`已生成 ${statuses.length} 个批量元数据，可直接生成全部预览`);
+    setStatus(`已生成 ${statuses.length} 个批量元数据，可提交后台预览任务`);
   }
 
   async function generateBatchOutputs() {
@@ -763,23 +801,42 @@ export function UnmatchedVideosPage() {
       extraBackdropCount,
       frameCount: screenshotCount,
     };
-    const items = batchStatuses.map((item) => initialBatchOutputItem(item));
     const concurrency = clampBatchConcurrencyValue(batchConcurrency);
+    const body: LocalMetadataBatchCreateRequest = {
+      options: {
+        destination_root: options.destinationRoot,
+        mode: options.mode,
+        folder_templates: options.folderTemplates,
+        filename_template: options.filenameTemplate,
+        extra_backdrop_count: options.extraBackdropCount,
+        frame_count: options.frameCount,
+        concurrency,
+        cleanup_cache_after_execute: true,
+      },
+      items: batchStatuses.map((item) => ({
+        video_path: item.path,
+        filename: item.filename,
+        metadata: cleanedDraft(item.draft),
+        cover_settings: coverSettingsToBatchCoverSettings(item.coverSettings),
+      })),
+    };
 
-    setBatchOutputItems(items);
     setBusy("batch_generate");
     setError("");
-    setStatus(`正在以 ${concurrency} 路并发生成全部预览`);
+    setStatus(`正在提交后台批量预览任务，后端将以 ${concurrency} 路并发处理`);
 
     try {
-      const results = await runLimitedConcurrency(
-        items,
-        concurrency,
-        async (item) => generateBatchOutputItem(item, options),
+      const response = await apiFetch<LocalMetadataBatchRead>(
+        "/api/local-metadata/batches",
+        {
+          method: "POST",
+          body,
+          timeoutMs: 60_000,
+        },
       );
-      const successCount = results.filter(Boolean).length;
-      const failureCount = results.length - successCount;
-      setStatus(`批量生成完成：成功 ${successCount} 个，失败 ${failureCount} 个`);
+      applyBatchResponse(response);
+      setStatus(`批量任务 ${response.batch_id} 已提交，离开页面后仍会继续处理`);
+      void loadRecentBatches();
     } catch (exc) {
       setError(exc instanceof Error ? exc.message : "批量生成失败");
       setStatus("");
@@ -912,38 +969,153 @@ export function UnmatchedVideosPage() {
   }
 
   async function executeBatchOutputs() {
-    const candidates = batchOutputItems.filter(canExecuteBatchOutputItem);
-    const { executableItems: items, skippedItems } =
-      splitDuplicateDestructiveBatchPlans(candidates);
-    skippedItems.forEach((item) => markDuplicateDestructiveBatchPlanSkipped(item));
-    if (!items.length) {
+    if (!activeBatch) {
+      setError("请先提交批量预览任务。");
+      return;
+    }
+    if (!executableBatchOutputItems.length) {
       setError("没有可执行的批量整理计划。");
       return;
     }
+    if (DESTRUCTIVE_BATCH_PLAN_MODES.has(activeBatch.options.mode)) {
+      const confirmed = window.confirm(
+        `将执行 ${executableBatchOutputItems.length} 个“${organizationModeLabel(activeBatch.options.mode)}”批量整理计划。该模式会改变原始文件位置或内容，执行前请确认目标路径无误。是否继续？`,
+      );
+      if (!confirmed) {
+        setStatus("已取消批量执行提交");
+        return;
+      }
+    }
 
-    const concurrency = batchExecutionConcurrency(items, batchConcurrency);
     setBusy("batch_execute");
     setError("");
-    setStatus(
-      skippedItems.length
-        ? `正在执行批量整理计划；已跳过 ${skippedItems.length} 个同源重复移动计划`
-        : `正在以 ${concurrency} 路并发执行批量整理计划`,
-    );
+    setStatus(`正在提交批量执行任务 ${activeBatch.batch_id}`);
     try {
-      const results = await runLimitedConcurrency(
-        items,
-        concurrency,
-        executeBatchOutputItem,
+      const response = await apiFetch<LocalMetadataBatchRead>(
+        `/api/local-metadata/batches/${activeBatch.batch_id}/execute`,
+        {
+          method: "POST",
+          timeoutMs: 60_000,
+        },
       );
-      const successCount = results.filter(Boolean).length;
-      const failureCount = results.length - successCount;
-      setStatus(`批量执行完成：成功 ${successCount} 个，失败 ${failureCount} 个`);
+      applyBatchResponse(response);
+      setStatus(`批量执行任务 ${response.batch_id} 已提交`);
+      void loadRecentBatches();
     } catch (exc) {
       setError(exc instanceof Error ? exc.message : "批量执行失败");
       setStatus("");
     } finally {
       setBusy(null);
     }
+  }
+
+  async function loadRecentBatches(
+    options: { recoverActive?: boolean } = {},
+  ) {
+    try {
+      const response = await apiFetch<LocalMetadataBatchListResponse>(
+        "/api/local-metadata/batches?limit=10",
+      );
+      setRecentBatches(response.batches);
+      if (options.recoverActive && !activeBatch) {
+        const active = response.batches.find((batch) =>
+          isActiveLocalMetadataBatch(batch.status),
+        );
+        if (active) {
+          setActiveWorkflowTab("batch");
+          await loadBatch(active.batch_id);
+        }
+      }
+    } catch {
+      // Batch history is optional for the editor; failures should not block the page.
+    }
+  }
+
+  async function loadBatch(batchId: string) {
+    try {
+      const response = await apiFetch<LocalMetadataBatchRead>(
+        `/api/local-metadata/batches/${batchId}`,
+      );
+      applyBatchResponse(response);
+    } catch (exc) {
+      setError(exc instanceof Error ? exc.message : "无法加载批量任务");
+    }
+  }
+
+  async function pollBatchSummary(batchId: string) {
+    try {
+      const summary = await apiFetch<LocalMetadataBatchSummary>(
+        `/api/local-metadata/batches/${batchId}/summary`,
+      );
+      setActiveBatch((current) =>
+        current && current.batch_id === summary.batch_id
+          ? { ...current, ...summary }
+          : current,
+      );
+      setRecentBatches((current) =>
+        current.map((item) => (item.batch_id === summary.batch_id ? summary : item)),
+      );
+      batchSummaryPollCount.current += 1;
+      if (
+        !isActiveLocalMetadataBatch(summary.status) ||
+        batchSummaryPollCount.current % 6 === 0
+      ) {
+        await loadBatch(summary.batch_id);
+        if (!isActiveLocalMetadataBatch(summary.status)) {
+          void loadRecentBatches();
+        }
+      }
+    } catch (exc) {
+      setError(exc instanceof Error ? exc.message : "无法刷新批量任务状态");
+    }
+  }
+
+  async function cancelActiveBatch() {
+    if (!activeBatch) {
+      return;
+    }
+    setBusy("batch_generate");
+    setError("");
+    try {
+      const response = await apiFetch<LocalMetadataBatchRead>(
+        `/api/local-metadata/batches/${activeBatch.batch_id}/cancel`,
+        { method: "POST" },
+      );
+      applyBatchResponse(response);
+      setStatus(`批量任务 ${response.batch_id} 已取消`);
+      void loadRecentBatches();
+    } catch (exc) {
+      setError(exc instanceof Error ? exc.message : "取消批量任务失败");
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function retryActiveBatchFailures() {
+    if (!activeBatch) {
+      return;
+    }
+    setBusy("batch_generate");
+    setError("");
+    try {
+      const response = await apiFetch<LocalMetadataBatchRead>(
+        `/api/local-metadata/batches/${activeBatch.batch_id}/retry-failed`,
+        { method: "POST" },
+      );
+      applyBatchResponse(response);
+      setStatus(`批量任务 ${response.batch_id} 已重新排队失败条目`);
+      void loadRecentBatches();
+    } catch (exc) {
+      setError(exc instanceof Error ? exc.message : "重试失败条目失败");
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  function applyBatchResponse(response: LocalMetadataBatchRead) {
+    batchSummaryPollCount.current = 0;
+    setActiveBatch(response);
+    setBatchOutputItems(batchOutputItemsFromBatch(response));
   }
 
   async function executeBatchOutputItem(item: BatchOutputItem): Promise<boolean> {
@@ -1860,6 +2032,16 @@ export function UnmatchedVideosPage() {
                 selectedCount={selectedBatchPaths.length}
               />
 
+              <BatchServerJobPanel
+                activeBatch={activeBatch}
+                busy={busy}
+                recentBatches={recentBatches}
+                onCancel={() => void cancelActiveBatch()}
+                onLoad={(batchId) => void loadBatch(batchId)}
+                onRefresh={() => void loadRecentBatches()}
+                onRetry={() => void retryActiveBatchFailures()}
+              />
+
               {scannedVideos.length ? (
                 <div className="batch-selection-panel">
                   <div className="row row-between batch-selection-toolbar">
@@ -2174,7 +2356,7 @@ export function UnmatchedVideosPage() {
                 <div>
                   <h3 id="batch-output-rule-title">批量输出规则</h3>
                   <p className="section-lead">
-                    这些规则会一次性应用到所有已生成的批量元数据；点生成全部预览后，Xona 只展示汇总和紧凑列表。
+                    这些规则会一次性应用到所有已生成的批量元数据；提交批量预览任务后，Xona 只展示汇总和紧凑列表。
                   </p>
                 </div>
                 <div className="grid four organize-preview-grid">
@@ -2276,8 +2458,8 @@ export function UnmatchedVideosPage() {
                   onClick={() => void generateBatchOutputs()}
                 >
                   {busy === "batch_generate"
-                    ? "批量生成中..."
-                    : "生成全部预览"}
+                    ? "任务提交中..."
+                    : "提交批量预览任务"}
                 </button>
                 <button
                   className="secondary"
@@ -2290,6 +2472,9 @@ export function UnmatchedVideosPage() {
                     : "执行全部可执行计划"}
                 </button>
               </div>
+              <p className="muted batch-action-hint">
+                提交批量预览后会在后台继续处理，关闭页面也不会中断；预览完成且模式不是“仅预览”后才可执行。
+              </p>
 
               <BatchOutputSummary batchOutputItems={batchOutputItems} busy={busy} />
 
@@ -2603,6 +2788,123 @@ function BatchDraftProgress({
   );
 }
 
+function BatchServerJobPanel({
+  activeBatch,
+  busy,
+  recentBatches,
+  onCancel,
+  onLoad,
+  onRefresh,
+  onRetry,
+}: {
+  activeBatch: LocalMetadataBatchRead | null;
+  busy: BusyAction;
+  recentBatches: LocalMetadataBatchSummary[];
+  onCancel: () => void;
+  onLoad: (batchId: string) => void;
+  onRefresh: () => void;
+  onRetry: () => void;
+}) {
+  const canCancel = Boolean(
+    activeBatch && isActiveLocalMetadataBatch(activeBatch.status),
+  );
+  const canRetry = Boolean(
+    activeBatch &&
+      !isActiveLocalMetadataBatch(activeBatch.status) &&
+      (activeBatch.failed_count > 0 || activeBatch.execute_failed_count > 0),
+  );
+
+  return (
+    <div className="batch-server-panel">
+      <div className="row row-between batch-table-heading">
+        <div>
+          <h3>后台批量任务</h3>
+          <p className="muted">
+            {activeBatch
+              ? `${activeBatch.batch_id} / ${localBatchStatusLabel(activeBatch.status)}`
+              : "提交批量预览后会在后台继续处理，关闭页面也不会中断。"}
+          </p>
+        </div>
+        <div className="button-row">
+          <button className="secondary" type="button" onClick={onRefresh}>
+            <RefreshCw className="button-icon" aria-hidden="true" size={15} />
+            <span>刷新</span>
+          </button>
+          <button
+            className="secondary"
+            disabled={!canRetry || busy !== null}
+            type="button"
+            onClick={onRetry}
+          >
+            重试失败
+          </button>
+          <button
+            className="secondary danger-button"
+            disabled={!canCancel || busy !== null}
+            type="button"
+            onClick={onCancel}
+          >
+            取消任务
+          </button>
+        </div>
+      </div>
+      {activeBatch ? (
+        <dl className="batch-summary-metrics" aria-label="后台批量任务统计">
+          <div>
+            <dt>总数</dt>
+            <dd>{activeBatch.total_count}</dd>
+          </div>
+          <div>
+            <dt>等待</dt>
+            <dd>{activeBatch.pending_count}</dd>
+          </div>
+          <div>
+            <dt>处理中</dt>
+            <dd>{activeBatch.running_count}</dd>
+          </div>
+          <div>
+            <dt>预览可用</dt>
+            <dd>{activeBatch.succeeded_count}</dd>
+          </div>
+          <div>
+            <dt>可执行</dt>
+            <dd>{activeBatch.executable_count}</dd>
+          </div>
+          <div>
+            <dt>失败</dt>
+            <dd>{activeBatch.failed_count + activeBatch.execute_failed_count}</dd>
+          </div>
+          <div>
+            <dt>已执行</dt>
+            <dd>{activeBatch.executed_count}</dd>
+          </div>
+        </dl>
+      ) : null}
+      {recentBatches.length ? (
+        <div className="batch-recent-list" aria-label="最近批量任务">
+          {recentBatches.map((batch) => (
+            <button
+              aria-pressed={batch.batch_id === activeBatch?.batch_id}
+              className="batch-recent-item"
+              key={batch.batch_id}
+              type="button"
+              onClick={() => onLoad(batch.batch_id)}
+            >
+              <span>
+                <strong>{batch.batch_id}</strong>
+                <small>{localBatchStatusLabel(batch.status)}</small>
+              </span>
+              <span>
+                预览 {batch.succeeded_count}/{batch.total_count}，可执行 {batch.executable_count}，执行 {batch.executed_count}，失败 {batch.failed_count + batch.execute_failed_count}
+              </span>
+            </button>
+          ))}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 function BatchOutputSummary({
   batchOutputItems,
   busy,
@@ -2636,7 +2938,7 @@ function BatchOutputSummary({
             <dd>{stats.running}</dd>
           </div>
           <div>
-            <dt>已生成</dt>
+            <dt>预览可用</dt>
             <dd>{stats.succeeded}</dd>
           </div>
           <div>
@@ -2671,10 +2973,10 @@ function CompactBatchDraftTable({
         <div>
           <h3>已生成的批量元数据</h3>
           <p className="muted">
-            共 {batchStatuses.length} 个；当前只显示前 {visibleItems.length} 个，批量预览和执行仍作用于全部条目。
+            共 {batchStatuses.length} 个；当前只显示前 {visibleItems.length} 个，提交预览任务时仍包含全部已生成元数据。
           </p>
         </div>
-        <span className="status-pill status-pill-neutral">无需载入或保存</span>
+        <span className="status-pill status-pill-neutral">待提交</span>
       </div>
       {hiddenCount ? (
         <p className="status batch-limit-note">
@@ -3221,7 +3523,7 @@ function organizeProgressText({
     return `${workflowLabel}预览状态：正在执行整理计划。`;
   }
   if (busy === "batch_generate") {
-    return `${workflowLabel}预览状态：正在生成全部预览。`;
+    return `${workflowLabel}预览状态：正在提交并运行后台预览任务。`;
   }
   if (busy === "batch_execute") {
     return `${workflowLabel}预览状态：正在执行批量整理计划。`;
@@ -3260,13 +3562,13 @@ function batchDraftProgressText({
     return "批量整理进度：正在扫描目录。";
   }
   if (busy === "batch_generate") {
-    return "批量整理进度：正在生成全部预览。";
+    return "批量整理进度：正在提交并运行后台预览任务。";
   }
   if (busy === "batch_execute") {
     return "批量整理进度：正在执行批量整理计划。";
   }
   if (batchStatuses.length) {
-    return `批量整理进度：已生成 ${batchStatuses.length} 个批量元数据，可直接生成全部预览。`;
+    return `批量整理进度：已生成 ${batchStatuses.length} 个批量元数据，可提交后台预览任务。`;
   }
   if (scannedCount) {
     return `批量整理进度：已扫描 ${scannedCount} 个视频，已选择 ${selectedCount} 个。`;
@@ -3282,14 +3584,14 @@ function batchOutputSummaryText({
   busy: BusyAction;
 }): string {
   if (!batchOutputItems.length) {
-    return "批量生成摘要：等待生成 NFO、封面与整理预览。";
+    return "批量预览摘要：等待生成 NFO、封面与整理预览。";
   }
   const stats = batchOutputStats(batchOutputItems);
 
   if (busy === "batch_generate" || busy === "batch_execute") {
-    return `批量生成摘要：共 ${stats.total} 个，处理中 ${stats.running} 个，等待 ${stats.pending} 个，成功 ${stats.succeeded} 个，失败 ${stats.failed + stats.executeFailed} 个，可执行 ${stats.executable} 个。`;
+    return `批量预览摘要：共 ${stats.total} 个，处理中 ${stats.running} 个，等待 ${stats.pending} 个，预览可用 ${stats.succeeded} 个，失败 ${stats.failed + stats.executeFailed} 个，可执行 ${stats.executable} 个。`;
   }
-  return `批量生成摘要：共 ${stats.total} 个，成功 ${stats.succeeded} 个，失败 ${stats.failed} 个，可执行 ${stats.executable} 个，已执行 ${stats.executed} 个，执行失败 ${stats.executeFailed} 个。`;
+  return `批量预览摘要：共 ${stats.total} 个，预览可用 ${stats.succeeded} 个，失败 ${stats.failed} 个，可执行 ${stats.executable} 个，已执行 ${stats.executed} 个，执行失败 ${stats.executeFailed} 个。`;
 }
 
 function batchOutputStats(items: BatchOutputItem[]) {
@@ -3312,6 +3614,109 @@ function batchOutputStats(items: BatchOutputItem[]) {
   };
 }
 
+function batchOutputItemsFromBatch(batch: LocalMetadataBatchRead): BatchOutputItem[] {
+  return batch.items.map((item) => ({
+    path: item.video_path,
+    filename: item.filename,
+    draft: cloneDraft(item.draft),
+    coverSettings: batchCoverSettingsToCoverEditorSettings(item.cover_settings),
+    status: item.status,
+    logs: item.logs.map((entry) => ({
+      tone: entry.tone,
+      message: entry.message,
+    })),
+    frames: item.frames,
+    selectedFrameIds: item.selected_frame_ids,
+    coverPreview: item.cover_preview,
+    planPreview: item.plan_preview,
+    executeResult: item.execute_result,
+    error: item.error,
+  }));
+}
+
+function coverSettingsToBatchCoverSettings(
+  settings: CoverEditorSettings,
+): LocalBatchCoverSettings {
+  return {
+    template: settings.template,
+    title_font_id: settings.titleFontId,
+    title_font_size: settings.titleFontSize,
+    title_fill_color: settings.titleFillColor,
+    title_stroke_color: settings.titleStrokeColor,
+    title_stroke_width: settings.titleStrokeWidth,
+    title_effect: settings.titleEffect,
+    title_angle_degrees: settings.titleAngleDegrees,
+    title_position_x_percent: titleOffsetToTitlePositionPercent(settings.titleOffsetX),
+    title_position_y_percent: titleOffsetToTitlePositionPercent(settings.titleOffsetY),
+  };
+}
+
+function batchCoverSettingsToCoverEditorSettings(
+  settings: LocalBatchCoverSettings,
+): CoverEditorSettings {
+  const template = settings.template;
+  const defaults = DEFAULT_TITLE_STYLE_BY_TEMPLATE[template];
+  return {
+    template,
+    titleFontId: settings.title_font_id ?? DEFAULT_TITLE_FONT_BY_TEMPLATE[template],
+    titleFontSize: settings.title_font_size ?? defaults.fontSize,
+    titleFillColor: settings.title_fill_color ?? defaults.fillColor,
+    titleStrokeColor: settings.title_stroke_color ?? defaults.strokeColor,
+    titleStrokeWidth: settings.title_stroke_width ?? defaults.strokeWidth,
+    titleEffect: settings.title_effect ?? defaults.effect,
+    titleAngleDegrees: settings.title_angle_degrees,
+    titleOffsetX: titlePositionPercentToOffset(
+      settings.title_position_x_percent ?? DEFAULT_TITLE_POSITION_BY_TEMPLATE[template].x,
+    ),
+    titleOffsetY: titlePositionPercentToOffset(
+      settings.title_position_y_percent ?? DEFAULT_TITLE_POSITION_BY_TEMPLATE[template].y,
+    ),
+  };
+}
+
+function isActiveLocalMetadataBatch(
+  status: LocalMetadataBatchStatus | undefined,
+): boolean {
+  return status === "queued" || status === "running";
+}
+
+function organizationModeLabel(mode: OrganizationMode | string): string {
+  switch (mode) {
+    case "copy":
+      return "复制";
+    case "move":
+      return "移动";
+    case "hardlink":
+      return "硬链接";
+    case "symlink":
+      return "符号链接";
+    case "in_place":
+      return "原地处理";
+    case "preview":
+      return "仅预览";
+    default:
+      return String(mode);
+  }
+}
+
+function localBatchStatusLabel(status: LocalMetadataBatchStatus): string {
+  switch (status) {
+    case "queued":
+      return "等待中";
+    case "running":
+      return "处理中";
+    case "completed":
+      return "已完成";
+    case "completed_with_errors":
+      return "部分失败";
+    case "cancelled":
+      return "已取消";
+    case "failed":
+    default:
+      return "失败";
+  }
+}
+
 function prioritizedBatchOutputItems(items: BatchOutputItem[]): BatchOutputItem[] {
   const priority: Record<BatchOutputState, number> = {
     failed: 0,
@@ -3320,7 +3725,8 @@ function prioritizedBatchOutputItems(items: BatchOutputItem[]): BatchOutputItem[
     executing: 3,
     succeeded: 4,
     pending: 5,
-    executed: 6,
+    cancelled: 6,
+    executed: 7,
   };
   return [...items].sort((left, right) => {
     const leftPriority = priority[left.status];
@@ -3376,6 +3782,8 @@ function batchOutputStatusLabel(status: BatchOutputState): string {
       return "已执行";
     case "execute_failed":
       return "执行失败";
+    case "cancelled":
+      return "已取消";
     case "pending":
     default:
       return "等待";
@@ -3394,6 +3802,7 @@ function batchOutputStatusClass(status: BatchOutputState): string {
     case "executing":
       return "status-pill-neutral";
     case "pending":
+    case "cancelled":
     default:
       return "status-pill-warning";
   }

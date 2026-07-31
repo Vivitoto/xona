@@ -64,6 +64,13 @@ def create_app(
         engine = create_engine_for_settings(settings)
         app.state.engine = engine
         app.state.sessionmaker = get_sessionmaker(engine)
+        from backend.app.services.local_metadata_batches import LocalMetadataBatchManager
+
+        app.state.local_metadata_batch_manager = LocalMetadataBatchManager(
+            app.state.sessionmaker,
+            settings=settings,
+        )
+        app.state.local_metadata_batch_manager.recover_interrupted_batches()
         with app.state.sessionmaker() as session:
             storage_roots = StorageRootService(settings, session).list_roots()
             session.commit()
@@ -113,6 +120,9 @@ def create_app(
                     await worker_task
                 await app.state.worker.close()
                 logger.info("Worker service stopped")
+            batch_manager = getattr(app.state, "local_metadata_batch_manager", None)
+            if batch_manager is not None:
+                await batch_manager.close()
             await close_shared_flaresolverr_client(app.state)
             engine.dispose()
             logger.info("Xona stopped")

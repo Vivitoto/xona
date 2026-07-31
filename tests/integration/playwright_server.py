@@ -89,6 +89,19 @@ def create_app() -> FastAPI:
             "diagnostics": {"api_key": REDACTED},
         }
 
+    @app.get("/api/storage-roots")
+    async def list_storage_roots() -> dict[str, Any]:
+        return {
+            "roots": [
+                {
+                    "id": 1,
+                    "path": state.paths["media_root"],
+                    "source": "playwright-fixture",
+                    "enabled": True,
+                }
+            ]
+        }
+
     @app.get("/api/storage-roots/browse")
     async def browse_storage_roots(root_id: int = 1, path: str = "") -> dict[str, Any]:
         if root_id != 1:
@@ -113,6 +126,182 @@ def create_app() -> FastAPI:
                 "enabled": True,
             },
             "entries": entries,
+        }
+
+    @app.get("/api/logs/recent")
+    async def recent_logs(limit: int = 100, level: str | None = None) -> dict[str, Any]:
+        entries = state.log_entries()
+        if level and level != "ALL":
+            entries = [entry for entry in entries if entry["level"] == level]
+        return {
+            "entries": entries[-limit:],
+            "docker_logs_note": "Fixture logs are synthetic and contain no secrets.",
+        }
+
+    @app.post("/api/xchina/search")
+    async def xchina_search(payload: dict[str, Any]) -> dict[str, Any]:
+        query = str(payload.get("query") or "Sample Work Alpha").strip()
+        return {
+            "query": query,
+            "normalized_query": normalize_query(query) or query,
+            "candidates": state.xchina_candidates(),
+        }
+
+    @app.post("/api/xchina/detail")
+    async def xchina_detail(payload: dict[str, Any]) -> dict[str, Any]:
+        source_url = str(
+            payload.get("source_url") or "https://xchina.fixture.test/videos/xc-001.html"
+        )
+        candidates = state.xchina_candidates()
+        candidate = next(
+            (item for item in candidates if item["url"] == source_url),
+            candidates[0],
+        )
+        return {
+            "source_url": source_url,
+            "detail": state.xchina_source_detail(candidate),
+            "metadata": state.xchina_metadata_record(candidate),
+        }
+
+    @app.get("/api/local-metadata/cache/{asset_name:path}")
+    async def local_metadata_cache(asset_name: str) -> Response:
+        if asset_name not in state.assets:
+            raise HTTPException(status_code=404, detail="Asset not found")
+        return Response(content=state.assets[asset_name], media_type="image/png")
+
+    @app.post("/api/local-metadata/analyze")
+    async def analyze_local_metadata(payload: dict[str, Any]) -> dict[str, Any]:
+        video_path = Path(str(payload.get("video_path") or ""))
+        if not video_path.is_file() or not is_inside(video_path, Path(state.paths["media_root"])):
+            raise HTTPException(status_code=400, detail="Fixture video path required")
+        return state.local_analyze(video_path)
+
+    @app.post("/api/local-metadata/frames")
+    async def local_metadata_frames(payload: dict[str, Any]) -> dict[str, Any]:
+        video_path = Path(str(payload.get("video_path") or ""))
+        if not video_path.is_file() or not is_inside(video_path, Path(state.paths["media_root"])):
+            raise HTTPException(status_code=400, detail="Fixture video path required")
+        frame_count = int(payload.get("frame_count") or 9)
+        return {
+            "video_path": str(video_path),
+            "frames": state.local_frames(video_path, max(1, frame_count)),
+            "warnings": [],
+        }
+
+    @app.post("/api/local-metadata/cover-preview")
+    async def local_metadata_cover_preview(payload: dict[str, Any]) -> dict[str, Any]:
+        selected_frame_ids = [
+            str(frame_id) for frame_id in payload.get("selected_frame_ids") or []
+        ]
+        if len(selected_frame_ids) < 9:
+            raise HTTPException(status_code=400, detail="frame_required")
+        return state.local_cover_preview(payload, selected_frame_ids)
+
+    @app.post("/api/local-metadata/nfo-preview")
+    async def local_metadata_nfo_preview(payload: dict[str, Any]) -> dict[str, Any]:
+        metadata = dict(payload.get("metadata") or {})
+        return {
+            "xml_text": state.nfo_xml(metadata),
+            "metadata": metadata,
+        }
+
+    @app.post("/api/local-metadata/preview-plan")
+    async def local_metadata_preview_plan(payload: dict[str, Any]) -> dict[str, Any]:
+        destination_root = Path(str(payload.get("destination_root") or state.paths["destination_dir"]))
+        if not is_inside(destination_root, Path(state.paths["media_root"])):
+            raise HTTPException(status_code=400, detail="destination_outside_storage_root")
+        plan_entry = state.create_local_plan(payload, destination_root)
+        return {
+            "plan_id": plan_entry["plan_id"],
+            "metadata": plan_entry["metadata"],
+            "materialized_assets": plan_entry["materialized_assets"],
+            "nfo_xml": state.nfo_xml(plan_entry["metadata"]),
+            "plan": plan_entry["plan"],
+        }
+
+    @app.post("/api/local-metadata/plans/{plan_id}/execute")
+    async def execute_local_metadata_plan(plan_id: str, payload: dict[str, Any]) -> dict[str, Any]:
+        plan_entry = state.plans.get(plan_id)
+        if plan_entry is None:
+            raise HTTPException(status_code=404, detail="Plan not found")
+        if payload.get("plan_version") != plan_entry["plan"]["version"]:
+            raise HTTPException(status_code=409, detail="plan_version_mismatch")
+        state.execute_plan(plan_entry)
+        return {
+            "plan_id": plan_id,
+            "job_id": plan_entry.get("job_id"),
+            "state": plan_entry["status"],
+        }
+
+    @app.post("/api/local-metadata/plans/{plan_id}/cleanup-cache")
+    async def cleanup_local_metadata_plan_cache(plan_id: str) -> dict[str, Any]:
+        if plan_id not in state.plans:
+            raise HTTPException(status_code=404, detail="Plan not found")
+        return {
+            "plan_id": plan_id,
+            "deleted_directories": 0,
+            "deleted_files": 0,
+            "cache_dirs": [],
+            "warnings": [],
+        }
+
+    @app.post("/api/local-metadata/scan")
+    async def scan_local_metadata(payload: dict[str, Any]) -> dict[str, Any]:
+        directory = Path(str(payload.get("directory") or ""))
+        if not directory.is_dir() or not is_inside(directory, Path(state.paths["media_root"])):
+            raise HTTPException(status_code=400, detail="Fixture source directory required")
+        recursive = bool(payload.get("recursive", True))
+        iterator = directory.rglob("*") if recursive else directory.iterdir()
+        videos = [
+            state.local_scanned_video(path)
+            for path in sorted(iterator)
+            if path.is_file() and path.suffix.lower() in {".mkv", ".mp4"}
+        ]
+        return {"scanned_count": len(videos), "videos": videos}
+
+    @app.get("/api/local-metadata/batches")
+    async def list_local_metadata_batches(limit: int = 10) -> dict[str, Any]:
+        return {"batches": state.local_batches[:limit]}
+
+    @app.get("/api/organize-records")
+    async def list_organize_records(
+        q: str | None = None,
+        status: str | None = None,
+        mode: str | None = None,
+        metadata: str | None = None,
+        limit: int = 50,
+    ) -> dict[str, Any]:
+        records = state.filtered_organize_records(
+            q=q,
+            status=status,
+            mode=mode,
+            metadata=metadata,
+        )
+        return {
+            "records": [
+                state.public_organize_record(record) for record in records[:limit]
+            ]
+        }
+
+    @app.get("/api/organize-records/{record_id}")
+    async def get_organize_record(record_id: str) -> dict[str, Any]:
+        return state.public_organize_record(
+            state.organize_record_or_404(record_id),
+            include_plan=True,
+        )
+
+    @app.post("/api/organize-records/{record_id}/rollback")
+    async def rollback_organize_record(record_id: str) -> dict[str, Any]:
+        record = state.organize_record_or_404(record_id)
+        record["status"] = "rolled_back"
+        record["verification_status"] = "verified"
+        record["can_rollback"] = False
+        return {
+            "record_id": record_id,
+            "plan_id": record["plan_id"],
+            "status": "rolled_back",
+            "reversed_steps": [f"{record['plan_id']}:copy-media"],
+            "refusal_reason": None,
         }
 
     @app.post("/api/manual/scan")
@@ -397,6 +586,8 @@ class FixtureState:
         self.events: dict[int, list[dict[str, Any]]] = {}
         self.plans: dict[str, dict[str, Any]] = {}
         self.history_plans: list[dict[str, Any]] = []
+        self.organize_records: list[dict[str, Any]] = []
+        self.local_batches: list[dict[str, Any]] = []
         self.watch_rules: dict[str, dict[str, Any]] = {}
         self.actors: dict[int, dict[str, Any]] = {}
         self.paths: dict[str, str] = {}
@@ -452,6 +643,8 @@ class FixtureState:
         self.events = {}
         self.plans = {}
         self.history_plans = [self.seed_history_plan()]
+        self.organize_records = [self.seed_organize_record()]
+        self.local_batches = []
         self.watch_rules = {}
         self.actors = self.seed_actors()
         self.next_job_id = 1
@@ -502,6 +695,490 @@ class FixtureState:
                 emby_person_id="emby-person-2",
             ),
         }
+
+    def seed_organize_record(self) -> dict[str, Any]:
+        history = self.history_plans[0]
+        target = Path(history["target_paths"][0])
+        source = Path(self.paths["sample_file"])
+        plan = self.local_operation_plan(
+            plan_id=history["plan_id"],
+            source=source,
+            target_directory=target.parent,
+            media_target=target,
+            mode=history["mode"],
+            job_id=history["job_id"],
+            asset_refs=["poster"],
+        )
+        return {
+            "record_id": "hist-plan-1",
+            "display_index": "#1",
+            "job_id": history["job_id"],
+            "plan_id": history["plan_id"],
+            "short_plan_id": history["plan_id"],
+            "name": "Archived Work",
+            "source_path": str(source),
+            "target_path": str(target),
+            "mode": history["mode"],
+            "status": history["status"],
+            "verification_status": history["verification_status"],
+            "metadata": {
+                "nfo": True,
+                "poster": True,
+                "fanart": False,
+                "thumb": False,
+                "backdrop": False,
+                "actors": True,
+            },
+            "created_at": history["created_at"],
+            "can_rollback": True,
+            "can_rerun": True,
+            "rerun_path": str(target),
+            "source_paths": [str(source)],
+            "target_paths": history["target_paths"],
+            "plan": plan,
+        }
+
+    def log_entries(self) -> list[dict[str, Any]]:
+        return [
+            {
+                "id": 1,
+                "timestamp": now(),
+                "level": "INFO",
+                "logger": "backend.app.main",
+                "component": "app",
+                "message": "Playwright fixture server ready",
+                "source": "fixture",
+            },
+            {
+                "id": 2,
+                "timestamp": now(),
+                "level": "WARNING",
+                "logger": "backend.app.api.local_metadata",
+                "component": "api.local_metadata",
+                "message": "Synthetic warning without secrets",
+                "source": "fixture",
+            },
+        ]
+
+    def xchina_candidates(self) -> list[dict[str, Any]]:
+        return [
+            {
+                "source": "xchina",
+                "source_candidate_id": "XC-001",
+                "title": "Sample Work Alpha",
+                "image_url": "/api/e2e/assets/candidate-poster.png",
+                "actors": ["Actor One", "Aiko Fixture"],
+                "studio": "Studio One",
+                "series": "Series One",
+                "release_date": "2026-01-02",
+                "url": "https://xchina.fixture.test/videos/xc-001.html",
+            },
+            {
+                "source": "xchina",
+                "source_candidate_id": "XC-002",
+                "title": "Sample Work Alternate",
+                "image_url": None,
+                "actors": ["Actor Two"],
+                "studio": "Studio Two",
+                "series": None,
+                "release_date": "2025-12-31",
+                "url": "https://xchina.fixture.test/videos/xc-002.html",
+            },
+        ]
+
+    def xchina_source_detail(self, candidate: dict[str, Any]) -> dict[str, Any]:
+        return {
+            "source": "xchina",
+            "source_id": candidate["source_candidate_id"],
+            "source_url": candidate["url"],
+            "title": candidate["title"],
+            "original_title": None,
+            "plot": "Synthetic XChina fixture detail.",
+            "release_date": candidate["release_date"],
+            "runtime_minutes": 121,
+            "studio": candidate["studio"],
+            "series": candidate["series"],
+            "director": None,
+            "actors": [
+                {
+                    "name": actor,
+                    "source_id": None,
+                    "profile_url": None,
+                    "portrait_url": None,
+                }
+                for actor in candidate["actors"]
+            ],
+            "genres": ["Drama"],
+            "tags": ["Fixture"],
+            "poster": {"url": "/api/e2e/assets/candidate-poster.png", "kind": "poster"},
+            "fanart": None,
+            "backdrops": [],
+            "trailer": None,
+            "source_snapshot_eligible": True,
+            "is_complete": True,
+            "completeness_flags": [],
+        }
+
+    def xchina_metadata_record(self, candidate: dict[str, Any]) -> dict[str, Any]:
+        return {
+            "source": "xchina",
+            "xchina_id": candidate["source_candidate_id"],
+            "source_url": candidate["url"],
+            "title": candidate["title"],
+            "original_title": None,
+            "sort_title": candidate["title"],
+            "plot": "Synthetic XChina fixture detail.",
+            "outline": None,
+            "release_date": candidate["release_date"],
+            "runtime_minutes": 121,
+            "studio": candidate["studio"],
+            "series": candidate["series"],
+            "director": None,
+            "actors": [
+                {
+                    "name": actor,
+                    "role": None,
+                    "source_id": None,
+                    "profile_url": None,
+                    "portrait_url": None,
+                    "portrait_reference": None,
+                }
+                for actor in candidate["actors"]
+            ],
+            "genres": ["Drama"],
+            "tags": ["Fixture"],
+            "assets": {
+                "poster_url": "/api/e2e/assets/candidate-poster.png",
+                "fanart_url": None,
+                "backdrop_urls": [],
+                "thumb_url": None,
+                "clearlogo_url": None,
+                "trailer_url": None,
+            },
+        }
+
+    def local_analyze(self, path: Path) -> dict[str, Any]:
+        title = title_from_path(str(path))
+        return {
+            "video_path": str(path),
+            "cleaned_title": title,
+            "default_organize_filename": title,
+            "default_plot": title,
+            "default_tags": ["{actors}", "{studio}", "{resolution}"],
+            "default_genres": ["{actors}", "{studio}", "{resolution}"],
+            "technical": {
+                "path": str(path),
+                "size_bytes": path.stat().st_size,
+                "duration_seconds": 120.0,
+                "width": 1920,
+                "height": 1080,
+                "video_codec": "h264",
+                "audio_codec": "aac",
+                "format_name": path.suffix.lstrip("."),
+                "bit_rate": 5000000,
+                "fps": 29.97,
+            },
+            "warnings": [],
+        }
+
+    def local_scanned_video(self, path: Path) -> dict[str, Any]:
+        stat = path.stat()
+        title = title_from_path(str(path))
+        return {
+            "path": str(path),
+            "filename": path.name,
+            "cleaned_title": title,
+            "default_organize_filename": title,
+            "size_bytes": stat.st_size,
+            "mtime_ns": stat.st_mtime_ns,
+            "group_key": path.stem,
+            "multipart_index": None,
+        }
+
+    def local_frames(self, path: Path, frame_count: int) -> list[dict[str, Any]]:
+        frames: list[dict[str, Any]] = []
+        for index in range(frame_count):
+            asset_name = f"frames/{path.stem}-{index + 1}.png"
+            self.assets[asset_name] = PNG_1X1
+            frames.append(
+                self.local_cached_asset(
+                    asset_id=f"frame-{index + 1}",
+                    kind="frame",
+                    asset_name=asset_name,
+                    width=640,
+                    height=360,
+                    time_seconds=float((index + 1) * 10),
+                )
+            )
+        return frames
+
+    def local_cover_preview(
+        self,
+        payload: dict[str, Any],
+        selected_frame_ids: list[str],
+    ) -> dict[str, Any]:
+        title_digest = hashlib.sha1(str(payload.get("title") or "cover").encode()).hexdigest()[:8]
+        assets: dict[str, dict[str, Any]] = {}
+        for kind, width, height in (
+            ("poster", 600, 900),
+            ("fanart", 1280, 720),
+            ("thumb", 640, 360),
+        ):
+            asset_name = f"covers/{title_digest}-{kind}.png"
+            self.assets[asset_name] = PNG_1X1
+            assets[kind] = self.local_cached_asset(
+                asset_id=f"{kind}-{title_digest}",
+                kind=kind,
+                asset_name=asset_name,
+                width=width,
+                height=height,
+                time_seconds=None,
+            )
+        return {
+            "poster": assets["poster"],
+            "fanart": assets["fanart"],
+            "thumb": assets["thumb"],
+            "template": payload.get("template") or "simple_poster",
+            "title_font_id": payload.get("title_font_id") or "source_han_sans",
+            "selected_frame_ids": selected_frame_ids,
+            "warnings": [],
+        }
+
+    def local_cached_asset(
+        self,
+        *,
+        asset_id: str,
+        kind: str,
+        asset_name: str,
+        width: int | None,
+        height: int | None,
+        time_seconds: float | None,
+    ) -> dict[str, Any]:
+        return {
+            "id": asset_id,
+            "kind": kind,
+            "url": f"/api/local-metadata/cache/{asset_name}",
+            "cache_path": str(Path(self.paths["asset_dir"]) / asset_name),
+            "content_type": "image/png",
+            "size_bytes": len(PNG_1X1),
+            "sha256": hashlib.sha256(PNG_1X1).hexdigest(),
+            "width": width,
+            "height": height,
+            "time_seconds": time_seconds,
+        }
+
+    def nfo_xml(self, metadata: dict[str, Any]) -> str:
+        title = str(metadata.get("title") or "Untitled")
+        plot = str(metadata.get("plot") or title)
+        return f"<movie><title>{title}</title><plot>{plot}</plot></movie>"
+
+    def create_local_plan(
+        self,
+        payload: dict[str, Any],
+        destination_root: Path,
+    ) -> dict[str, Any]:
+        metadata = dict(payload.get("metadata") or {})
+        source = Path(str(metadata.get("video_path") or self.paths["sample_file"]))
+        if not source.is_file() or not is_inside(source, Path(self.paths["media_root"])):
+            raise HTTPException(status_code=400, detail="video_not_found")
+
+        title = str(metadata.get("title") or title_from_path(str(source)))
+        organize_name = str(metadata.get("organize_filename") or "").strip()
+        context = {
+            "title": title,
+            "studio": metadata.get("studio") or "Local Studio",
+            "series": metadata.get("series") or "Local Series",
+            "source_filename": source.name,
+            "xchina_id": metadata.get("xchina_id") or "LOCAL",
+            "number": metadata.get("number") or "LOCAL",
+            "release_date": metadata.get("release_date") or "2026-01-02",
+            "year": "2026",
+            "actors": ", ".join(metadata.get("actors") or []),
+            "first_actor": (metadata.get("actors") or [""])[0],
+        }
+        if not organize_name:
+            organize_name = render_template(str(payload.get("filename_template") or "{title}"), context)
+        organize_name = safe_path_part(organize_name or title)
+
+        folder_parts = [
+            safe_path_part(render_template(str(template), context))
+            for template in payload.get("folder_templates") or ["{studio}", "{title}"]
+            if str(template).strip()
+        ]
+        target_directory = destination_root.joinpath(*folder_parts)
+        media_target = target_directory / f"{organize_name}{source.suffix or '.mkv'}"
+        plan_id = f"fixture-local-plan-{self.next_plan_id}"
+        self.next_plan_id += 1
+        asset_refs = [
+            str(ref)
+            for ref in (
+                payload.get("poster_ref"),
+                payload.get("fanart_ref"),
+                payload.get("thumb_ref"),
+            )
+            if ref
+        ]
+        plan = self.local_operation_plan(
+            plan_id=plan_id,
+            source=source,
+            target_directory=target_directory,
+            media_target=media_target,
+            mode=str(payload.get("mode") or "preview"),
+            job_id=None,
+            asset_refs=asset_refs,
+        )
+        materialized_assets = [
+            {
+                "kind": ref.split("-", 1)[0],
+                "path": str(Path(self.paths["asset_dir"]) / f"{ref}.png"),
+                "url": f"/api/local-metadata/cache/covers/{ref}.png",
+            }
+            for ref in asset_refs
+        ]
+        entry = {
+            "plan_id": plan_id,
+            "job_id": None,
+            "status": "previewed",
+            "plan": plan,
+            "metadata": metadata,
+            "materialized_assets": materialized_assets,
+        }
+        self.plans[plan_id] = entry
+        return entry
+
+    def local_operation_plan(
+        self,
+        *,
+        plan_id: str,
+        source: Path,
+        target_directory: Path,
+        media_target: Path,
+        mode: str,
+        job_id: int | None,
+        asset_refs: list[str],
+    ) -> dict[str, Any]:
+        steps = [
+            operation_step(
+                plan_id,
+                "copy-media",
+                "copy" if mode in {"preview", "copy"} else mode,
+                "media",
+                str(source),
+                str(media_target),
+                destructive=mode in {"move", "in_place"},
+            ),
+            operation_step(
+                plan_id,
+                "write-nfo",
+                "write_generated",
+                "generated_artifact",
+                None,
+                str(media_target.with_suffix(".nfo")),
+                generated_artifact=True,
+            ),
+        ]
+        for ref in asset_refs:
+            kind = ref.split("-", 1)[0]
+            filename = "poster.jpg" if kind == "poster" else f"{kind}.jpg"
+            steps.append(
+                operation_step(
+                    plan_id,
+                    f"copy-{kind}",
+                    "copy_asset",
+                    "asset",
+                    str(Path(self.paths["asset_dir"]) / f"{ref}.png"),
+                    str(target_directory / filename),
+                    materialized_asset=True,
+                )
+            )
+        return {
+            "plan_id": plan_id,
+            "version": 1,
+            "database_id": None,
+            "job_id": job_id,
+            "mode": mode,
+            "destination_root": str(target_directory.parents[1] if len(target_directory.parents) > 1 else target_directory),
+            "target_directory": str(target_directory),
+            "source_snapshot": [
+                {
+                    "path": str(source),
+                    "kind": "media",
+                    "expected_size_bytes": source.stat().st_size,
+                    "mtime_ns": source.stat().st_mtime_ns,
+                    "sha256": None,
+                    "sidecar": False,
+                    "materialized_asset": False,
+                    "generated_artifact": False,
+                    "actor_output": False,
+                }
+            ],
+            "materialized_asset_cache_paths": [
+                str(Path(self.paths["asset_dir"]) / f"{ref}.png") for ref in asset_refs
+            ],
+            "steps": steps,
+            "conflicts": [],
+            "safety_warnings": [],
+            "created_at": now(),
+        }
+
+    def filtered_organize_records(
+        self,
+        *,
+        q: str | None,
+        status: str | None,
+        mode: str | None,
+        metadata: str | None,
+    ) -> list[dict[str, Any]]:
+        records = list(self.organize_records)
+        if q:
+            needle = q.lower().lstrip("#")
+            records = [
+                record
+                for record in records
+                if needle in record["name"].lower()
+                or needle in record["record_id"].lower()
+                or needle in str(record["plan_id"]).lower()
+                or needle in str(record["display_index"]).lower().lstrip("#")
+            ]
+        if status and status != "all":
+            if status == "rollbackable":
+                records = [record for record in records if record["can_rollback"]]
+            elif status == "modified":
+                records = [
+                    record
+                    for record in records
+                    if record["verification_status"] == "externally_modified"
+                ]
+            else:
+                records = [record for record in records if record["status"] == status]
+        if mode and mode != "all":
+            records = [record for record in records if record["mode"] == mode]
+        if metadata and metadata != "all":
+            if metadata == "missing_nfo":
+                records = [record for record in records if not record["metadata"]["nfo"]]
+            elif metadata == "missing_cover":
+                records = [record for record in records if not record["metadata"]["poster"]]
+            else:
+                key = "poster" if metadata == "cover" else metadata
+                records = [record for record in records if record["metadata"].get(key)]
+        return records
+
+    def public_organize_record(
+        self,
+        record: dict[str, Any],
+        *,
+        include_plan: bool = False,
+    ) -> dict[str, Any]:
+        public = dict(record)
+        if not include_plan:
+            public["plan"] = None
+        return public
+
+    def organize_record_or_404(self, record_id: str) -> dict[str, Any]:
+        for record in self.organize_records:
+            if record["record_id"] == record_id:
+                return record
+        raise HTTPException(status_code=404, detail="Organize record not found")
 
     def create_manual_job(self, path: Path) -> dict[str, Any]:
         stat = path.stat()
@@ -709,7 +1386,8 @@ class FixtureState:
         return plan_entry
 
     def execute_plan(self, plan_entry: dict[str, Any]) -> None:
-        job = self.job_or_404(plan_entry["job_id"])
+        job_id = plan_entry.get("job_id")
+        job = self.job_or_404(job_id) if job_id is not None else None
         plan = plan_entry["plan"]
         status = "previewed"
         if plan["mode"] == "copy":
@@ -723,12 +1401,13 @@ class FixtureState:
                     target.write_text("synthetic generated output", encoding="utf-8")
             status = "completed"
         plan_entry["status"] = status
-        job["state"] = status
+        if job is not None:
+            job["state"] = status
         self.history_plans.insert(
             0,
             {
                 "plan_id": plan["plan_id"],
-                "job_id": job["id"],
+                "job_id": job_id,
                 "mode": plan["mode"],
                 "status": status,
                 "verification_status": "verified",
@@ -736,7 +1415,54 @@ class FixtureState:
                 "created_at": now(),
             },
         )
-        self.add_event(job["id"], "previewed", status, {"plan_id": plan["plan_id"]})
+        if job is not None:
+            self.add_event(job["id"], "previewed", status, {"plan_id": plan["plan_id"]})
+        if job is None:
+            self.organize_records.insert(
+                0,
+                {
+                    "record_id": plan["plan_id"],
+                    "display_index": f"#{len(self.organize_records) + 1}",
+                    "job_id": None,
+                    "plan_id": plan["plan_id"],
+                    "short_plan_id": plan["plan_id"],
+                    "name": Path(plan["target_directory"]).name,
+                    "source_path": plan["source_snapshot"][0]["path"],
+                    "target_path": next(
+                        (
+                            step["target_path"]
+                            for step in plan["steps"]
+                            if step["category"] == "media"
+                        ),
+                        None,
+                    ),
+                    "mode": plan["mode"],
+                    "status": status,
+                    "verification_status": "verified",
+                    "metadata": {
+                        "nfo": any(step["target_path"].endswith(".nfo") for step in plan["steps"]),
+                        "poster": any(step["target_path"].endswith("poster.jpg") for step in plan["steps"]),
+                        "fanart": any(step["target_path"].endswith("fanart.jpg") for step in plan["steps"]),
+                        "thumb": any(step["target_path"].endswith("thumb.jpg") for step in plan["steps"]),
+                        "backdrop": any("backdrop" in step["target_path"] for step in plan["steps"]),
+                        "actors": any(step.get("actor_output") for step in plan["steps"]),
+                    },
+                    "created_at": now(),
+                    "can_rollback": status == "completed",
+                    "can_rerun": True,
+                    "rerun_path": next(
+                        (
+                            step["target_path"]
+                            for step in plan["steps"]
+                            if step["category"] == "media"
+                        ),
+                        None,
+                    ),
+                    "source_paths": [plan["source_snapshot"][0]["path"]],
+                    "target_paths": [step["target_path"] for step in plan["steps"]],
+                    "plan": plan,
+                },
+            )
 
     def metadata_record(self, candidate: dict[str, Any] | None) -> dict[str, Any]:
         candidate = candidate or self.manual_candidates("Sample Work Alpha")[0]
@@ -780,12 +1506,13 @@ class FixtureState:
 
 def default_settings(paths: dict[str, str]) -> dict[str, Any]:
     return {
-        "storage": {"roots": [paths["media_root"]]},
+        "storage": {"roots": [paths["media_root"]], "env_roots": []},
         "xchina": {
             "base_url": "https://xchina.fixture.test",
             "flaresolverr_url": None,
             "proxy_url": None,
             "cache_dir": paths["xchina_cache_dir"],
+            "max_search_pages": 50,
         },
         "emby": {
             "enabled": False,
@@ -797,6 +1524,14 @@ def default_settings(paths: dict[str, str]) -> dict[str, Any]:
         "naming": {
             "folder_templates": ["{studio}", "{title}"],
             "filename_template": "{xchina_id} - {title}",
+        },
+        "organization_defaults": {
+            "destination_directory": paths["destination_dir"],
+            "organization_mode": "copy",
+            "folder_templates": ["{studio}", "{title}"],
+            "filename_template": "{title}",
+            "asset_policy": "lenient",
+            "include_source_snapshot": False,
         },
         "metadata_assets": {
             "write_nfo": True,
@@ -984,6 +1719,17 @@ def normalize_query(value: str) -> str:
         .replace("2026", "")
         .strip()
     )
+
+
+def title_from_path(path: str) -> str:
+    filename = Path(path).name
+    stem = filename.rsplit(".", 1)[0]
+    return stem.replace(".", " ").replace("_", " ").replace("-", " ").strip()
+
+
+def safe_path_part(value: str) -> str:
+    cleaned = value.replace("/", " ").replace("\\", " ").strip()
+    return " ".join(cleaned.split()) or "Untitled"
 
 
 def redact_url(value: Any) -> Any:

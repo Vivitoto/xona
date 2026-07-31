@@ -38,4 +38,4 @@ def test_upgrade_from_0008_to_head_creates_operation_plan_tables(tmp_path: Path)
 
     assert {"operation_plans", "operation_steps"} <= tables
     assert "ix_operation_plans_job_created" in indexes
-    assert revision == "0011_emby_links"
+    assert revision == "0012_local_metadata_batches"

@@ -9,8 +9,16 @@ from PIL import Image, ImageDraw
 from backend.app.core.settings import Settings
 from backend.app.main import create_app
 from backend.app.schemas.local_metadata import (
+    LocalAnalyzeRequest,
+    LocalAnalyzeResponse,
+    LocalCachedAsset,
+    LocalCoverPreviewRequest,
+    LocalCoverPreviewResponse,
+    LocalFrameRequest,
+    LocalFrameResponse,
     LocalMetadataDraft,
     LocalPlanPreviewRequest,
+    LocalPlanPreviewResponse,
     LocalVideoTechnicalInfo,
 )
 from backend.app.services import local_metadata as local_metadata_service
@@ -129,7 +137,11 @@ def test_local_metadata_api_cover_preview_title_position_contract(
         auth_enabled=False,
     )
     cache_root = settings.config_dir / "cache" / "local_metadata"
-    frame_dir = cache_root / "manual"
+    frame_dir = (
+        local_metadata_service.LocalMetadataService(settings, None)
+        ._cache_dir_for_video(video)
+        / "frames"
+    )
     frame_dir.mkdir(parents=True)
     selected_frame_ids: list[str] = []
     for index in range(1, 10):
@@ -142,7 +154,7 @@ def test_local_metadata_api_cover_preview_title_position_contract(
             draw.line((640 - offset, 30 + offset, offset, 330 - offset), fill=(255, 240, 120), width=3)
         draw.ellipse((40 + index * 12, 80, 220 + index * 12, 260), outline=(255, 240, 120), width=4)
         image.save(frame)
-        selected_frame_ids.append(f"manual/frame-{index}.jpg")
+        selected_frame_ids.append(str(frame.relative_to(cache_root)))
 
     async def run() -> dict[str, httpx.Response]:
         app = create_app(settings)
@@ -305,6 +317,231 @@ def test_local_metadata_api_cleans_completed_plan_local_cache(tmp_path: Path) ->
     assert payload["warnings"] == []
     assert not cache_dir.exists()
     assert (destination / "Local" / "Api Cache Work" / "poster.jpg").is_file()
+
+
+def test_local_metadata_batch_api_persists_lifecycle_after_submit(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    root = tmp_path / "media"
+    incoming = root / "incoming"
+    destination = root / "organized"
+    incoming.mkdir(parents=True)
+    destination.mkdir()
+    video = incoming / "Batch.Scene.mp4"
+    video.write_bytes(b"synthetic-video")
+    settings = Settings(
+        config_dir=tmp_path / "config",
+        storage_roots=(root,),
+        auth_enabled=False,
+    )
+
+    technical = LocalVideoTechnicalInfo(
+        path=video,
+        size_bytes=video.stat().st_size,
+        duration_seconds=180,
+        width=1920,
+        height=1080,
+        video_codec="h264",
+        audio_codec="aac",
+        format_name="mp4",
+        bit_rate=5000000,
+        fps=29.97,
+    )
+
+    def fake_analyze(
+        self: local_metadata_service.LocalMetadataService,
+        payload: LocalAnalyzeRequest,
+    ) -> LocalAnalyzeResponse:
+        return LocalAnalyzeResponse(
+            video_path=payload.video_path,
+            cleaned_title="Batch Scene",
+            default_organize_filename="Batch Scene",
+            default_plot="Batch Scene",
+            default_tags=["{actors}", "{studio}", "{resolution}"],
+            default_genres=["{actors}", "{studio}", "{resolution}"],
+            technical=technical,
+        )
+
+    def fake_frames(
+        self: local_metadata_service.LocalMetadataService,
+        payload: LocalFrameRequest,
+    ) -> LocalFrameResponse:
+        return LocalFrameResponse(
+            video_path=payload.video_path,
+            frames=[
+                LocalCachedAsset(
+                    id=f"frames/batch-{index}.jpg",
+                    kind="frame",
+                    url=f"/api/local-metadata/cache/frames/batch-{index}.jpg",
+                    cache_path=tmp_path / f"frame-{index}.jpg",
+                    content_type="image/jpeg",
+                    size_bytes=100 + index,
+                    sha256=f"{index:064x}",
+                    width=1280,
+                    height=720,
+                    time_seconds=float(index * 10),
+                )
+                for index in range(1, 10)
+            ],
+        )
+
+    def fake_cover(
+        self: local_metadata_service.LocalMetadataService,
+        payload: LocalCoverPreviewRequest,
+    ) -> LocalCoverPreviewResponse:
+        return LocalCoverPreviewResponse(
+            poster=_asset("covers/poster.jpg", tmp_path),
+            fanart=_asset("covers/fanart.jpg", tmp_path),
+            thumb=_asset("covers/thumb.jpg", tmp_path),
+            template=payload.template,
+            title_font_id=payload.title_font_id or "source_han_sans",
+            selected_frame_ids=payload.selected_frame_ids,
+        )
+
+    def fake_plan(
+        self: local_metadata_service.LocalMetadataService,
+        payload: LocalPlanPreviewRequest,
+    ) -> LocalPlanPreviewResponse:
+        return LocalPlanPreviewResponse(
+            plan_id="plan-batch-scene",
+            metadata={"title": payload.metadata.title},
+            materialized_assets=[],
+            nfo_xml="<movie><title>Batch Scene</title></movie>",
+            plan={
+                "plan_id": "plan-batch-scene",
+                "version": 1,
+                "mode": payload.mode,
+                "destination_root": str(payload.destination_root),
+                "target_directory": str(payload.destination_root / "Batch Scene"),
+                "source_snapshot": [],
+                "materialized_asset_cache_paths": [],
+                "steps": [],
+                "conflicts": [],
+                "safety_warnings": [],
+                "created_at": "2026-07-31T00:00:00",
+            },
+        )
+
+    monkeypatch.setattr(local_metadata_service.LocalMetadataService, "analyze", fake_analyze)
+    monkeypatch.setattr(local_metadata_service.LocalMetadataService, "generate_frames", fake_frames)
+    monkeypatch.setattr(local_metadata_service.LocalMetadataService, "cover_preview", fake_cover)
+    monkeypatch.setattr(local_metadata_service.LocalMetadataService, "preview_plan", fake_plan)
+
+    async def run() -> tuple[httpx.Response, httpx.Response, httpx.Response, httpx.Response, httpx.Response]:
+        app = create_app(settings)
+        async with app.router.lifespan_context(app):
+            async with httpx.AsyncClient(
+                transport=httpx.ASGITransport(app=app),
+                base_url=ORIGIN,
+            ) as client:
+                created = await client.post(
+                    "/api/local-metadata/batches",
+                    json={
+                        "options": {
+                            "destination_root": str(destination),
+                            "mode": "preview",
+                            "folder_templates": ["Local", "{title}"],
+                            "filename_template": "{title}",
+                            "extra_backdrop_count": 0,
+                            "frame_count": 9,
+                            "concurrency": 2,
+                            "cleanup_cache_after_execute": True,
+                        },
+                        "items": [
+                            {
+                                "video_path": str(video),
+                                "filename": video.name,
+                                "metadata": {
+                                    "video_path": str(video),
+                                    "title": "Batch Scene",
+                                    "organize_filename": "Batch Scene",
+                                    "plot": "Batch Scene",
+                                    "tags": [],
+                                    "studio": None,
+                                    "series": None,
+                                    "release_date": None,
+                                    "runtime_minutes": None,
+                                    "genres": [],
+                                    "actors": [],
+                                    "technical": None,
+                                },
+                                "cover_settings": {
+                                    "template": "simple_poster",
+                                    "title_font_id": "source_han_sans",
+                                    "title_font_size": 74,
+                                    "title_fill_color": "#ffffff",
+                                    "title_stroke_color": "#0c1114",
+                                    "title_stroke_width": 4,
+                                    "title_effect": "shadow",
+                                    "title_angle_degrees": -8,
+                                    "title_position_x_percent": 50,
+                                    "title_position_y_percent": 90,
+                                },
+                            }
+                        ],
+                    },
+                    headers={"Origin": ORIGIN},
+                )
+                batch_id = created.json()["batch_id"]
+                detail = created
+                for _ in range(40):
+                    detail = await client.get(f"/api/local-metadata/batches/{batch_id}")
+                    if detail.json()["status"] == "completed":
+                        break
+                    await asyncio.sleep(0.05)
+                summary = await client.get(f"/api/local-metadata/batches/{batch_id}/summary")
+                execute_preview_batch = await client.post(
+                    f"/api/local-metadata/batches/{batch_id}/execute",
+                    headers={"Origin": ORIGIN},
+                )
+                listing = await client.get("/api/local-metadata/batches?limit=5")
+                return created, detail, summary, execute_preview_batch, listing
+
+    created, detail, summary, execute_preview_batch, listing = asyncio.run(run())
+
+    assert created.status_code == 200, created.text
+    assert detail.status_code == 200, detail.text
+    assert summary.status_code == 200, summary.text
+    assert execute_preview_batch.status_code == 409
+    assert execute_preview_batch.json()["detail"]["error"] == "batch_has_no_executable_items"
+    payload = detail.json()
+    assert payload["status"] == "completed"
+    summary_payload = summary.json()
+    assert summary_payload["batch_id"] == payload["batch_id"]
+    assert "items" not in summary_payload
+    assert summary_payload["status"] == "completed"
+    assert payload["total_count"] == 1
+    assert payload["succeeded_count"] == 1
+    assert payload["failed_count"] == 0
+    item = payload["items"][0]
+    assert item["status"] == "succeeded"
+    assert item["draft"]["technical"]["width"] == 1920
+    assert item["draft"]["runtime_minutes"] == 3
+    assert item["selected_frame_ids"] == [f"frames/batch-{index}.jpg" for index in range(1, 10)]
+    assert item["plan_id"] == "plan-batch-scene"
+    assert item["plan_preview"]["nfo_xml"] == "<movie><title>Batch Scene</title></movie>"
+    assert item["logs"][-1]["message"] == "NFO 与整理计划已生成，计划 plan-batch-scene"
+
+    assert listing.status_code == 200, listing.text
+    listed = listing.json()["batches"][0]
+    assert listed["batch_id"] == payload["batch_id"]
+    assert listed["status"] == "completed"
+
+
+def _asset(id_value: str, tmp_path: Path) -> LocalCachedAsset:
+    return LocalCachedAsset(
+        id=id_value,
+        kind=id_value.split("/", 1)[0],
+        url=f"/api/local-metadata/cache/{id_value}",
+        cache_path=tmp_path / id_value.replace("/", "-"),
+        content_type="image/jpeg",
+        size_bytes=512,
+        sha256="f" * 64,
+        width=1280,
+        height=720,
+        time_seconds=None,
+    )
 
 
 def _api_synthetic_image(

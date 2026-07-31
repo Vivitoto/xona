@@ -1,51 +1,55 @@
 import { expect, test, type APIRequestContext, type Page } from "@playwright/test";
 
 interface FixturePaths {
-  source_dir: string;
   destination_dir: string;
   sample_file: string;
 }
 
 const backendURL = `http://127.0.0.1:${process.env.XONA_E2E_BACKEND_PORT ?? 8765}`;
 
-test("手动整理 scans, searches, and starts organization from one action", async ({
+test("本地元数据生成 analyzes a local video, previews assets, and executes a copy plan", async ({
   page,
   request,
 }) => {
   const fixture = await resetFixture(request);
 
   await page.goto("/");
-  await page.getByRole("navigation", { name: "主导航" }).getByRole("button", { name: "手动整理" }).click();
-  await expect(activePage(page).getByRole("heading", { name: "手动整理" })).toBeVisible();
+  await page
+    .getByRole("navigation", { name: "主导航" })
+    .getByRole("button", { name: "本地元数据生成" })
+    .click();
+  await expect(activePage(page).getByRole("heading", { name: "本地元数据生成" })).toBeVisible();
 
-  await page.getByLabel("源目录").fill(fixture.source_dir);
-  await page.getByRole("button", { name: "扫描源目录" }).click();
-  await expect(page.getByText("已扫描 1 个视频文件")).toBeVisible();
-  await expect(page.getByLabel("扫描到的视频文件")).toContainText("Sample.Work.Alpha.2026.mkv");
+  await page.getByLabel("视频路径").fill(fixture.sample_file);
+  await page.getByRole("button", { name: "分析并生成截图" }).click();
+  await expect(page.getByText("分析完成，已生成 9 张截图")).toBeVisible();
+  await expect(page.getByLabel("标题 (title)")).toHaveValue("Sample Work Alpha 2026");
+  await expect(page.locator(".frame-thumb")).toHaveCount(9);
 
-  await page.getByLabel("搜索关键词").fill("Sample.Work.Alpha.2026.mkv");
-  await page.getByRole("button", { name: "搜索", exact: true }).click();
-  await expect(page.getByText("找到 2 个候选结果")).toBeVisible();
-  await expect(page.getByRole("heading", { name: "Sample Work Alpha" })).toBeVisible();
-  const firstCandidate = page.locator(".candidate-card", { hasText: "Sample Work Alpha" }).first();
-  await expect(firstCandidate.getByLabel("评分明细")).toContainText("title: 60");
-  await expect(firstCandidate.getByLabel("评分明细")).toContainText("actors: 20");
+  await page.getByLabel("标题 (title)").fill("Local Fixture Title");
+  await page.getByLabel("整理文件名 (organize_filename)").fill("Local Fixture Output");
+  await page.getByLabel("演员 (actor)").fill("Aiko Fixture\nActor One");
+  await page.getByRole("button", { name: "生成封面预览" }).click();
+  await expect(page.getByAltText("Poster preview")).toBeVisible();
 
-  await page.getByRole("button", { name: "选择候选项" }).first().click();
-  await expect(page.getByText("已选择候选结果，可以开始整理")).toBeVisible();
+  await page.getByRole("button", { name: "生成 NFO 预览" }).click();
+  await expect(page.locator(".nfo-preview")).toContainText("Local Fixture Title");
 
-  await page.getByLabel("目标目录").fill(fixture.destination_dir);
-  await page.getByLabel("整理模式").selectOption("copy");
-  await page.getByRole("button", { name: "开始整理" }).click();
-  await expect(page.getByLabel("整理进度日志")).toContainText("规划整理");
-  await expect(page.getByLabel("整理进度日志")).toContainText("安全计划完成");
-  await expect(page.getByLabel("整理进度日志")).toContainText("执行整理");
-  await expect(page.getByLabel("整理进度日志")).toContainText("整理完成");
-  await expect(page.getByText(/计划 fixture-plan-\d+：整理完成/)).toBeVisible();
+  const organizePreview = page.locator("section.section", {
+    has: page.getByRole("heading", { name: "整理预览" }),
+  });
+  await organizePreview.getByLabel("目标目录", { exact: true }).fill(fixture.destination_dir);
+  await organizePreview.getByLabel(/^模式/).selectOption("copy");
+  await page.getByRole("button", { name: "生成整理预览" }).click();
+  await expect(page.getByLabel("整理输出概要")).toContainText("Local Fixture Output.mkv");
+  await expect(page.getByLabel("整理输出概要")).toContainText("Local Fixture Output.nfo");
+
+  await page.getByRole("button", { name: "按当前预览执行整理" }).click();
+  await expect(page.getByText(/计划 fixture-local-plan-\d+：整理完成/)).toBeVisible();
   await expectNoOverlappingControls(page);
 });
 
-test("手动整理搜索和详情 URL 控件在窄桌面宽度保持紧凑", async ({
+test("本地元数据生成 controls remain readable at a narrow desktop width", async ({
   page,
   request,
 }) => {
@@ -53,13 +57,15 @@ test("手动整理搜索和详情 URL 控件在窄桌面宽度保持紧凑", asy
   await page.setViewportSize({ width: 1100, height: 900 });
 
   await page.goto("/");
-  await page.getByRole("navigation", { name: "主导航" }).getByRole("button", { name: "手动整理" }).click();
-  await page.getByLabel("源目录").fill(fixture.source_dir);
-  await page.getByRole("button", { name: "扫描源目录" }).click();
-  await expect(page.getByText("已扫描 1 个视频文件")).toBeVisible();
+  await page
+    .getByRole("navigation", { name: "主导航" })
+    .getByRole("button", { name: "本地元数据生成" })
+    .click();
+  await page.getByLabel("视频路径").fill(fixture.sample_file);
+  await page.getByRole("button", { name: "分析并生成截图" }).click();
+  await expect(page.getByText("分析完成，已生成 9 张截图")).toBeVisible();
 
   await expectNoOverlappingControls(page);
-  await expectManualSearchControlsStayGrouped(page);
 });
 
 function activePage(page: Page) {
@@ -111,32 +117,4 @@ async function expectNoOverlappingControls(page: Page) {
     },
   );
   expect(overlaps).toEqual([]);
-}
-
-async function expectManualSearchControlsStayGrouped(page: Page) {
-  const layout = await page.locator(".manual-search-controls").evaluate((controls) => {
-    const searchRow = controls.querySelector(".manual-search-row");
-    const detailRow = controls.querySelector(".manual-detail-url");
-    const candidatePanel = document.querySelector(".candidate-results-panel");
-    if (!searchRow || !detailRow || !candidatePanel) {
-      return { ok: false, reason: "missing controls" };
-    }
-    const controlsRect = controls.getBoundingClientRect();
-    const searchRect = searchRow.getBoundingClientRect();
-    const detailRect = detailRow.getBoundingClientRect();
-    const candidateRect = candidatePanel.getBoundingClientRect();
-    return {
-      ok: true,
-      searchToDetailGap: detailRect.top - searchRect.bottom,
-      detailToCandidatesGap: candidateRect.top - detailRect.bottom,
-      controlsHeight: controlsRect.height,
-      controlsBottomToCandidatesGap: candidateRect.top - controlsRect.bottom,
-    };
-  });
-
-  expect(layout.ok).toBe(true);
-  expect(layout.searchToDetailGap).toBeLessThanOrEqual(24);
-  expect(layout.detailToCandidatesGap).toBeLessThanOrEqual(96);
-  expect(layout.controlsBottomToCandidatesGap).toBeLessThanOrEqual(24);
-  expect(layout.controlsHeight).toBeLessThanOrEqual(360);
 }

@@ -961,6 +961,16 @@ nav {
   background: var(--danger-soft);
 }
 
+button.danger-button {
+  border-color: var(--danger-border);
+  color: var(--danger);
+}
+
+button.danger-button:hover:not(:disabled) {
+  border-color: var(--danger);
+  background: var(--danger-soft);
+}
+
 .status-pill-neutral {
   border-color: var(--border);
   color: var(--muted);
@@ -3022,6 +3032,7 @@ td {
   padding-block-start: 0.2rem;
 }
 
+.batch-server-panel,
 .batch-output-rule-panel,
 .batch-summary-panel,
 .batch-compact-panel {
@@ -3064,6 +3075,40 @@ td {
   color: var(--text);
   font-size: 1.05rem;
   font-weight: 900;
+}
+
+.batch-recent-list {
+  display: grid;
+  gap: 0.45rem;
+}
+
+.batch-recent-item {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 0.75rem;
+  border-color: var(--border);
+  background: var(--panel-elevated);
+  text-align: left;
+}
+
+.batch-recent-item[aria-pressed="true"] {
+  border-color: var(--primary);
+  background: var(--primary-soft);
+}
+
+.batch-recent-item span {
+  min-width: 0;
+}
+
+.batch-recent-item strong,
+.batch-recent-item small {
+  display: block;
+}
+
+.batch-recent-item small {
+  color: var(--muted);
+  font-size: 0.76rem;
 }
 
 .batch-limit-note {
@@ -3568,11 +3613,85 @@ td {
   overflow-x: auto;
 }
 
+.organize-records-page table {
+  min-width: 1080px;
+}
+
 .organize-records-page td {
-  max-width: 220px;
+  max-width: 280px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.organize-records-page th:nth-child(3),
+.organize-records-page td:nth-child(3),
+.organize-records-page th:nth-child(4),
+.organize-records-page td:nth-child(4) {
+  width: 96px;
+}
+
+.organize-records-page th:nth-child(5),
+.organize-records-page td:nth-child(5) {
+  min-width: 230px;
+}
+
+.organize-records-page th:nth-child(6),
+.organize-records-page td:nth-child(6) {
+  min-width: 360px;
+}
+
+.organize-records-page th:nth-child(7),
+.organize-records-page td:nth-child(7) {
+  width: 170px;
+}
+
+.organize-records-page th:nth-child(8),
+.organize-records-page td:nth-child(8) {
+  width: 230px;
+}
+
+.organize-records-page .path-overview-cell {
+  display: grid;
+  gap: 0.28rem;
+}
+
+.organize-records-page .path-overview-cell > div {
+  display: grid;
+  grid-template-columns: 1.8rem minmax(0, 1fr);
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.organize-records-page .path-overview-cell span {
+  color: var(--muted);
+  font-size: 0.72rem;
+  font-weight: 800;
+}
+
+.organize-records-page .path-overview-cell .path-cell {
+  max-width: none;
+}
+
+.organize-records-page .record-title-cell {
+  max-width: 260px;
+}
+
+.organize-records-page .record-title-cell strong,
+.organize-records-page .record-title-cell small {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.organize-records-page .metadata-flags {
+  max-width: 210px;
+}
+
+.organize-records-page .metadata-flags .status-pill {
+  padding: 0.16rem 0.38rem;
+  font-size: 0.68rem;
 }
 
 .organize-records-page td:has(.button-row),
@@ -3580,9 +3699,20 @@ td {
   white-space: normal;
 }
 
+.organize-records-page td:has(.button-row) {
+  min-width: 230px;
+}
+
+.organize-records-page td:has(.button-row) .button-row {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.35rem;
+}
+
 /* Record detail modal */
 .record-detail-modal {
-  max-width: 720px;
+  width: min(1280px, calc(100vw - 2rem));
+  max-width: none;
   max-height: 85vh;
   overflow-y: auto;
 }
@@ -3603,4 +3733,55 @@ td {
 .record-detail-modal .dialog-header button {
   padding: 0.35rem 0.55rem;
   min-height: auto;
+}
+
+.record-detail-summary {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0.55rem 1rem;
+}
+
+.record-detail-summary .wide {
+  grid-column: span 2;
+}
+
+.record-detail-summary .full {
+  grid-column: 1 / -1;
+}
+
+.record-detail-modal .path-cell {
+  max-width: none;
+  white-space: normal;
+}
+
+.record-detail-modal .button-row {
+  margin: 0.85rem 0;
+}
+
+.record-detail-modal .plan-view {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-items: start;
+}
+
+.record-detail-modal .plan-summary {
+  grid-column: 1 / -1;
+}
+
+.record-detail-modal .plan-list li {
+  overflow-wrap: anywhere;
+}
+
+@media (max-width: 980px) {
+  .record-detail-summary,
+  .record-detail-modal .plan-view {
+    grid-template-columns: 1fr;
+  }
+
+  .record-detail-summary .wide,
+  .record-detail-summary .full {
+    grid-column: auto;
+  }
+
+  .organize-records-page td:has(.button-row) .button-row {
+    grid-template-columns: 1fr;
+  }
 }

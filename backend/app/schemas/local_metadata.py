@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import datetime
 from pathlib import Path
 from typing import Any, Literal
 
@@ -79,6 +80,7 @@ class LocalFrameRequest(BaseModel):
     percentages: list[float] = Field(default_factory=list)
     time_points_seconds: list[float] = Field(default_factory=list)
     frame_count: int = Field(default=9, ge=1, le=36)
+    duration_seconds: float | None = Field(default=None, gt=0)
 
 
 class LocalCachedAsset(BaseModel):
@@ -199,3 +201,115 @@ class LocalScannedVideo(BaseModel):
 class LocalScanResponse(BaseModel):
     scanned_count: int
     videos: list[LocalScannedVideo]
+
+
+LocalMetadataBatchStatus = Literal[
+    "queued",
+    "running",
+    "completed",
+    "completed_with_errors",
+    "cancelled",
+    "failed",
+]
+LocalMetadataBatchItemStatus = Literal[
+    "pending",
+    "running",
+    "succeeded",
+    "failed",
+    "executing",
+    "executed",
+    "execute_failed",
+    "cancelled",
+]
+LocalMetadataBatchLogTone = Literal[
+    "active",
+    "success",
+    "warning",
+    "danger",
+    "neutral",
+]
+
+
+class LocalBatchCoverSettings(BaseModel):
+    template: CoverTemplateName = "simple_poster"
+    title_font_id: PosterFontId | None = None
+    title_font_size: int | None = Field(default=None, ge=16, le=180)
+    title_fill_color: str | None = Field(default=None, pattern=r"^#[0-9A-Fa-f]{6}$")
+    title_stroke_color: str | None = Field(default=None, pattern=r"^#[0-9A-Fa-f]{6}$")
+    title_stroke_width: int | None = Field(default=None, ge=0, le=20)
+    title_effect: PosterTextEffect | None = None
+    title_angle_degrees: float = Field(default=0.0, ge=-20.0, le=20.0)
+    title_position_x_percent: float | None = Field(default=None, ge=0.0, le=100.0)
+    title_position_y_percent: float | None = Field(default=None, ge=0.0, le=100.0)
+
+
+class LocalMetadataBatchOptions(BaseModel):
+    destination_root: Path
+    mode: OrganizationMode = "preview"
+    folder_templates: list[str] = Field(default_factory=lambda: ["{studio}", "{title}"])
+    filename_template: str = "{title}"
+    extra_backdrop_count: int = Field(default=0, ge=0, le=10)
+    frame_count: int = Field(default=9, ge=1, le=36)
+    concurrency: int = Field(default=2, ge=1, le=4)
+    cleanup_cache_after_execute: bool = True
+
+
+class LocalMetadataBatchCreateItem(BaseModel):
+    video_path: Path
+    filename: str | None = None
+    metadata: LocalMetadataDraft
+    cover_settings: LocalBatchCoverSettings
+
+
+class LocalMetadataBatchCreateRequest(BaseModel):
+    options: LocalMetadataBatchOptions
+    items: list[LocalMetadataBatchCreateItem] = Field(min_length=1, max_length=1000)
+
+
+class LocalMetadataBatchLogEntry(BaseModel):
+    tone: LocalMetadataBatchLogTone
+    message: str
+    created_at: datetime
+
+
+class LocalMetadataBatchItemRead(BaseModel):
+    item_id: int
+    video_path: Path
+    filename: str
+    draft: LocalMetadataDraft
+    cover_settings: LocalBatchCoverSettings
+    status: LocalMetadataBatchItemStatus
+    error: str | None = None
+    logs: list[LocalMetadataBatchLogEntry] = Field(default_factory=list)
+    frames: list[LocalCachedAsset] = Field(default_factory=list)
+    selected_frame_ids: list[str] = Field(default_factory=list)
+    cover_preview: LocalCoverPreviewResponse | None = None
+    plan_id: str | None = None
+    plan_preview: LocalPlanPreviewResponse | None = None
+    execute_result: LocalExecutePlanResponse | None = None
+    created_at: datetime
+    updated_at: datetime
+
+
+class LocalMetadataBatchSummary(BaseModel):
+    batch_id: str
+    status: LocalMetadataBatchStatus
+    options: LocalMetadataBatchOptions
+    total_count: int
+    pending_count: int
+    running_count: int
+    succeeded_count: int
+    failed_count: int
+    executable_count: int
+    executed_count: int
+    execute_failed_count: int
+    created_at: datetime
+    updated_at: datetime
+
+
+class LocalMetadataBatchRead(LocalMetadataBatchSummary):
+    items: list[LocalMetadataBatchItemRead] = Field(default_factory=list)
+
+
+class LocalMetadataBatchListResponse(BaseModel):
+    batches: list[LocalMetadataBatchSummary]

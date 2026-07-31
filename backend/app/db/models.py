@@ -538,6 +538,148 @@ class OperationStep(Base):
     plan: Mapped[OperationPlan] = relationship(back_populates="steps")
 
 
+class LocalMetadataBatch(Base):
+    __tablename__ = "local_metadata_batches"
+    __table_args__ = (
+        UniqueConstraint("batch_id", name="uq_local_metadata_batches_batch_id"),
+        Index("ix_local_metadata_batches_status", "status"),
+        Index("ix_local_metadata_batches_updated_at", "updated_at"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    batch_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    status: Mapped[str] = mapped_column(
+        String(32),
+        nullable=False,
+        default="queued",
+        server_default=text("'queued'"),
+    )
+    options_json: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False)
+    total_count: Mapped[int] = mapped_column(
+        Integer,
+        nullable=False,
+        default=0,
+        server_default=text("0"),
+    )
+    pending_count: Mapped[int] = mapped_column(
+        Integer,
+        nullable=False,
+        default=0,
+        server_default=text("0"),
+    )
+    running_count: Mapped[int] = mapped_column(
+        Integer,
+        nullable=False,
+        default=0,
+        server_default=text("0"),
+    )
+    succeeded_count: Mapped[int] = mapped_column(
+        Integer,
+        nullable=False,
+        default=0,
+        server_default=text("0"),
+    )
+    failed_count: Mapped[int] = mapped_column(
+        Integer,
+        nullable=False,
+        default=0,
+        server_default=text("0"),
+    )
+    executable_count: Mapped[int] = mapped_column(
+        Integer,
+        nullable=False,
+        default=0,
+        server_default=text("0"),
+    )
+    executed_count: Mapped[int] = mapped_column(
+        Integer,
+        nullable=False,
+        default=0,
+        server_default=text("0"),
+    )
+    execute_failed_count: Mapped[int] = mapped_column(
+        Integer,
+        nullable=False,
+        default=0,
+        server_default=text("0"),
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime,
+        nullable=False,
+        server_default=text("CURRENT_TIMESTAMP"),
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime,
+        nullable=False,
+        server_default=text("CURRENT_TIMESTAMP"),
+    )
+
+    items: Mapped[list["LocalMetadataBatchItem"]] = relationship(
+        back_populates="batch",
+        cascade="all, delete-orphan",
+        lazy="selectin",
+        order_by="LocalMetadataBatchItem.sequence",
+    )
+
+
+class LocalMetadataBatchItem(Base):
+    __tablename__ = "local_metadata_batch_items"
+    __table_args__ = (
+        Index("ix_local_metadata_batch_items_batch_status", "batch_id", "status"),
+        Index("ix_local_metadata_batch_items_video_path", "video_path"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    batch_id: Mapped[int] = mapped_column(
+        Integer,
+        ForeignKey("local_metadata_batches.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    sequence: Mapped[int] = mapped_column(Integer, nullable=False)
+    video_path: Mapped[str] = mapped_column(Text, nullable=False)
+    filename: Mapped[str] = mapped_column(Text, nullable=False)
+    draft_json: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False)
+    cover_settings_json: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False)
+    status: Mapped[str] = mapped_column(
+        String(32),
+        nullable=False,
+        default="pending",
+        server_default=text("'pending'"),
+    )
+    error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    logs_json: Mapped[list[dict[str, Any]]] = mapped_column(
+        JSON,
+        nullable=False,
+        default=list,
+    )
+    frames_json: Mapped[list[dict[str, Any]]] = mapped_column(
+        JSON,
+        nullable=False,
+        default=list,
+    )
+    selected_frame_ids_json: Mapped[list[str]] = mapped_column(
+        JSON,
+        nullable=False,
+        default=list,
+    )
+    cover_preview_json: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
+    plan_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    plan_preview_json: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
+    result_json: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime,
+        nullable=False,
+        server_default=text("CURRENT_TIMESTAMP"),
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime,
+        nullable=False,
+        server_default=text("CURRENT_TIMESTAMP"),
+    )
+
+    batch: Mapped[LocalMetadataBatch] = relationship(back_populates="items")
+
+
 class WatchRule(Base):
     __tablename__ = "watch_rules"
 

@@ -45,8 +45,12 @@ async def list_organize_records(
             ).limit(limit * 4)
         )
     )
-    jobs_by_id = _jobs_by_id(session, [row.job_id for row in rows if row.job_id is not None])
-    records = [_record_from_plan(row, jobs_by_id.get(row.job_id)) for row in rows]
+    job_ids = [job_id for row in rows if (job_id := row.job_id) is not None]
+    jobs_by_id = _jobs_by_id(session, job_ids)
+    records = [
+        _record_from_plan(row, jobs_by_id.get(row.job_id) if row.job_id is not None else None)
+        for row in rows
+    ]
     records = [record for record in records if _record_matches(record, q=q, status=status, mode=mode, metadata=metadata)]
     return OrganizeRecordsResponse(records=records[:limit])
 

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import mimetypes
 
-from fastapi import APIRouter, Depends, HTTPException, Request, Response
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from sqlalchemy.orm import Session
 
 from backend.app.core.settings import Settings
@@ -17,12 +17,24 @@ from backend.app.schemas.local_metadata import (
     LocalExecutePlanResponse,
     LocalFrameRequest,
     LocalFrameResponse,
+    LocalMetadataBatchCreateRequest,
+    LocalMetadataBatchListResponse,
+    LocalMetadataBatchRead,
+    LocalMetadataBatchSummary,
     LocalNfoPreviewRequest,
     LocalNfoPreviewResponse,
     LocalPlanPreviewRequest,
     LocalPlanPreviewResponse,
     LocalScanRequest,
     LocalScanResponse,
+)
+from backend.app.services.local_metadata_batches import (
+    LocalMetadataBatchError,
+    LocalMetadataBatchManager,
+    LocalMetadataBatchService,
+    batch_read,
+    batch_summary,
+    recalculate_batch_counts,
 )
 from backend.app.services.local_metadata import LocalMetadataError, LocalMetadataService
 
@@ -47,6 +59,120 @@ async def scan_unmatched_directory(
         return response
     except LocalMetadataError as exc:
         raise _local_metadata_error(session, exc) from exc
+
+
+@router.post("/batches", response_model=LocalMetadataBatchRead)
+async def create_local_metadata_batch(
+    payload: LocalMetadataBatchCreateRequest,
+    request: Request,
+    session: Session = Depends(get_db),
+) -> LocalMetadataBatchRead:
+    manager = _batch_manager_for(request)
+    service = LocalMetadataBatchService(session)
+    try:
+        batch = service.create_batch(payload)
+        session.commit()
+        manager.start_preview(batch.batch_id)
+        return batch_read(batch)
+    except LocalMetadataBatchError as exc:
+        raise _local_metadata_batch_error(session, exc) from exc
+
+
+@router.get("/batches", response_model=LocalMetadataBatchListResponse)
+async def list_local_metadata_batches(
+    limit: int = Query(default=20, ge=1, le=100),
+    session: Session = Depends(get_db),
+) -> LocalMetadataBatchListResponse:
+    try:
+        return LocalMetadataBatchService(session).list_batches(limit=limit)
+    except LocalMetadataBatchError as exc:
+        raise _local_metadata_batch_error(session, exc) from exc
+
+
+@router.get("/batches/{batch_id}/summary", response_model=LocalMetadataBatchSummary)
+async def get_local_metadata_batch_summary(
+    batch_id: str,
+    session: Session = Depends(get_db),
+) -> LocalMetadataBatchSummary:
+    try:
+        batch = LocalMetadataBatchService(session).get_batch(batch_id)
+        return batch_summary(batch)
+    except LocalMetadataBatchError as exc:
+        raise _local_metadata_batch_error(session, exc) from exc
+
+
+@router.get("/batches/{batch_id}", response_model=LocalMetadataBatchRead)
+async def get_local_metadata_batch(
+    batch_id: str,
+    session: Session = Depends(get_db),
+) -> LocalMetadataBatchRead:
+    try:
+        batch = LocalMetadataBatchService(session).get_batch(batch_id)
+        return batch_read(batch)
+    except LocalMetadataBatchError as exc:
+        raise _local_metadata_batch_error(session, exc) from exc
+
+
+@router.post("/batches/{batch_id}/cancel", response_model=LocalMetadataBatchRead)
+async def cancel_local_metadata_batch(
+    batch_id: str,
+    session: Session = Depends(get_db),
+) -> LocalMetadataBatchRead:
+    try:
+        batch = LocalMetadataBatchService(session).cancel_batch(batch_id)
+        session.commit()
+        return batch_read(batch)
+    except LocalMetadataBatchError as exc:
+        raise _local_metadata_batch_error(session, exc) from exc
+
+
+@router.post("/batches/{batch_id}/retry-failed", response_model=LocalMetadataBatchRead)
+async def retry_failed_local_metadata_batch_items(
+    batch_id: str,
+    request: Request,
+    session: Session = Depends(get_db),
+) -> LocalMetadataBatchRead:
+    manager = _batch_manager_for(request)
+    try:
+        batch, retry_preview, retry_execute = LocalMetadataBatchService(
+            session
+        ).retry_failed(batch_id)
+        session.commit()
+        if retry_preview:
+            manager.start_preview(batch.batch_id)
+        elif retry_execute:
+            manager.start_execute(batch.batch_id)
+        return batch_read(batch)
+    except LocalMetadataBatchError as exc:
+        raise _local_metadata_batch_error(session, exc) from exc
+
+
+@router.post("/batches/{batch_id}/execute", response_model=LocalMetadataBatchRead)
+async def execute_local_metadata_batch(
+    batch_id: str,
+    request: Request,
+    session: Session = Depends(get_db),
+) -> LocalMetadataBatchRead:
+    manager = _batch_manager_for(request)
+    try:
+        batch = LocalMetadataBatchService(session).get_batch(batch_id)
+        recalculate_batch_counts(batch)
+        if batch.pending_count or batch.running_count:
+            raise LocalMetadataBatchError(
+                "batch_not_ready_to_execute",
+                status_code=409,
+            )
+        if batch.executable_count == 0:
+            raise LocalMetadataBatchError(
+                "batch_has_no_executable_items",
+                status_code=409,
+            )
+        batch.status = "running"
+        session.commit()
+        manager.start_execute(batch.batch_id)
+        return batch_read(batch)
+    except LocalMetadataBatchError as exc:
+        raise _local_metadata_batch_error(session, exc) from exc
 
 
 @router.post("/analyze", response_model=LocalAnalyzeResponse)
@@ -190,7 +316,31 @@ def _service_for(request: Request, session: Session) -> LocalMetadataService:
     return LocalMetadataService(settings, session)
 
 
+def _batch_manager_for(request: Request) -> LocalMetadataBatchManager:
+    manager = getattr(request.app.state, "local_metadata_batch_manager", None)
+    if not isinstance(manager, LocalMetadataBatchManager):
+        raise HTTPException(
+            status_code=503,
+            detail={
+                "error": "batch_manager_unavailable",
+                "reasons": ["batch_manager_unavailable"],
+            },
+        )
+    return manager
+
+
 def _local_metadata_error(session: Session, exc: LocalMetadataError) -> HTTPException:
+    session.rollback()
+    return HTTPException(
+        status_code=exc.status_code,
+        detail={"error": exc.code, "reasons": exc.reasons},
+    )
+
+
+def _local_metadata_batch_error(
+    session: Session,
+    exc: LocalMetadataBatchError,
+) -> HTTPException:
     session.rollback()
     return HTTPException(
         status_code=exc.status_code,

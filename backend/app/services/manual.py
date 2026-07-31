@@ -57,6 +57,7 @@ from backend.app.services.metadata import (
 )
 from backend.app.services.nfo import movie_nfo_relative_path, render_movie_nfo
 from backend.app.services.operation_executor import (
+    EXECUTION_ERROR_LABELS,
     OperationExecutionError,
     OperationExecutor,
     OperationJournal,
@@ -1084,6 +1085,10 @@ def _valid_next_states(state: str) -> set[str]:
     from backend.app.services.jobs import VALID_TRANSITIONS
 
     return VALID_TRANSITIONS[state]
+
+
+def _error_label(error_code: str) -> str:
+    return EXECUTION_ERROR_LABELS.get(error_code, error_code)
 
 
 def _organization_mode_or_copy(value: str) -> str:

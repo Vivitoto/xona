@@ -2,16 +2,13 @@ import { expect, test, type APIRequestContext, type Page } from "@playwright/tes
 
 interface FixturePaths {
   media_root: string;
-  source_dir: string;
   destination_dir: string;
-  nested_destination_dir: string;
   xchina_cache_dir: string;
-  safety_cache_dir: string;
 }
 
 const backendURL = `http://127.0.0.1:${process.env.XONA_E2E_BACKEND_PORT ?? 8765}`;
 
-test("设置 saves exact connector, mapping, template, threshold, and asset policy values", async ({
+test("设置 saves exact connector, mapping, template, and asset policy values", async ({
   page,
   request,
 }) => {
@@ -23,12 +20,15 @@ test("设置 saves exact connector, mapping, template, threshold, and asset poli
   await page.getByRole("navigation", { name: "主导航" }).getByRole("button", { name: "设置" }).click();
   await expect(activePage(page).getByRole("heading", { name: "设置" })).toBeVisible();
 
-  await page.getByRole("tab", { name: "整理配置" }).click();
-  await page.getByRole("textbox", { name: /媒体目录/ }).fill(fixture.media_root);
   await page.getByRole("tab", { name: "XChina" }).click();
+  await page.getByLabel("XChina 基础 URL").fill("https://xchina.fixture.test");
+  await page.getByLabel("搜索页数安全上限").fill("3");
   await page.getByLabel("精确 FlareSolverr 端点").fill(flareSolverrEndpoint);
   await page.getByLabel("代理 URL").fill(proxyURL);
   await page.getByLabel("XChina 缓存目录").fill(fixture.xchina_cache_dir);
+  await page.getByRole("tab", { name: "整理配置" }).click();
+  await page.getByLabel("用户媒体目录").fill(fixture.media_root);
+  await page.getByLabel("默认目标目录").fill(fixture.destination_dir);
   await page.getByRole("tab", { name: "Emby" }).click();
   await page.getByLabel("启用 Emby 通知").check();
   await page.getByLabel("Emby 服务器 URL").fill("http://emby.fixture.local:8096");
@@ -45,9 +45,6 @@ test("设置 saves exact connector, mapping, template, threshold, and asset poli
     .fill("{xchina_id} - {title} [{release_date}]");
   await page.getByRole("tab", { name: "元数据/资源" }).click();
   await page.getByLabel("资源缺失处理").selectOption("strict");
-  await page.getByRole("tab", { name: "置信度/安全" }).click();
-  await page.getByLabel("置信度阈值").fill("87");
-  await page.getByLabel("安全缓存目录").fill(fixture.safety_cache_dir);
   await page.getByRole("button", { name: "保存设置" }).click();
 
   await expect(page.getByText("设置已保存")).toBeVisible();
@@ -55,6 +52,8 @@ test("设置 saves exact connector, mapping, template, threshold, and asset poli
   await page.getByRole("navigation", { name: "主导航" }).getByRole("button", { name: "设置" }).click();
 
   await page.getByRole("tab", { name: "XChina" }).click();
+  await expect(page.getByLabel("XChina 基础 URL")).toHaveValue("https://xchina.fixture.test");
+  await expect(page.getByLabel("搜索页数安全上限")).toHaveValue("3");
   await expect(page.getByLabel("精确 FlareSolverr 端点")).toHaveValue(
     flareSolverrEndpoint,
   );
@@ -71,46 +70,32 @@ test("设置 saves exact connector, mapping, template, threshold, and asset poli
   );
   await page.getByRole("tab", { name: "元数据/资源" }).click();
   await expect(page.getByLabel("资源缺失处理")).toHaveValue("strict");
-  await page.getByRole("tab", { name: "置信度/安全" }).click();
-  await expect(page.getByLabel("置信度阈值")).toHaveValue("87");
   await expectNoClippedCriticalText(page);
 });
 
-test("自动监控 creates a rule, excludes nested destinations, scans now, and shows review-required items", async ({
+test("XChina 元数据搜索 finds fixture sources and fetches detail metadata", async ({
   page,
   request,
 }) => {
-  const fixture = await resetFixture(request);
+  await resetFixture(request);
 
   await page.goto("/");
-  await page.getByRole("navigation", { name: "主导航" }).getByRole("button", { name: "自动监控" }).click();
-  await expect(activePage(page).getByRole("heading", { name: "自动监控" })).toBeVisible();
+  await page
+    .getByRole("navigation", { name: "主导航" })
+    .getByRole("button", { name: "XChina 元数据搜索" })
+    .click();
+  await expect(activePage(page).getByRole("heading", { name: "XChina 元数据搜索" })).toBeVisible();
 
-  await page.getByLabel("源目录").fill(fixture.source_dir);
-  await page.getByLabel("目标目录").fill(fixture.nested_destination_dir);
-  await expect(
-    page.getByText(/目标目录位于被监控源目录内/),
-  ).toBeVisible();
-  await expect(page.getByLabel("已排除目标前缀")).toHaveValue(
-    fixture.nested_destination_dir,
-  );
+  await page.getByLabel("搜索关键词").fill("Sample Work Alpha");
+  await page.getByRole("button", { name: "搜索", exact: true }).click();
+  await expect(page.getByText("找到 2 个元数据来源。")).toBeVisible();
+  const firstCandidate = page.locator(".candidate-card", { hasText: "Sample Work Alpha" }).first();
+  await expect(firstCandidate).toContainText("Studio One");
 
-  await page.getByLabel("置信度阈值").fill("88");
-  await page.getByLabel("资源缺失处理").selectOption("strict");
-  await page.getByRole("button", { name: "创建监控规则" }).click();
-  await expect(page.getByText("监控规则 rule-1 已保存")).toBeVisible();
-  await expect(page.getByRole("table", { name: "自动监控规则" })).toContainText(
-    fixture.nested_destination_dir,
-  );
-
-  await page.getByRole("button", { name: "立即扫描" }).click();
-  await expect(page.getByText(/已为 rule-1 加入扫描队列：/)).toBeVisible();
-  await expect(
-    page.getByRole("table", { name: "自动整理任务进度" }),
-  ).toContainText("Monitor review item");
-  await expect(
-    page.getByRole("table", { name: "自动整理任务进度" }),
-  ).toContainText("必需资源缺失");
+  await firstCandidate.getByRole("button", { name: "查看详情" }).click();
+  await expect(page.getByLabel("元数据 JSON 预览")).toContainText("XC-001");
+  await page.getByRole("button", { name: "应用到本地元数据生成" }).click();
+  await expect(page.getByText("已暂存，可在本地元数据生成中接入。")).toBeVisible();
   await expectNoOverlappingControls(page);
 });
 
@@ -120,12 +105,11 @@ test("critical controls remain readable on current viewport", async ({ page, req
 
   for (const name of [
     "仪表盘",
-    "手动整理",
-    "自动监控",
-    "复核队列",
-    "任务中心",
+    "本地元数据生成",
+    "XChina 元数据搜索",
+    "整理记录",
     "演员库",
-    "历史/回滚",
+    "日志",
     "设置",
   ]) {
     await page.getByRole("navigation", { name: "主导航" }).getByRole("button", { name }).click();
@@ -192,22 +176,57 @@ async function expectNoOverlappingControls(page: Page) {
 
 async function expectNoClippedCriticalText(page: Page) {
   const clipped = await page.locator("button, .field-label, .status").evaluateAll(
-    (nodes) =>
-      nodes
+    (nodes) => {
+      return nodes
         .filter((node) => {
           const rect = node.getBoundingClientRect();
           const style = window.getComputedStyle(node);
+          if (
+            rect.width <= 0 ||
+            rect.height <= 0 ||
+            style.display === "none" ||
+            style.visibility === "hidden"
+          ) {
+            return false;
+          }
+          if (node instanceof HTMLButtonElement) {
+            return hasTextOutsideOwnBox(node, rect);
+          }
           return (
-            rect.width > 0 &&
-            rect.height > 0 &&
-            style.display !== "none" &&
-            style.visibility !== "hidden" &&
-            (node.scrollWidth > node.clientWidth + 1 ||
-              node.scrollHeight > node.clientHeight + 1)
+            node.scrollWidth > node.clientWidth + 1 ||
+            node.scrollHeight > node.clientHeight + 1
           );
         })
         .map((node) => node.textContent?.trim() || node.getAttribute("aria-label") || node.tagName)
-        .slice(0, 5),
+        .slice(0, 5);
+
+      function hasTextOutsideOwnBox(node: Element, bounds: DOMRect) {
+        const walker = document.createTreeWalker(node, NodeFilter.SHOW_TEXT);
+        let current = walker.nextNode();
+        while (current) {
+          if (current.textContent?.trim()) {
+            const range = document.createRange();
+            range.selectNodeContents(current);
+            for (const rect of Array.from(range.getClientRects())) {
+              if (
+                rect.width > 0 &&
+                rect.height > 0 &&
+                (rect.left < bounds.left - 1 ||
+                  rect.right > bounds.right + 1 ||
+                  rect.top < bounds.top - 1 ||
+                  rect.bottom > bounds.bottom + 1)
+              ) {
+                range.detach();
+                return true;
+              }
+            }
+            range.detach();
+          }
+          current = walker.nextNode();
+        }
+        return false;
+      }
+    },
   );
   expect(clipped).toEqual([]);
 }

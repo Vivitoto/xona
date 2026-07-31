@@ -1,7 +1,13 @@
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import type { AppSettings } from "../api/types";
+import type {
+  AppSettings,
+  LocalBatchCoverSettings,
+  LocalMetadataBatchRead,
+  LocalMetadataBatchStatus,
+  LocalMetadataDraft,
+} from "../api/types";
 import { installFetchMock } from "../test/mockFetch";
 import { UnmatchedVideosPage } from "./UnmatchedVideosPage";
 
@@ -310,7 +316,7 @@ describe("UnmatchedVideosPage", () => {
     expect(batch.getByText("OF_Alpha Scene_OUT")).toBeTruthy();
     expect(batch.getByText("[Batch] Beta Scene - Draft")).toBeTruthy();
     expect(batch.getByText("OF_Beta Custom_OUT")).toBeTruthy();
-    expect(batch.getByText("无需载入或保存")).toBeTruthy();
+    expect(batch.getByText("待提交")).toBeTruthy();
     expect(batch.queryByRole("button", { name: /载入整理信息/ })).toBeNull();
     expect(batch.queryByRole("button", { name: /保存当前草稿/ })).toBeNull();
 
@@ -531,6 +537,14 @@ describe("UnmatchedVideosPage", () => {
       },
       {
         method: "POST",
+        path: "/api/local-metadata/batches",
+        response: (call) =>
+          batchReadFromCreateRequest(call.body, {
+            batchId: `batch-${batchCreateBodies(calls).length + 1}`,
+          }),
+      },
+      {
+        method: "POST",
         path: "/api/local-metadata/analyze",
         response: analyzeResponseFixture(videoPath),
       },
@@ -624,10 +638,10 @@ describe("UnmatchedVideosPage", () => {
     expect(batch.getByLabelText("随机标题格式")).not.toBeChecked();
     fireEvent.click(batch.getByRole("button", { name: "生成批量元数据" }));
     await waitFor(() => expect(batch.getByRole("heading", { name: "已生成的批量元数据" })).toBeTruthy());
-    fireEvent.click(batch.getByRole("button", { name: "生成全部预览" }));
-    await waitFor(() => expect(coverPreviewRequestBodies(calls)).toHaveLength(1));
+    fireEvent.click(batch.getByRole("button", { name: "提交批量预览任务" }));
+    await waitFor(() => expect(batchCreateCoverSettings(calls)).toHaveLength(1));
 
-    const fixedRequest = coverPreviewRequestBodies(calls)[0];
+    const fixedRequest = batchCreateCoverSettings(calls)[0];
     const fixedBaseline = {
       template: "tangxin_vlog",
       title_font_id: "smiley_sans",
@@ -645,10 +659,10 @@ describe("UnmatchedVideosPage", () => {
     fireEvent.click(batch.getByLabelText("随机标题格式"));
     expect(batch.getByLabelText("随机标题格式")).toBeChecked();
     fireEvent.click(batch.getByRole("button", { name: "生成批量元数据" }));
-    fireEvent.click(batch.getByRole("button", { name: "生成全部预览" }));
-    await waitFor(() => expect(coverPreviewRequestBodies(calls)).toHaveLength(2));
+    fireEvent.click(batch.getByRole("button", { name: "提交批量预览任务" }));
+    await waitFor(() => expect(batchCreateCoverSettings(calls)).toHaveLength(2));
 
-    const randomRequest = coverPreviewRequestBodies(calls)[1];
+    const randomRequest = batchCreateCoverSettings(calls)[1];
     expect(randomRequest.template).toBe("tangxin_vlog");
     expect(["smiley_sans", "zcool_qingke_huangyou", "zcool_kuaile"]).toContain(
       randomRequest.title_font_id,
@@ -801,6 +815,29 @@ describe("UnmatchedVideosPage", () => {
       },
       {
         method: "POST",
+        path: "/api/local-metadata/batches",
+        response: (call) =>
+          batchReadFromCreateRequest(call.body, {
+            batchId: "batch-preview",
+            status: "completed_with_errors",
+            itemStatuses: ["succeeded", "failed", "succeeded"],
+            itemErrors: [null, "Beta screenshots failed", null],
+          }),
+      },
+      {
+        method: "POST",
+        path: "/api/local-metadata/batches/batch-preview/execute",
+        response: () =>
+          batchReadFromCreateRequest(batchCreateBodies(calls)[0], {
+            batchId: "batch-preview",
+            status: "completed_with_errors",
+            itemStatuses: ["executed", "failed", "executed"],
+            itemErrors: [null, "Beta screenshots failed", null],
+            executed: true,
+          }),
+      },
+      {
+        method: "POST",
         path: "/api/local-metadata/analyze",
         response: (call) => {
           const videoPath = requestVideoPath(call.body);
@@ -931,7 +968,7 @@ describe("UnmatchedVideosPage", () => {
     await waitFor(() => expect(batch.getByText("Gamma.Scene.mp4")).toBeTruthy());
 
     fireEvent.change(screen.getByLabelText("模式"), {
-      target: { value: "copy" },
+      target: { value: "move" },
     });
     fireEvent.change(batch.getByLabelText("批量并发数"), {
       target: { value: "2" },
@@ -940,14 +977,14 @@ describe("UnmatchedVideosPage", () => {
     await waitFor(() => expect(batch.getByRole("heading", { name: "已生成的批量元数据" })).toBeTruthy());
 
     const generateButton = batch.getByRole("button", {
-      name: "生成全部预览",
+      name: "提交批量预览任务",
     });
     fireEvent.click(generateButton);
 
     await waitFor(() =>
       expect(
         screen.getByRole("status", { name: "批量生成摘要" }),
-      ).toHaveTextContent("成功 2 个，失败 1 个"),
+      ).toHaveTextContent("预览可用 2 个，失败 1 个"),
     );
     expect(screen.getByText("失败：Beta screenshots failed")).toBeTruthy();
     expect(screen.getAllByText("计划 plan-alpha-scene").length).toBeGreaterThan(0);
@@ -956,58 +993,28 @@ describe("UnmatchedVideosPage", () => {
     expect(screen.getAllByText("已生成").length).toBeGreaterThanOrEqual(2);
     expect(screen.getByText("生成失败")).toBeTruthy();
 
+    expect(batchCreateBodies(calls)).toHaveLength(1);
+    expect(batchCreateBodies(calls)[0]).toMatchObject({
+      options: { mode: "move", concurrency: 2 },
+      items: [{ video_path: "/media/incoming/Alpha.Scene.mp4" }, {}, {}],
+    });
     expect(
-      calls.some((call) => call.url.includes("/execute")),
+      calls.some((call) => call.url.includes("/plans/")),
     ).toBe(false);
-    expect(
-      calls.some((call) => call.url.includes("/cleanup-cache")),
-    ).toBe(false);
-    expect(
-      calls.filter(
-        (call) =>
-          call.method === "POST" && call.url === "/api/local-metadata/analyze",
-      ),
-    ).toHaveLength(3);
-    expect(
-      calls.filter(
-        (call) =>
-          call.method === "POST" && call.url === "/api/local-metadata/frames",
-      ),
-    ).toHaveLength(3);
-    expect(
-      calls.filter(
-        (call) =>
-          call.method === "POST" &&
-          call.url === "/api/local-metadata/cover-preview",
-      ),
-    ).toHaveLength(2);
-    expect(
-      calls.filter(
-        (call) =>
-          call.method === "POST" &&
-          call.url === "/api/local-metadata/preview-plan",
-      ),
-    ).toHaveLength(2);
 
+    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(true);
     fireEvent.click(
       batch.getByRole("button", {
         name: "执行全部可执行计划",
       }),
     );
+    expect(confirmSpy).toHaveBeenCalledWith(expect.stringContaining("移动"));
     await waitFor(() =>
-      expect(screen.getAllByText("整理完成")).toHaveLength(2),
-    );
-    await waitFor(() =>
-      expect(screen.getAllByText(/本地元数据缓存已清理：1 个目录，12 个文件/)).toHaveLength(2),
+      expect(screen.getAllByText("整理完成").length).toBeGreaterThanOrEqual(2),
     );
     expect(
-      calls.filter((call) => call.url.includes("/execute")),
-    ).toHaveLength(2);
-    const cleanupCalls = calls.filter((call) => call.url.includes("/cleanup-cache"));
-    expect(cleanupCalls).toHaveLength(2);
-    cleanupCalls.forEach((call) => {
-      expect(call.body).toMatchObject({ plan_version: 1 });
-    });
+      calls.filter((call) => call.url === "/api/local-metadata/batches/batch-preview/execute"),
+    ).toHaveLength(1);
     expect(
       calls.some((call) => call.url.includes("plan-beta-scene/execute")),
     ).toBe(false);
@@ -1539,6 +1546,175 @@ function coverPreviewRequestBodies(
         call.method === "POST" && call.url === "/api/local-metadata/cover-preview",
     )
     .map((call) => call.body as Record<string, unknown>);
+}
+
+function batchCreateBodies(
+  calls: { method: string; url: string; body: unknown }[],
+): Record<string, unknown>[] {
+  return calls
+    .filter(
+      (call) =>
+        call.method === "POST" && call.url === "/api/local-metadata/batches",
+    )
+    .map((call) => call.body as Record<string, unknown>);
+}
+
+function batchCreateCoverSettings(
+  calls: { method: string; url: string; body: unknown }[],
+): LocalBatchCoverSettings[] {
+  return batchCreateBodies(calls).flatMap((body) => {
+    const items = Array.isArray(body.items) ? body.items : [];
+    return items.map((item) => (item as { cover_settings: LocalBatchCoverSettings }).cover_settings);
+  });
+}
+
+function batchReadFromCreateRequest(
+  body: unknown,
+  options: {
+    batchId?: string;
+    status?: LocalMetadataBatchStatus;
+    itemStatuses?: Array<"pending" | "running" | "succeeded" | "failed" | "executing" | "executed" | "execute_failed" | "cancelled">;
+    itemErrors?: Array<string | null>;
+    executed?: boolean;
+  } = {},
+): LocalMetadataBatchRead {
+  const request = body as {
+    options: LocalMetadataBatchRead["options"];
+    items: Array<{
+      video_path: string;
+      filename: string | null;
+      metadata: LocalMetadataDraft;
+      cover_settings: LocalBatchCoverSettings;
+    }>;
+  };
+  const now = "2026-07-31T00:00:00";
+  const itemStatuses = options.itemStatuses ?? request.items.map(() => "succeeded" as const);
+  const items = request.items.map((item, index) => {
+    const status = itemStatuses[index] ?? "succeeded";
+    return batchItemReadFromCreateItem({
+      item,
+      index,
+      status,
+      error: options.itemErrors?.[index] ?? null,
+      executed: options.executed,
+      now,
+    });
+  });
+  const failedCount = items.filter((item) => item.status === "failed").length;
+  const executeFailedCount = items.filter((item) => item.status === "execute_failed").length;
+  return {
+    batch_id: options.batchId ?? "batch-preview",
+    status: options.status ?? (failedCount || executeFailedCount ? "completed_with_errors" : "completed"),
+    options: request.options,
+    total_count: items.length,
+    pending_count: items.filter((item) => item.status === "pending").length,
+    running_count: items.filter((item) => item.status === "running" || item.status === "executing").length,
+    succeeded_count: items.filter((item) => ["succeeded", "executing", "executed"].includes(item.status)).length,
+    failed_count: failedCount,
+    executable_count: items.filter((item) => item.status === "succeeded" && item.plan_preview?.plan.mode !== "preview").length,
+    executed_count: items.filter((item) => item.status === "executed").length,
+    execute_failed_count: executeFailedCount,
+    created_at: now,
+    updated_at: now,
+    items,
+  };
+}
+
+function batchItemReadFromCreateItem({
+  item,
+  index,
+  status,
+  error,
+  executed,
+  now,
+}: {
+  item: {
+    video_path: string;
+    filename: string | null;
+    metadata: LocalMetadataDraft;
+    cover_settings: LocalBatchCoverSettings;
+  };
+  index: number;
+  status: "pending" | "running" | "succeeded" | "failed" | "executing" | "executed" | "execute_failed" | "cancelled";
+  error: string | null;
+  executed?: boolean;
+  now: string;
+}): LocalMetadataBatchRead["items"][number] {
+  const stem = slugFromPath(item.video_path);
+  const planId = `plan-${stem}`;
+  const hasPreview = ["succeeded", "executing", "executed", "execute_failed"].includes(status);
+  return {
+    item_id: index + 1,
+    video_path: item.video_path,
+    filename: item.filename ?? item.video_path.split(/[\\/]/).pop() ?? item.video_path,
+    draft: item.metadata,
+    cover_settings: item.cover_settings,
+    status,
+    error,
+    logs: error
+      ? [{ tone: "danger", message: `失败：${error}`, created_at: now }]
+      : hasPreview
+        ? [{ tone: "success", message: `NFO 与整理计划已生成，计划 ${planId}`, created_at: now }]
+        : [],
+    frames: hasPreview
+      ? Array.from({ length: 9 }, (_, frameIndex) =>
+          cachedAssetFixture({
+            id: `frames/${stem}-${frameIndex + 1}.jpg`,
+            url: `/api/local-metadata/cache/frames/${stem}-${frameIndex + 1}.jpg`,
+            time_seconds: (frameIndex + 1) * 20,
+          }),
+        )
+      : [],
+    selected_frame_ids: hasPreview
+      ? Array.from({ length: 9 }, (_, frameIndex) => `frames/${stem}-${frameIndex + 1}.jpg`)
+      : [],
+    cover_preview: hasPreview
+      ? {
+          poster: cachedAssetFixture({
+            id: `covers/${stem}-poster.jpg`,
+            kind: "poster",
+            url: `/api/local-metadata/cache/covers/${stem}-poster.jpg`,
+            width: 900,
+            height: 1350,
+          }),
+          fanart: cachedAssetFixture({
+            id: `covers/${stem}-fanart.jpg`,
+            kind: "fanart",
+            url: `/api/local-metadata/cache/covers/${stem}-fanart.jpg`,
+            width: 1600,
+            height: 900,
+          }),
+          thumb: cachedAssetFixture({
+            id: `covers/${stem}-thumb.jpg`,
+            kind: "thumb",
+            url: `/api/local-metadata/cache/covers/${stem}-thumb.jpg`,
+            width: 1600,
+            height: 900,
+          }),
+          template: item.cover_settings.template,
+          title_font_id: item.cover_settings.title_font_id ?? "source_han_sans",
+          selected_frame_ids: Array.from({ length: 9 }, (_, frameIndex) => `frames/${stem}-${frameIndex + 1}.jpg`),
+          warnings: [],
+        }
+      : null,
+    plan_id: hasPreview ? planId : null,
+    plan_preview: hasPreview
+      ? {
+          plan_id: planId,
+          metadata: { title: item.metadata.title },
+          materialized_assets: [],
+          nfo_xml: `<movie><title>${item.metadata.title}</title></movie>`,
+          plan: operationPlanFixture({
+            plan_id: planId,
+            mode: "copy",
+            targetStem: item.metadata.organize_filename ?? item.metadata.title,
+          }),
+        }
+      : null,
+    execute_result: executed && status === "executed" ? { plan_id: planId, job_id: null, state: "completed" } : null,
+    created_at: now,
+    updated_at: now,
+  };
 }
 
 function slugFromPath(path: string): string {

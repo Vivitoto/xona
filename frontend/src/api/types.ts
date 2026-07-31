@@ -411,6 +411,7 @@ export interface LocalFrameRequest extends Record<string, unknown> {
   percentages?: number[];
   time_points_seconds?: number[];
   frame_count?: number;
+  duration_seconds?: number | null;
 }
 
 export interface LocalCoverPreviewRequest extends Record<string, unknown> {
@@ -493,6 +494,116 @@ export interface LocalScannedVideo {
 export interface LocalScanResponse {
   scanned_count: number;
   videos: LocalScannedVideo[];
+}
+
+export type LocalMetadataBatchStatus =
+  | "queued"
+  | "running"
+  | "completed"
+  | "completed_with_errors"
+  | "cancelled"
+  | "failed";
+
+export type LocalMetadataBatchItemStatus =
+  | "pending"
+  | "running"
+  | "succeeded"
+  | "failed"
+  | "executing"
+  | "executed"
+  | "execute_failed"
+  | "cancelled";
+
+export type LocalMetadataBatchLogTone =
+  | "active"
+  | "success"
+  | "warning"
+  | "danger"
+  | "neutral";
+
+export interface LocalBatchCoverSettings extends Record<string, unknown> {
+  template: CoverTemplateName;
+  title_font_id: PosterFontId | null;
+  title_font_size: number | null;
+  title_fill_color: string | null;
+  title_stroke_color: string | null;
+  title_stroke_width: number | null;
+  title_effect: PosterTextEffect | null;
+  title_angle_degrees: number;
+  title_position_x_percent: number | null;
+  title_position_y_percent: number | null;
+}
+
+export interface LocalMetadataBatchOptions extends Record<string, unknown> {
+  destination_root: string;
+  mode: OrganizationMode;
+  folder_templates: string[];
+  filename_template: string;
+  extra_backdrop_count: number;
+  frame_count: number;
+  concurrency: number;
+  cleanup_cache_after_execute: boolean;
+}
+
+export interface LocalMetadataBatchCreateItem extends Record<string, unknown> {
+  video_path: string;
+  filename: string | null;
+  metadata: LocalMetadataDraft;
+  cover_settings: LocalBatchCoverSettings;
+}
+
+export interface LocalMetadataBatchCreateRequest extends Record<string, unknown> {
+  options: LocalMetadataBatchOptions;
+  items: LocalMetadataBatchCreateItem[];
+}
+
+export interface LocalMetadataBatchLogEntry {
+  tone: LocalMetadataBatchLogTone;
+  message: string;
+  created_at: string;
+}
+
+export interface LocalMetadataBatchItemRead {
+  item_id: number;
+  video_path: string;
+  filename: string;
+  draft: LocalMetadataDraft;
+  cover_settings: LocalBatchCoverSettings;
+  status: LocalMetadataBatchItemStatus;
+  error: string | null;
+  logs: LocalMetadataBatchLogEntry[];
+  frames: LocalCachedAsset[];
+  selected_frame_ids: string[];
+  cover_preview: LocalCoverPreviewResponse | null;
+  plan_id: string | null;
+  plan_preview: LocalPlanPreviewResponse | null;
+  execute_result: LocalExecutePlanResponse | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface LocalMetadataBatchSummary {
+  batch_id: string;
+  status: LocalMetadataBatchStatus;
+  options: LocalMetadataBatchOptions;
+  total_count: number;
+  pending_count: number;
+  running_count: number;
+  succeeded_count: number;
+  failed_count: number;
+  executable_count: number;
+  executed_count: number;
+  execute_failed_count: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface LocalMetadataBatchRead extends LocalMetadataBatchSummary {
+  items: LocalMetadataBatchItemRead[];
+}
+
+export interface LocalMetadataBatchListResponse {
+  batches: LocalMetadataBatchSummary[];
 }
 
 export interface JobSummaryRead {

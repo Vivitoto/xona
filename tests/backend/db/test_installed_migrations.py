@@ -12,7 +12,7 @@ from pathlib import Path
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[3]
-CURRENT_HEAD_REVISION = "0011_emby_links"
+CURRENT_HEAD_REVISION = "0012_local_metadata_batches"
 
 
 def _sqlite_url(database_path: Path) -> str:

@@ -9,7 +9,12 @@ from backend.app.core.settings import Settings
 from backend.app.db.migrations import run_migrations
 from backend.app.db.session import create_engine_for_settings, get_sessionmaker
 from backend.app.schemas.local_metadata import (
+    LocalBatchCoverSettings,
+    LocalCoverPreviewRequest,
     LocalFrameRequest,
+    LocalMetadataBatchCreateItem,
+    LocalMetadataBatchCreateRequest,
+    LocalMetadataBatchOptions,
     LocalMetadataDraft,
     LocalPlanPreviewRequest,
     LocalVideoTechnicalInfo,
@@ -20,6 +25,7 @@ from backend.app.services.cover_templates import (
     CoverTemplateError,
     generate_cover_previews,
 )
+from backend.app.services import local_metadata as local_metadata_module
 from backend.app.services.local_metadata import (
     LocalMetadataError,
     LocalMetadataService,
@@ -28,6 +34,11 @@ from backend.app.services.local_metadata import (
     local_metadata_record,
     _percentage_times,
     _video_cache_dir_for_asset_path,
+)
+from backend.app.services.local_metadata_batches import (
+    LocalMetadataBatchManager,
+    LocalMetadataBatchService,
+    recalculate_batch_counts,
 )
 from backend.app.services.nfo import render_movie_nfo
 
@@ -178,6 +189,261 @@ def test_local_frame_request_defaults_to_nine_evenly_spaced_screenshots() -> Non
         80.0,
         90.0,
     ]
+
+
+def test_generate_frames_uses_known_duration_without_reprobing(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    root = tmp_path / "media"
+    root.mkdir()
+    video = root / "Known.Duration.mp4"
+    video.write_bytes(b"synthetic-video")
+    settings = Settings(
+        config_dir=tmp_path / "config",
+        storage_roots=(root,),
+        auth_enabled=False,
+    )
+    run_migrations(settings=settings)
+    engine = create_engine_for_settings(settings)
+    observed_times: list[float] = []
+
+    def fail_probe(path: Path) -> LocalVideoTechnicalInfo:
+        raise AssertionError(f"unexpected probe for {path}")
+
+    def fake_extract(
+        video_path: Path,
+        *,
+        output_dir: Path,
+        times_seconds: list[float],
+    ) -> list[tuple[Path, float]]:
+        observed_times.extend(times_seconds)
+        return [
+            (_solid_frame(Path(output_dir) / f"frame-{index:02d}.jpg", color), time)
+            for index, (time, color) in enumerate(
+                zip(times_seconds, _nine_colors(), strict=True),
+                start=1,
+            )
+        ]
+
+    monkeypatch.setattr(local_metadata_module, "probe_video", fail_probe)
+    monkeypatch.setattr(local_metadata_module, "extract_video_frames", fake_extract)
+
+    try:
+        with get_sessionmaker(engine)() as session:
+            response = LocalMetadataService(settings, session).generate_frames(
+                LocalFrameRequest(
+                    video_path=video,
+                    frame_count=9,
+                    duration_seconds=90,
+                )
+            )
+
+        assert [frame.time_seconds for frame in response.frames] == observed_times
+        assert observed_times == _percentage_times([], 90, frame_count=9)
+    finally:
+        engine.dispose()
+
+
+def test_generate_frames_reuses_cached_frames_without_extracting(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    root = tmp_path / "media"
+    root.mkdir()
+    video = root / "Cached.Frames.mp4"
+    video.write_bytes(b"synthetic-video")
+    settings = Settings(
+        config_dir=tmp_path / "config",
+        storage_roots=(root,),
+        auth_enabled=False,
+    )
+    run_migrations(settings=settings)
+    engine = create_engine_for_settings(settings)
+
+    def fail_probe(path: Path) -> LocalVideoTechnicalInfo:
+        raise AssertionError(f"unexpected probe for {path}")
+
+    def fail_extract(
+        video_path: Path,
+        *,
+        output_dir: Path,
+        times_seconds: list[float],
+    ) -> list[tuple[Path, float]]:
+        raise AssertionError("unexpected frame extraction")
+
+    monkeypatch.setattr(local_metadata_module, "probe_video", fail_probe)
+    monkeypatch.setattr(local_metadata_module, "extract_video_frames", fail_extract)
+
+    try:
+        with get_sessionmaker(engine)() as session:
+            service = LocalMetadataService(settings, session)
+            frame_dir = service._cache_dir_for_video(video) / "frames"
+            for index, color in enumerate(_nine_colors(), start=1):
+                _solid_frame(frame_dir / f"frame-{index:02d}.jpg", color)
+
+            response = service.generate_frames(
+                LocalFrameRequest(
+                    video_path=video,
+                    frame_count=9,
+                    duration_seconds=90,
+                )
+            )
+
+        assert len(response.frames) == 9
+        assert response.frames[0].id.endswith("frames/frame-01.jpg")
+        assert [frame.time_seconds for frame in response.frames] == _percentage_times(
+            [],
+            90,
+            frame_count=9,
+        )
+    finally:
+        engine.dispose()
+
+
+def test_cover_preview_rejects_frames_from_another_video_cache(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    root = tmp_path / "media"
+    root.mkdir()
+    first_video = root / "First.Scene.mp4"
+    second_video = root / "Second.Scene.mp4"
+    first_video.write_bytes(b"first-video")
+    second_video.write_bytes(b"second-video")
+    settings = Settings(
+        config_dir=tmp_path / "config",
+        storage_roots=(root,),
+        auth_enabled=False,
+    )
+    run_migrations(settings=settings)
+    engine = create_engine_for_settings(settings)
+
+    def fail_probe(path: Path) -> LocalVideoTechnicalInfo:
+        raise AssertionError(f"unexpected probe for {path}")
+
+    def fake_extract(
+        video_path: Path,
+        *,
+        output_dir: Path,
+        times_seconds: list[float],
+    ) -> list[tuple[Path, float]]:
+        return [
+            (_solid_frame(Path(output_dir) / f"frame-{index:02d}.jpg", color), time)
+            for index, (time, color) in enumerate(
+                zip(times_seconds, _nine_colors(), strict=True),
+                start=1,
+            )
+        ]
+
+    monkeypatch.setattr(local_metadata_module, "probe_video", fail_probe)
+    monkeypatch.setattr(local_metadata_module, "extract_video_frames", fake_extract)
+
+    try:
+        with get_sessionmaker(engine)() as session:
+            service = LocalMetadataService(settings, session)
+            first_frames = service.generate_frames(
+                LocalFrameRequest(
+                    video_path=first_video,
+                    frame_count=9,
+                    duration_seconds=90,
+                )
+            )
+
+            with pytest.raises(LocalMetadataError) as exc_info:
+                service.cover_preview(
+                    LocalCoverPreviewRequest(
+                        video_path=second_video,
+                        title="Second Scene",
+                        selected_frame_ids=[frame.id for frame in first_frames.frames],
+                    )
+                )
+
+        assert exc_info.value.code == "frame_ref_mismatch"
+        assert exc_info.value.status_code == 409
+    finally:
+        engine.dispose()
+
+
+def test_local_metadata_batch_manager_recovers_interrupted_batches(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    root = tmp_path / "media"
+    destination = root / "organized"
+    root.mkdir()
+    destination.mkdir()
+    first_video = root / "Interrupted.Preview.mp4"
+    second_video = root / "Interrupted.Execute.mp4"
+    first_video.write_bytes(b"synthetic-video")
+    second_video.write_bytes(b"synthetic-video")
+    settings = Settings(
+        config_dir=tmp_path / "config",
+        storage_roots=(root,),
+        auth_enabled=False,
+    )
+    run_migrations(settings=settings)
+    engine = create_engine_for_settings(settings)
+
+    try:
+        session_factory = get_sessionmaker(engine)
+        with session_factory() as session:
+            batch = LocalMetadataBatchService(session).create_batch(
+                LocalMetadataBatchCreateRequest(
+                    options=LocalMetadataBatchOptions(
+                        destination_root=destination,
+                        mode="move",
+                    ),
+                    items=[
+                        LocalMetadataBatchCreateItem(
+                            video_path=first_video,
+                            filename=first_video.name,
+                            metadata=LocalMetadataDraft(
+                                video_path=first_video,
+                                title="Interrupted Preview",
+                            ),
+                            cover_settings=LocalBatchCoverSettings(),
+                        ),
+                        LocalMetadataBatchCreateItem(
+                            video_path=second_video,
+                            filename=second_video.name,
+                            metadata=LocalMetadataDraft(
+                                video_path=second_video,
+                                title="Interrupted Execute",
+                            ),
+                            cover_settings=LocalBatchCoverSettings(),
+                        ),
+                    ],
+                )
+            )
+            batch_id = batch.batch_id
+            batch.status = "running"
+            batch.items[0].status = "running"
+            batch.items[1].status = "executing"
+            batch.items[1].plan_id = "plan-interrupted"
+            recalculate_batch_counts(batch)
+            session.commit()
+
+        manager = LocalMetadataBatchManager(session_factory, settings=settings)
+        restarted_preview_batches: list[str] = []
+        monkeypatch.setattr(manager, "start_preview", restarted_preview_batches.append)
+
+        manager.recover_interrupted_batches()
+
+        with session_factory() as session:
+            recovered = LocalMetadataBatchService(session).get_batch(batch_id)
+            assert recovered.status == "queued"
+            assert recovered.pending_count == 1
+            assert recovered.execute_failed_count == 1
+            assert recovered.items[0].status == "pending"
+            assert recovered.items[0].error is None
+            assert recovered.items[0].logs_json[-1]["message"] == "服务重启后已恢复为等待处理"
+            assert recovered.items[1].status == "execute_failed"
+            assert recovered.items[1].error == "服务重启时整理执行中断；请检查目标文件后手动重试。"
+
+        assert restarted_preview_batches == [batch_id]
+    finally:
+        engine.dispose()
 
 
 def test_local_metadata_record_maps_draft_actors_to_nfo_and_template_context(
@@ -348,18 +614,18 @@ def test_local_plan_preview_includes_nfo_and_cached_generated_images(
         storage_roots=(root,),
         auth_enabled=False,
     )
-    cache_dir = settings.config_dir / "cache" / "local_metadata" / "synthetic"
-    poster = _synthetic_frame(cache_dir / "poster.jpg", (40, 84, 126), size=(1000, 1500))
-    fanart = _synthetic_frame(cache_dir / "fanart.jpg", (48, 112, 76), size=(1920, 1080))
-    thumb = _synthetic_frame(cache_dir / "thumb.jpg", (98, 88, 156), size=(1920, 1080))
-    frame1 = _synthetic_frame(cache_dir / "frames" / "frame-1.jpg", (126, 72, 52))
-    frame2 = _synthetic_frame(cache_dir / "frames" / "frame-2.jpg", (48, 112, 76))
-    frame3 = _synthetic_frame(cache_dir / "frames" / "frame-3.jpg", (190, 120, 40))
     run_migrations(settings=settings)
     engine = create_engine_for_settings(settings)
     try:
         with get_sessionmaker(engine)() as session:
             service = LocalMetadataService(settings, session)
+            cache_dir = service._cache_dir_for_video(video)
+            poster = _synthetic_frame(cache_dir / "covers" / "poster.jpg", (40, 84, 126), size=(1000, 1500))
+            fanart = _synthetic_frame(cache_dir / "covers" / "fanart.jpg", (48, 112, 76), size=(1920, 1080))
+            thumb = _synthetic_frame(cache_dir / "covers" / "thumb.jpg", (98, 88, 156), size=(1920, 1080))
+            frame1 = _synthetic_frame(cache_dir / "frames" / "frame-1.jpg", (126, 72, 52))
+            frame2 = _synthetic_frame(cache_dir / "frames" / "frame-2.jpg", (48, 112, 76))
+            frame3 = _synthetic_frame(cache_dir / "frames" / "frame-3.jpg", (190, 120, 40))
             response = service.preview_plan(
                 LocalPlanPreviewRequest(
                     metadata=LocalMetadataDraft(
@@ -484,13 +750,13 @@ def test_local_plan_preview_refuses_existing_backdrop_output(tmp_path: Path) -> 
         storage_roots=(root,),
         auth_enabled=False,
     )
-    cache_dir = settings.config_dir / "cache" / "local_metadata" / "synthetic"
-    frame = _synthetic_frame(cache_dir / "frames" / "frame-1.jpg", (126, 72, 52))
     run_migrations(settings=settings)
     engine = create_engine_for_settings(settings)
     try:
         with get_sessionmaker(engine)() as session:
             service = LocalMetadataService(settings, session)
+            cache_dir = service._cache_dir_for_video(video)
+            frame = _synthetic_frame(cache_dir / "frames" / "frame-1.jpg", (126, 72, 52))
             with pytest.raises(LocalMetadataError) as exc_info:
                 service.preview_plan(
                     LocalPlanPreviewRequest(

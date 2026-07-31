@@ -41,4 +41,4 @@ def test_upgrade_from_0009_to_head_creates_watch_and_monitor_state_tables(
     assert {"watch_rules", "monitor_media_state"} <= tables
     assert "uq_monitor_media_state_rule_identity" in indexes
     assert "uq_jobs_active_rule_media" in indexes
-    assert revision == "0011_emby_links"
+    assert revision == "0012_local_metadata_batches"

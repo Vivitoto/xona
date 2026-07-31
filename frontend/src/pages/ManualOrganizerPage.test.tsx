@@ -385,14 +385,18 @@ describe("ManualOrganizerPage", () => {
     expect(within(fileList).queryByText("Movie 11.mkv")).toBeNull();
 
     fireEvent.click(within(fileList).getByRole("button", { name: "下一页" }));
-    expect(within(fileList).getByText("共 12 个视频，显示第 11-12 个")).toBeTruthy();
+    await waitFor(() => {
+      expect(within(fileList).getByText("共 12 个视频，显示第 11-12 个")).toBeTruthy();
+    });
     expect(within(fileList).getByText("Movie 11.mkv")).toBeTruthy();
     expect(within(fileList).queryByText("Movie 1.mkv")).toBeNull();
 
     fireEvent.change(within(fileList).getByLabelText("每页显示视频数量"), {
       target: { value: "5" },
     });
-    expect(within(fileList).getByText("共 12 个视频，显示第 1-5 个")).toBeTruthy();
+    await waitFor(() => {
+      expect(within(fileList).getByText("共 12 个视频，显示第 1-5 个")).toBeTruthy();
+    });
   });
 
   it("prefills organization configuration from organization defaults", async () => {

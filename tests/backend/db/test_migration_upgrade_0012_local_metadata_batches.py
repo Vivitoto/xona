@@ -12,11 +12,13 @@ def _sqlite_url(database_path: Path) -> str:
     return f"sqlite:///{database_path.as_posix()}"
 
 
-def test_upgrade_from_0010_to_head_creates_emby_links(tmp_path: Path) -> None:
+def test_upgrade_from_0011_to_head_creates_local_metadata_batches(
+    tmp_path: Path,
+) -> None:
     database_path = tmp_path / "xona.db"
     database_url = _sqlite_url(database_path)
 
-    command.upgrade(_alembic_config(database_url), "0010_watch_monitor_state")
+    command.upgrade(_alembic_config(database_url), "0011_emby_links")
     run_migrations(database_url=database_url)
 
     with sqlite3.connect(database_path) as connection:
@@ -36,7 +38,8 @@ def test_upgrade_from_0010_to_head_creates_emby_links(tmp_path: Path) -> None:
             "SELECT version_num FROM alembic_version"
         ).fetchone()[0]
 
-    assert "emby_links" in tables
-    assert "ix_emby_links_job_id" in indexes
-    assert "ix_emby_links_actor_id" in indexes
+    assert "local_metadata_batches" in tables
+    assert "local_metadata_batch_items" in tables
+    assert "ix_local_metadata_batches_status" in indexes
+    assert "ix_local_metadata_batch_items_batch_status" in indexes
     assert revision == "0012_local_metadata_batches"

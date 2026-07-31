@@ -11,7 +11,7 @@ from backend.app.db.base import Base
 from backend.app.db.migrations import run_migrations
 from backend.app.main import create_app
 
-CURRENT_HEAD_REVISION = "0011_emby_links"
+CURRENT_HEAD_REVISION = "0012_local_metadata_batches"
 
 
 def _sqlite_url(database_path: Path) -> str:
@@ -88,6 +88,7 @@ def test_fastapi_lifespan_runs_migrations_with_injected_settings(
 ) -> None:
     import backend.app.db.migrations as migration_module
     import backend.app.main as main_module
+    from backend.app.services.local_metadata_batches import LocalMetadataBatchManager
 
     settings = Settings(config_dir=tmp_path / "config")
     calls: list[Settings] = []
@@ -105,6 +106,7 @@ def test_fastapi_lifespan_runs_migrations_with_injected_settings(
     if hasattr(main_module, "run_migrations"):
         monkeypatch.setattr(main_module, "run_migrations", record_run_migrations)
     monkeypatch.setattr(main_module.StorageRootService, "list_roots", lambda self: [])
+    monkeypatch.setattr(LocalMetadataBatchManager, "recover_interrupted_batches", lambda self: None)
 
     async def run_lifespan() -> None:
         app = create_app(settings)

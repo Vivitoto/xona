@@ -46,6 +46,7 @@ from backend.app.services import scanner
 from backend.app.services.cover_templates import CoverTemplateError, generate_cover_previews
 from backend.app.services.nfo import movie_nfo_relative_path, render_movie_nfo
 from backend.app.services.operation_executor import (
+    EXECUTION_ERROR_LABELS,
     OperationExecutionError,
     OperationExecutor,
     OperationJournal,
@@ -148,20 +149,44 @@ class LocalMetadataService:
     def generate_frames(self, payload: LocalFrameRequest) -> LocalFrameResponse:
         path = self._validate_video_path(payload.video_path)
         warnings: list[str] = []
+        frame_dir = self._cache_dir_for_video(path) / "frames"
         try:
             times = _requested_times(payload)
             if not times:
-                technical = probe_video(path)
-                if technical.duration_seconds is None:
+                duration_seconds = payload.duration_seconds
+                cached_frames = _cached_frame_paths(frame_dir, payload.frame_count)
+                if cached_frames:
+                    return LocalFrameResponse(
+                        video_path=path,
+                        frames=[
+                            self._cache_asset(
+                                frame_path,
+                                kind="frame",
+                                time_seconds=time_seconds,
+                            )
+                            for frame_path, time_seconds in zip(
+                                cached_frames,
+                                _cached_frame_times(
+                                    payload,
+                                    duration_seconds=duration_seconds,
+                                ),
+                                strict=True,
+                            )
+                        ],
+                        warnings=warnings,
+                    )
+                if duration_seconds is None:
+                    technical = probe_video(path)
+                    duration_seconds = technical.duration_seconds
+                if duration_seconds is None:
                     warnings.append("duration_unavailable")
                     times = _fallback_times(payload.frame_count)
                 else:
                     times = _percentage_times(
                         payload.percentages,
-                        technical.duration_seconds,
+                        duration_seconds,
                         frame_count=payload.frame_count,
                     )
-            frame_dir = self._cache_dir_for_video(path) / "frames"
             generated = extract_video_frames(path, output_dir=frame_dir, times_seconds=times)
         except (MediaToolUnavailableError, MediaToolExecutionError) as exc:
             raise _tool_error(exc) from exc
@@ -179,10 +204,13 @@ class LocalMetadataService:
         self,
         payload: LocalCoverPreviewRequest,
     ) -> LocalCoverPreviewResponse:
-        self._validate_video_path(payload.video_path)
-        frame_paths = [self.cache_path_for_ref(ref) for ref in payload.selected_frame_ids]
+        path = self._validate_video_path(payload.video_path)
+        frame_paths = [
+            self._cache_frame_path_for_video_ref(ref, video_path=path)
+            for ref in payload.selected_frame_ids
+        ]
         if not frame_paths:
-            frame_paths = sorted((self._cache_dir_for_video(payload.video_path) / "frames").glob("*.jpg"))
+            frame_paths = sorted((self._cache_dir_for_video(path) / "frames").glob("*.jpg"))
         if not frame_paths:
             raise LocalMetadataError("frame_required", reasons=["Generate frames before cover preview"])
 
@@ -200,7 +228,7 @@ class LocalMetadataService:
                 title_stroke_width=payload.title_stroke_width,
                 title_effect=payload.title_effect,
                 frame_paths=frame_paths,
-                output_dir=self._cache_dir_for_video(payload.video_path) / "covers",
+                output_dir=self._cache_dir_for_video(path) / "covers",
             )
         except CoverTemplateError as exc:
             raise LocalMetadataError("cover_generation_failed", reasons=[str(exc)]) from exc
@@ -327,7 +355,7 @@ class LocalMetadataService:
             raise LocalMetadataError(
                 exc.error_code,
                 status_code=409,
-                reasons=[operation_executor.EXECUTION_ERROR_LABELS.get(exc.error_code, exc.error_code)],
+                reasons=[EXECUTION_ERROR_LABELS.get(exc.error_code, exc.error_code)],
             ) from exc
         row.status = "completed"
         self._session.flush()
@@ -418,6 +446,32 @@ class LocalMetadataService:
             raise LocalMetadataError("cache_ref_not_found", status_code=404)
         return candidate
 
+    def _cache_frame_path_for_video_ref(self, ref: str, *, video_path: Path) -> Path:
+        frame_path = self.cache_path_for_ref(ref)
+        frame_dir = (self._cache_dir_for_video(video_path) / "frames").resolve(strict=False)
+        try:
+            frame_path.resolve().relative_to(frame_dir)
+        except ValueError as exc:
+            raise LocalMetadataError(
+                "frame_ref_mismatch",
+                status_code=409,
+                reasons=["Selected frame does not belong to the current video cache"],
+            ) from exc
+        return frame_path
+
+    def _cache_cover_path_for_video_ref(self, ref: str, *, video_path: Path) -> Path:
+        cover_path = self.cache_path_for_ref(ref)
+        cover_dir = (self._cache_dir_for_video(video_path) / "covers").resolve(strict=False)
+        try:
+            cover_path.resolve().relative_to(cover_dir)
+        except ValueError as exc:
+            raise LocalMetadataError(
+                "cover_ref_mismatch",
+                status_code=409,
+                reasons=["Selected cover asset does not belong to the current video cache"],
+            ) from exc
+        return cover_path
+
     def _validate_video_path(self, video_path: Path | str) -> Path:
         path = Path(video_path)
         try:
@@ -490,7 +544,7 @@ class LocalMetadataService:
         if poster_ref:
             assets.append(
                 self._plan_asset_from_cache(
-                    poster_ref,
+                    self._cache_cover_path_for_video_ref(poster_ref, video_path=video_path),
                     destination_root=destination_root,
                     kind="poster",
                     relative_path="poster.jpg",
@@ -499,7 +553,7 @@ class LocalMetadataService:
         if fanart_ref:
             assets.append(
                 self._plan_asset_from_cache(
-                    fanart_ref,
+                    self._cache_cover_path_for_video_ref(fanart_ref, video_path=video_path),
                     destination_root=destination_root,
                     kind="fanart",
                     relative_path="fanart.jpg",
@@ -508,7 +562,7 @@ class LocalMetadataService:
         if thumb_ref:
             assets.append(
                 self._plan_asset_from_cache(
-                    thumb_ref,
+                    self._cache_cover_path_for_video_ref(thumb_ref, video_path=video_path),
                     destination_root=destination_root,
                     kind="thumb",
                     relative_path="thumb.jpg",
@@ -524,7 +578,7 @@ class LocalMetadataService:
         ):
             assets.append(
                 self._plan_asset_from_cache(
-                    frame_ref,
+                    self._cache_frame_path_for_video_ref(frame_ref, video_path=video_path),
                     destination_root=destination_root,
                     kind="backdrop",
                     relative_path=_backdrop_relative_path(index),
@@ -559,19 +613,19 @@ class LocalMetadataService:
 
     def _plan_asset_from_cache(
         self,
-        ref: str,
+        source: Path,
         *,
         destination_root: Path,
         kind: str,
         relative_path: str,
     ) -> MaterializedAsset:
-        source = self.cache_path_for_ref(ref)
         try:
             self._storage_roots.validate_inside_root(destination_root)
         except StorageRootValidationError as exc:
             raise LocalMetadataError("destination_outside_storage_root", reasons=[str(exc)]) from exc
         digest = _hash_file(source)
         cache_path = source
+        ref = source.resolve().relative_to(self._cache_root().resolve()).as_posix()
         return MaterializedAsset(
             kind=kind,
             relative_path=relative_path,
@@ -781,6 +835,29 @@ def _tool_error(exc: MediaToolUnavailableError | MediaToolExecutionError) -> Loc
 
 def _requested_times(payload: LocalFrameRequest) -> list[float]:
     return [float(value) for value in payload.time_points_seconds if value >= 0]
+
+
+def _cached_frame_paths(frame_dir: Path, frame_count: int) -> list[Path]:
+    frames = sorted(frame_dir.glob("*.jpg"))
+    count = min(36, max(1, int(frame_count)))
+    if len(frames) < count:
+        return []
+    return frames[:count]
+
+
+def _cached_frame_times(
+    payload: LocalFrameRequest,
+    *,
+    duration_seconds: float | None,
+) -> list[float | None]:
+    if duration_seconds is None:
+        return [None for _ in range(min(36, max(1, int(payload.frame_count))))]
+    times: list[float | None] = list(_percentage_times(
+        payload.percentages,
+        duration_seconds,
+        frame_count=payload.frame_count,
+    ))
+    return times
 
 
 def _percentage_times(

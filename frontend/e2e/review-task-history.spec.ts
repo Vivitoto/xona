@@ -1,13 +1,12 @@
 import { expect, test, type APIRequestContext, type Page } from "@playwright/test";
 
 interface FixturePaths {
-  review_job_id: number;
   history_plan_id: string;
 }
 
 const backendURL = `http://127.0.0.1:${process.env.XONA_E2E_BACKEND_PORT ?? 8765}`;
 
-test("复核队列, 任务中心, and 历史/回滚 use jobs/history APIs and render redacted events", async ({
+test("整理记录 lists local records, opens plan detail, and rolls back", async ({
   page,
   request,
 }) => {
@@ -15,54 +14,50 @@ test("复核队列, 任务中心, and 历史/回滚 use jobs/history APIs and re
   const apiPaths: string[] = [];
   page.on("request", (apiRequest) => {
     const url = new URL(apiRequest.url());
-    if (url.pathname.startsWith("/api/jobs") || url.pathname.startsWith("/api/history")) {
+    if (url.pathname.startsWith("/api/organize-records")) {
       apiPaths.push(`${url.pathname}${url.search}`);
     }
   });
 
   await page.goto("/");
-  await page.getByRole("button", { name: "复核队列" }).click();
-  await expect(page.getByRole("table", { name: "需复核任务" })).toContainText(
-    "Review.Required.Work.2026",
-  );
-  await expect(page.getByRole("table", { name: "需复核任务" })).toContainText(
-    "置信度低于阈值",
-  );
-
-  await page.getByRole("button", { name: "任务中心" }).click();
-  await page.getByLabel("任务 ID").fill(String(fixture.review_job_id));
-  await page.getByRole("button", { name: "加载任务" }).click();
-  await expect(page.getByLabel("任务进度日志")).toContainText("等待人工复核");
+  await page
+    .getByRole("navigation", { name: "主导航" })
+    .getByRole("button", { name: "整理记录" })
+    .click();
+  const recordsTable = page.getByRole("table", { name: "整理记录" });
+  await expect(recordsTable).toContainText("Archived Work");
+  await expect(recordsTable).toContainText("已完成");
   await expect(page.getByText("super-secret-token")).toHaveCount(0);
   await expect(page.getByText("emby-secret-key")).toHaveCount(0);
 
-  await page.getByRole("button", { name: "重试", exact: true }).click();
-  await expect(page.getByText("任务已加载")).toBeVisible();
-  await expect(page.getByLabel("任务进度日志").getByText("搜索候选")).toBeVisible();
+  await page.getByLabel("搜索").fill("Archived");
+  await expect(recordsTable).toContainText("Archived Work");
 
-  await page.getByRole("button", { name: "历史/回滚" }).click();
-  await expect(page.getByRole("table", { name: "操作历史" })).toContainText(
-    fixture.history_plan_id,
-  );
-  await expect(page.getByLabel("操作计划")).toContainText("Archived Work");
+  await page.getByRole("button", { name: "#1" }).click();
+  const detailDialog = page.getByRole("dialog", { name: "整理记录详情" });
+  await expect(detailDialog).toBeVisible();
+  await expect(detailDialog).toContainText(fixture.history_plan_id);
+  await expect(detailDialog.getByLabel("操作计划")).toContainText("Archived Work");
+
   const rollbackResponsePromise = page.waitForResponse(
     (response) =>
-      response.url().includes(`/api/plans/${fixture.history_plan_id}/rollback`) &&
+      response.url().includes(`/api/organize-records/${fixture.history_plan_id}/rollback`) &&
       response.request().method() === "POST",
   );
-  await page.getByRole("button", { name: "回滚", exact: true }).click();
+  await detailDialog.getByRole("button", { name: "回滚", exact: true }).click();
   const rollbackResponse = await rollbackResponsePromise;
   expect(rollbackResponse.ok()).toBeTruthy();
   expect(await rollbackResponse.json()).toMatchObject({
+    record_id: fixture.history_plan_id,
     plan_id: fixture.history_plan_id,
     status: "rolled_back",
-    reversed_steps: ["copy-media"],
+    reversed_steps: [`${fixture.history_plan_id}:copy-media`],
   });
+  await expect(page.getByText("回滚完成；已反转 1 个步骤")).toBeVisible();
 
-  expect(apiPaths).toContain("/api/jobs?state=review_required");
-  expect(apiPaths).toContain(`/api/jobs/${fixture.review_job_id}`);
-  expect(apiPaths).toContain(`/api/jobs/${fixture.review_job_id}/events`);
-  expect(apiPaths).toContain("/api/history/plans");
+  expect(apiPaths).toContain("/api/organize-records?limit=50");
+  expect(apiPaths).toContain(`/api/organize-records/${fixture.history_plan_id}`);
+  await detailDialog.getByLabel("关闭").click();
   await expectNoOverlappingControls(page);
 });
 
