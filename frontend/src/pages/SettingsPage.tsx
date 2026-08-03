@@ -174,7 +174,7 @@ export function SettingsPage() {
       />
 
       <div className="sticky-actions">
-        <button disabled={loading || validation.errors.length > 0} type="submit">
+        <button className="primary" disabled={loading || validation.errors.length > 0} type="submit">
           保存设置
         </button>
         {status ? <p className="status">{status}</p> : null}

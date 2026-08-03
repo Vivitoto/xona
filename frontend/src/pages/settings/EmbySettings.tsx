@@ -65,17 +65,18 @@ export function EmbySettings({
           />
         </FormField>
       </div>
-      <CheckboxField
-        checked={settings.upload_actor_portraits}
-        label="Emby 同步时上传演员头像"
-        onChange={(upload_actor_portraits) =>
-          onChange({ upload_actor_portraits })
-        }
+        <CheckboxField
+          checked={settings.upload_actor_portraits}
+          label="Emby 同步时上传演员头像"
+          onChange={(upload_actor_portraits) =>
+            onChange({ upload_actor_portraits })
+          }
       />
-      <div className="subsection">
+      <div className="settings-subsection">
         <div className="row row-between">
           <h3>Emby 路径映射</h3>
           <button
+            className="button-compact"
             type="button"
             onClick={() =>
               onChange({
@@ -132,7 +133,7 @@ export function EmbySettings({
           <p className="muted">尚未配置路径映射。</p>
         )}
       </div>
-      <button type="button" onClick={testConnection}>
+      <button className="button-compact" type="button" onClick={testConnection}>
         测试 Emby
       </button>
       {diagnostic ? <pre className="diagnostic">{diagnostic}</pre> : null}

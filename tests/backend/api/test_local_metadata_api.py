@@ -22,6 +22,7 @@ from backend.app.schemas.local_metadata import (
     LocalVideoTechnicalInfo,
 )
 from backend.app.services import local_metadata as local_metadata_service
+from backend.app.services.cover_templates import SIMILAR_FRAMES_FALLBACK_WARNING
 
 
 ORIGIN = "http://testserver"
@@ -217,6 +218,75 @@ def test_local_metadata_api_cover_preview_title_position_contract(
     ]
 
 
+def test_local_metadata_api_cover_preview_warns_when_similar_frame_fallback_is_used(
+    tmp_path: Path,
+) -> None:
+    root = tmp_path / "media"
+    incoming = root / "incoming"
+    incoming.mkdir(parents=True)
+    video = incoming / "Similar.Frames.mp4"
+    video.write_bytes(b"synthetic-video")
+    settings = Settings(
+        config_dir=tmp_path / "config",
+        storage_roots=(root,),
+        auth_enabled=False,
+    )
+    service = local_metadata_service.LocalMetadataService(settings, None)
+    cache_root = settings.config_dir / "cache" / "local_metadata"
+    frame_dir = service._cache_dir_for_video(video) / "frames"
+    frame_dir.mkdir(parents=True)
+    original = Image.new("RGB", (640, 360), (120, 84, 48))
+    draw = ImageDraw.Draw(original)
+    draw.rectangle((20, 20, 620, 340), outline=(255, 255, 255), width=5)
+    selected_frame_ids: list[str] = []
+    for index in range(1, 16):
+        frame = frame_dir / f"frame-{index}.jpg"
+        original.save(frame, "JPEG", quality=95)
+        if index <= 9:
+            selected_frame_ids.append(str(frame.relative_to(cache_root)))
+
+    async def run() -> dict[str, httpx.Response]:
+        app = create_app(settings)
+        async with app.router.lifespan_context(app):
+            async with httpx.AsyncClient(
+                transport=httpx.ASGITransport(app=app),
+                base_url=ORIGIN,
+            ) as client:
+                strict = await client.post(
+                    "/api/local-metadata/cover-preview",
+                    json={
+                        "video_path": str(video),
+                        "title": "Similar Frames",
+                        "template": "simple_poster",
+                        "selected_frame_ids": selected_frame_ids,
+                        "allow_similar_frame_fallback": False,
+                    },
+                    headers={"Origin": ORIGIN},
+                )
+                fallback = await client.post(
+                    "/api/local-metadata/cover-preview",
+                    json={
+                        "video_path": str(video),
+                        "title": "Similar Frames",
+                        "template": "simple_poster",
+                        "selected_frame_ids": selected_frame_ids,
+                    },
+                    headers={"Origin": ORIGIN},
+                )
+                return {"strict": strict, "fallback": fallback}
+
+    responses = asyncio.run(run())
+
+    assert responses["strict"].status_code == 400
+    assert responses["strict"].json()["detail"]["reasons"] == [
+        "nine_distinct_frames_required:1"
+    ]
+    assert responses["fallback"].status_code == 200, responses["fallback"].text
+    preview = responses["fallback"].json()
+    assert preview["warnings"] == [SIMILAR_FRAMES_FALLBACK_WARNING]
+    assert preview["selected_frame_ids"] == selected_frame_ids
+
+
 def test_local_metadata_api_cleans_completed_plan_local_cache(tmp_path: Path) -> None:
     root = tmp_path / "media"
     incoming = root / "incoming"
@@ -397,6 +467,7 @@ def test_local_metadata_batch_api_persists_lifecycle_after_submit(
             template=payload.template,
             title_font_id=payload.title_font_id or "source_han_sans",
             selected_frame_ids=payload.selected_frame_ids,
+            warnings=[SIMILAR_FRAMES_FALLBACK_WARNING],
         )
 
     def fake_plan(
@@ -519,6 +590,11 @@ def test_local_metadata_batch_api_persists_lifecycle_after_submit(
     assert item["draft"]["technical"]["width"] == 1920
     assert item["draft"]["runtime_minutes"] == 3
     assert item["selected_frame_ids"] == [f"frames/batch-{index}.jpg" for index in range(1, 10)]
+    assert item["cover_preview"]["warnings"] == [SIMILAR_FRAMES_FALLBACK_WARNING]
+    assert any(
+        log["tone"] == "warning" and SIMILAR_FRAMES_FALLBACK_WARNING in log["message"]
+        for log in item["logs"]
+    )
     assert item["plan_id"] == "plan-batch-scene"
     assert item["plan_preview"]["nfo_xml"] == "<movie><title>Batch Scene</title></movie>"
     assert item["logs"][-1]["message"] == "NFO 与整理计划已生成，计划 plan-batch-scene"

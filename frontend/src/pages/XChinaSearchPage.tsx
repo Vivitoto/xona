@@ -174,7 +174,7 @@ export function XChinaSearchPage() {
                 onChange={(event) => setQuery(event.target.value)}
               />
             </FormField>
-            <button disabled={searchState === "loading"} type="submit">
+            <button className="primary" disabled={searchState === "loading"} type="submit">
               {searchState === "loading" ? "搜索中..." : "搜索"}
             </button>
           </form>
@@ -187,7 +187,11 @@ export function XChinaSearchPage() {
                 onChange={(event) => setDetailUrl(event.target.value)}
               />
             </FormField>
-            <button disabled={detailState === "loading"} type="submit">
+            <button
+              className="secondary"
+              disabled={detailState === "loading"}
+              type="submit"
+            >
               {detailState === "loading" ? "获取中..." : "获取详情"}
             </button>
           </form>
@@ -235,6 +239,7 @@ export function XChinaSearchPage() {
               <div className="xchina-results-pagination" aria-label="搜索结果分页">
                 <button
                   type="button"
+                  className="button-compact"
                   disabled={visibleResultPage <= 1}
                   onClick={() => setResultPage((page) => Math.max(1, page - 1))}
                 >
@@ -245,6 +250,7 @@ export function XChinaSearchPage() {
                 </span>
                 <button
                   type="button"
+                  className="button-compact"
                   disabled={visibleResultPage >= totalResultPages}
                   onClick={() =>
                     setResultPage((page) => Math.min(totalResultPages, page + 1))
@@ -362,14 +368,14 @@ function XChinaResultCard({
             打开来源
           </a>
           <button
-            className="secondary"
+            className="secondary button-compact"
             type="button"
             onClick={() => onCopySource(candidate)}
           >
             复制来源链接
           </button>
           <button
-            className="candidate-select-button"
+            className="candidate-select-button button-compact"
             type="button"
             onClick={() => onDetail(candidate)}
           >
@@ -480,7 +486,7 @@ function XChinaDetailPreview({
           {JSON.stringify(metadata, null, 2)}
         </pre>
         <div className="button-row">
-          <button type="button" onClick={onApplyToLocalMetadata}>
+          <button className="primary" type="button" onClick={onApplyToLocalMetadata}>
             应用到本地元数据生成
           </button>
         </div>

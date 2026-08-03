@@ -116,6 +116,8 @@ class LocalCoverPreviewRequest(BaseModel):
     title_stroke_width: int | None = Field(default=None, ge=0, le=20)
     title_effect: PosterTextEffect | None = None
     selected_frame_ids: list[str] = Field(default_factory=list)
+    allow_similar_frame_fallback: bool = True
+    similar_frame_fallback_threshold: int = Field(default=15, ge=9, le=36)
 
 
 class LocalCoverPreviewResponse(BaseModel):
@@ -241,6 +243,8 @@ class LocalBatchCoverSettings(BaseModel):
     title_angle_degrees: float = Field(default=0.0, ge=-20.0, le=20.0)
     title_position_x_percent: float | None = Field(default=None, ge=0.0, le=100.0)
     title_position_y_percent: float | None = Field(default=None, ge=0.0, le=100.0)
+    allow_similar_frame_fallback: bool = True
+    similar_frame_fallback_threshold: int = Field(default=15, ge=9, le=36)
 
 
 class LocalMetadataBatchOptions(BaseModel):

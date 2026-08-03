@@ -43,23 +43,23 @@ export function ReviewQueuePage() {
         <div className="metric metric-warning">
           <span>待复核</span>
           <strong>{loading ? "-" : jobs.length}</strong>
-          <small>因置信度阈值或安全门禁暂停</small>
+          <small>等待确认</small>
         </div>
         <div className="metric metric-primary">
           <span>已准备整理</span>
           <strong>{loading ? "-" : plannedCount}</strong>
-          <small>已有安全计划，可继续处理的项目</small>
+          <small>已有计划</small>
         </div>
         <div className="metric metric-warning">
           <span>安全门禁</span>
           <strong>{loading ? "-" : safetyGateCount}</strong>
-          <small>包含 unsafe 类复核原因的任务</small>
+          <small>unsafe 原因</small>
         </div>
       </div>
 
       <Section title="待复核项目">
         <div className="section-toolbar">
-          <button disabled={loading} type="button" onClick={loadQueue}>
+          <button className="button-compact" disabled={loading} type="button" onClick={loadQueue}>
             刷新队列
           </button>
         </div>
@@ -107,7 +107,7 @@ export function ReviewQueuePage() {
         ) : (
           <EmptyState
             actions={[{ label: "刷新队列", onClick: loadQueue }]}
-            description="低置信度匹配或安全门禁拒绝会显示在这里。"
+            description="低置信度或安全门禁会显示在这里。"
             icon={ClipboardCheck}
             title="没有待复核任务"
           />

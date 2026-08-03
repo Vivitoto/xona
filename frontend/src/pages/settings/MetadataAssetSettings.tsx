@@ -19,7 +19,7 @@ export function MetadataAssetSettings({
         <CheckboxField
           checked={settings.include_source_snapshot}
           label="保存来源页面快照"
-          description="整理时额外保存 source-snapshot.html，用于记录当时的来源详情页。"
+          description="额外保存 source-snapshot.html。"
           onChange={(include_source_snapshot) =>
             onChange({ include_source_snapshot })
           }

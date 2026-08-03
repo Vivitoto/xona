@@ -35,6 +35,7 @@ from backend.app.schemas.local_metadata import (
     LocalPlanPreviewRequest,
     LocalPlanPreviewResponse,
 )
+from backend.app.services.cover_templates import SIMILAR_FRAMES_FALLBACK_WARNING
 from backend.app.services.local_metadata import LocalMetadataError, LocalMetadataService
 
 logger = logging.getLogger(__name__)
@@ -456,6 +457,17 @@ class LocalMetadataBatchManager:
                     )
                 )
                 item.cover_preview_json = cover_response.model_dump(mode="json")
+                now = _utcnow()
+                for warning in cover_response.warnings:
+                    if warning == SIMILAR_FRAMES_FALLBACK_WARNING:
+                        _append_item_log(
+                            item,
+                            "warning",
+                            f"{warning}: 内容相近截图不足 9 张，已用相似帧补足封面素材。",
+                            now=now,
+                        )
+                    else:
+                        _append_item_log(item, "warning", warning, now=now)
                 _append_and_commit(session, batch, item, "success", "封面预览已生成")
                 self._ensure_not_cancelled(session, batch.id, item.id)
 

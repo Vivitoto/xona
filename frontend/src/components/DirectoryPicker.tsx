@@ -132,9 +132,14 @@ export function DirectoryPicker({
                 <h2 id={titleId}>{title}</h2>
                 <p className="muted">选择一个媒体目录，然后点击目录逐层进入。</p>
               </div>
-              <button className="secondary" type="button" onClick={() => setOpen(false)}>
+              <button
+                aria-label="关闭"
+                className="icon-button"
+                title="关闭"
+                type="button"
+                onClick={() => setOpen(false)}
+              >
                 <X className="button-icon" aria-hidden="true" size={15} />
-                <span>关闭</span>
               </button>
             </div>
 
@@ -157,12 +162,17 @@ export function DirectoryPicker({
             ) : null}
 
             <div className="directory-toolbar">
-              <button disabled={loading || !selectedRoot} type="button" onClick={() => void browse()}>
+              <button
+                className="button-compact"
+                disabled={loading || !selectedRoot}
+                type="button"
+                onClick={() => void browse()}
+              >
                 <RefreshCw className="button-icon" aria-hidden="true" size={15} />
                 <span>刷新</span>
               </button>
               <button
-                className="secondary"
+                className="secondary button-compact"
                 disabled={loading || !selectedRoot || !currentPath}
                 type="button"
                 onClick={goUp}
@@ -171,7 +181,7 @@ export function DirectoryPicker({
                 <span>上一层</span>
               </button>
               <button
-                className="secondary"
+                className="secondary button-compact"
                 disabled={!selectedRoot}
                 type="button"
                 onClick={selectCurrentDirectory}

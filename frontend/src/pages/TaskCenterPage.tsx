@@ -242,7 +242,7 @@ export function TaskCenterPage({ onRerun }: { onRerun?: (path: string) => void }
               <option value={500}>最近 500</option>
             </select>
           </FormField>
-          <button disabled={loading} type="button" onClick={loadRecords}>刷新</button>
+          <button className="button-compact" disabled={loading} type="button" onClick={loadRecords}>刷新</button>
         </div>
 
         {loading ? (
@@ -280,9 +280,9 @@ export function TaskCenterPage({ onRerun }: { onRerun?: (path: string) => void }
                     <td>{formatDate(record.created_at)}</td>
                     <td>
                       <div className="button-row">
-                        <button className="secondary" type="button" onClick={() => openDetail(record)}>查看</button>
-                        <button disabled={!record.can_rerun} type="button" onClick={() => rerun(record)}>重新整理</button>
-                        <button disabled={!record.can_rollback} type="button" onClick={() => rollback(record)}>回滚</button>
+                        <button className="secondary button-compact" type="button" onClick={() => openDetail(record)}>查看</button>
+                        <button className="button-compact" disabled={!record.can_rerun} type="button" onClick={() => rerun(record)}>重新整理</button>
+                        <button className="button-compact danger-button" disabled={!record.can_rollback} type="button" onClick={() => rollback(record)}>回滚</button>
                       </div>
                     </td>
                   </tr>
@@ -305,7 +305,7 @@ export function TaskCenterPage({ onRerun }: { onRerun?: (path: string) => void }
           <div className="dialog record-detail-modal" onClick={(e) => e.stopPropagation()} role="dialog" aria-label="整理记录详情">
             <div className="dialog-header">
               <h3>整理记录详情</h3>
-              <button className="secondary" type="button" onClick={closeModal} aria-label="关闭"><X size={18} /></button>
+              <button className="icon-button" type="button" onClick={closeModal} aria-label="关闭"><X size={15} /></button>
             </div>
             <dl className="metadata-list compact history-summary record-detail-summary">
               <div><dt>序号</dt><dd>{selectedRecord.display_index}</dd></div>
@@ -317,8 +317,8 @@ export function TaskCenterPage({ onRerun }: { onRerun?: (path: string) => void }
               <div className="full"><dt>重新整理将使用</dt><dd>{selectedRecord.rerun_path ? <code className="path-cell" title={selectedRecord.rerun_path}>{selectedRecord.rerun_path}</code> : "无"}</dd></div>
             </dl>
             <div className="button-row">
-              <button disabled={!selectedRecord.can_rerun} type="button" onClick={() => rerun(selectedRecord)}>重新整理</button>
-              <button disabled={!selectedRecord.can_rollback} type="button" onClick={() => rollback(selectedRecord)}>回滚</button>
+              <button className="button-compact" disabled={!selectedRecord.can_rerun} type="button" onClick={() => rerun(selectedRecord)}>重新整理</button>
+              <button className="button-compact danger-button" disabled={!selectedRecord.can_rollback} type="button" onClick={() => rollback(selectedRecord)}>回滚</button>
             </div>
             {detailLoading ? <LoadingSkeleton rows={3} title="正在加载记录详情" /> : null}
             {selectedRecord.plan ? <OperationPlanView plan={selectedRecord.plan} /> : null}

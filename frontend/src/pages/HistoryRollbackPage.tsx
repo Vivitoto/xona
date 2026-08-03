@@ -73,12 +73,12 @@ export function HistoryRollbackPage() {
         <div className="metric metric-primary">
           <span>历史计划</span>
           <strong>{loading ? "-" : plans.length}</strong>
-          <small>操作计划</small>
+          <small>最近计划</small>
         </div>
         <div className="metric metric-success">
           <span>完成记录</span>
           <strong>{loading ? "-" : completedCount}</strong>
-          <small>已完成</small>
+          <small>完成</small>
         </div>
         <div className="metric metric-warning">
           <span>外部变更</span>
@@ -89,7 +89,7 @@ export function HistoryRollbackPage() {
 
       <Section title="操作历史">
         <div className="section-toolbar">
-          <button disabled={loading} type="button" onClick={loadHistory}>
+          <button className="button-compact" disabled={loading} type="button" onClick={loadHistory}>
             刷新历史
           </button>
         </div>
@@ -144,13 +144,13 @@ export function HistoryRollbackPage() {
                     <td>
                       <div className="button-row">
                         <button
-                          className="secondary"
+                          className="secondary button-compact"
                           type="button"
                           onClick={() => setSelectedPlanId(plan.plan_id)}
                         >
                           查看
                         </button>
-                        <button type="button" onClick={() => rollback(plan.plan_id)}>
+                        <button className="button-compact danger-button" type="button" onClick={() => rollback(plan.plan_id)}>
                           回滚
                         </button>
                       </div>
@@ -163,7 +163,7 @@ export function HistoryRollbackPage() {
         ) : (
           <EmptyState
             actions={[{ label: "刷新历史", onClick: loadHistory }]}
-            description="操作计划会显示在这里。"
+            description="完成后的操作计划会显示在这里。"
             icon={History}
             title="暂无操作历史"
           />
@@ -206,7 +206,7 @@ export function HistoryRollbackPage() {
           {error}
         </p>
       ) : null}
-      {!loading && plans.length ? <p className="muted">共 {targetCount} 个目标路径。</p> : null}
+      {!loading && plans.length ? <p className="muted">目标路径 {targetCount} 个。</p> : null}
     </div>
   );
 }

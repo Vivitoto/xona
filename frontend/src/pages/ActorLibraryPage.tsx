@@ -201,7 +201,7 @@ export function ActorLibraryPage() {
                 <input accept="image/*" type="file" onChange={portraitChange} />
               </FormField>
               <div className="field-action">
-                <button type="button" onClick={loadActors}>
+                <button className="primary" type="button" onClick={loadActors}>
                   筛选演员
                 </button>
               </div>
@@ -248,7 +248,7 @@ export function ActorLibraryPage() {
                           />
                         </td>
                         <td>
-                          <button type="button" onClick={() => loadWorks(actor)}>
+                          <button className="button-compact" type="button" onClick={() => loadWorks(actor)}>
                             关联作品
                           </button>
                           <ul className="dense-list">
@@ -263,30 +263,34 @@ export function ActorLibraryPage() {
                         <td>
                           <div className="button-column">
                             <button
+                              className="button-compact"
                               type="button"
                               onClick={() => saveAliases(actor)}
                             >
                               保存别名
                             </button>
                             <button
+                              className="button-compact secondary"
                               type="button"
                               onClick={() => setMergeActor(actor)}
                             >
                               合并
                             </button>
                             <button
+                              className="button-compact secondary"
                               type="button"
                               onClick={() => replacePortrait(actor)}
                             >
                               替换图片
                             </button>
                             <button
+                              className="button-compact secondary"
                               type="button"
                               onClick={() => refreshActor(actor)}
                             >
                               刷新
                             </button>
-                            <button type="button" onClick={() => syncEmby(actor)}>
+                            <button className="button-compact secondary" type="button" onClick={() => syncEmby(actor)}>
                               同步 Emby
                             </button>
                           </div>
@@ -308,10 +312,10 @@ export function ActorLibraryPage() {
         ) : (
           <Section title="演员同步">
             <div className="button-row">
-              <button type="button" onClick={loadActors}>
+              <button className="button-compact" type="button" onClick={loadActors}>
                 刷新演员列表
               </button>
-              <button type="button" onClick={syncVisibleActors}>
+              <button className="button-compact" type="button" onClick={syncVisibleActors}>
                 同步全部可见演员
               </button>
             </div>
@@ -345,12 +349,13 @@ export function ActorLibraryPage() {
                         <td>
                           <div className="button-row">
                             <button
+                              className="button-compact secondary"
                               type="button"
                               onClick={() => refreshActor(actor)}
                             >
                               刷新
                             </button>
-                            <button type="button" onClick={() => syncEmby(actor)}>
+                            <button className="button-compact" type="button" onClick={() => syncEmby(actor)}>
                               同步 Emby
                             </button>
                           </div>
@@ -363,7 +368,7 @@ export function ActorLibraryPage() {
             ) : (
               <EmptyState
                 actions={[{ label: "刷新演员列表", onClick: loadActors }]}
-                description="没有可同步的演员。完成一次元数据匹配或刷新演员缓存后，再回到这里同步 Emby 人物信息。"
+                description="完成元数据匹配或刷新演员缓存后再同步。"
                 icon={UsersRound}
                 title="没有可同步演员"
               />

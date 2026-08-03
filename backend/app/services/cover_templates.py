@@ -35,6 +35,7 @@ MIN_TITLE_ANGLE_DEGREES = -20.0
 MAX_TITLE_ANGLE_DEGREES = 20.0
 MIN_TITLE_POSITION_PERCENT = 0.0
 MAX_TITLE_POSITION_PERCENT = 100.0
+SIMILAR_FRAMES_FALLBACK_WARNING = "similar_frames_fallback_used"
 
 
 class CoverTemplateError(ValueError):
@@ -47,6 +48,7 @@ class GeneratedCoverSet:
     fanart_path: Path
     thumb_path: Path
     title_font_id: PosterFontId
+    warnings: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -246,11 +248,17 @@ def generate_cover_previews(
     title_effect: PosterTextEffect | None = None,
     frame_paths: list[Path],
     output_dir: Path,
+    allow_similar_frame_fallback: bool = True,
+    similar_frame_fallback_threshold: int = 15,
 ) -> GeneratedCoverSet:
     if not frame_paths:
         raise CoverTemplateError("at_least_one_frame_required")
 
-    frame_candidates = _select_quality_frame_candidates(frame_paths)
+    frame_candidates, warnings = _select_quality_frame_candidates(
+        frame_paths,
+        allow_similar_frame_fallback=allow_similar_frame_fallback,
+        similar_frame_fallback_threshold=similar_frame_fallback_threshold,
+    )
     frame_paths = [candidate.path for candidate in frame_candidates]
     thumb_paths = _thumb_frame_paths(frame_paths)
     frames = [candidate.image for candidate in frame_candidates]
@@ -321,6 +329,7 @@ def generate_cover_previews(
         fanart_path=fanart_path,
         thumb_path=thumb_path,
         title_font_id=resolved_title_font_id,
+        warnings=tuple(warnings),
     )
 
 
@@ -333,7 +342,12 @@ def _open_frame(path: Path) -> Image.Image:
         raise CoverTemplateError(f"frame_unreadable:{path}") from exc
 
 
-def _select_quality_frame_candidates(frame_paths: list[Path]) -> list[FrameCandidate]:
+def _select_quality_frame_candidates(
+    frame_paths: list[Path],
+    *,
+    allow_similar_frame_fallback: bool,
+    similar_frame_fallback_threshold: int,
+) -> tuple[list[FrameCandidate], list[str]]:
     path_distinct = _distinct_frame_paths(frame_paths)
     candidates = [
         _frame_candidate(path, image=_open_frame(path), index=index)
@@ -346,7 +360,38 @@ def _select_quality_frame_candidates(frame_paths: list[Path]) -> list[FrameCandi
         content_distinct.append(candidate)
 
     if len(content_distinct) < 9:
-        raise CoverTemplateError(f"nine_distinct_frames_required:{len(content_distinct)}")
+        threshold = int(
+            max(9, min(36, round(similar_frame_fallback_threshold)))
+        )
+        if (
+            not allow_similar_frame_fallback
+            or len(path_distinct) < threshold
+            or len(path_distinct) < 9
+        ):
+            raise CoverTemplateError(
+                f"nine_distinct_frames_required:{len(content_distinct)}"
+            )
+        selected_keys = {candidate.path.resolve().as_posix() for candidate in content_distinct}
+        fallback = sorted(
+            [
+                candidate
+                for candidate in candidates
+                if candidate.path.resolve().as_posix() not in selected_keys
+            ],
+            key=lambda candidate: (-candidate.quality_score, candidate.index),
+        )[: 9 - len(content_distinct)]
+        if len(content_distinct) + len(fallback) < 9:
+            raise CoverTemplateError(
+                f"nine_distinct_frames_required:{len(content_distinct)}"
+            )
+        selected = [*content_distinct, *fallback]
+        selected_paths = {candidate.path.resolve().as_posix() for candidate in selected}
+        remainder = [
+            candidate
+            for candidate in candidates
+            if candidate.path.resolve().as_posix() not in selected_paths
+        ]
+        return [*selected, *remainder], [SIMILAR_FRAMES_FALLBACK_WARNING]
 
     usable = [candidate for candidate in content_distinct if candidate.is_usable_quality]
     rejected = [candidate for candidate in content_distinct if not candidate.is_usable_quality]
@@ -365,7 +410,7 @@ def _select_quality_frame_candidates(frame_paths: list[Path]) -> list[FrameCandi
         for candidate in content_distinct
         if candidate.path.resolve().as_posix() not in selected_paths
     ]
-    return [*selected, *remainder]
+    return [*selected, *remainder], []
 
 
 def _frame_candidate(path: Path, *, image: Image.Image, index: int) -> FrameCandidate:

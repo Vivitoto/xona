@@ -14,7 +14,7 @@ export function AuthSettings({
         <CheckboxField
           checked={settings.enabled}
           label="启用登录保护"
-          description="开启后，访问 Xona 的 API 和管理操作需要先登录。"
+          description="API 和管理操作需要登录。"
           onChange={(enabled) => onChange({ enabled })}
         />
         <FormField label="用户名">
@@ -26,7 +26,7 @@ export function AuthSettings({
           />
         </FormField>
         <FormField
-          description="这里不会显示或提交已保存密码；需要修改密码时请通过部署配置更新。"
+          description="不会显示或提交已保存密码。"
           label="已配置密码"
         >
           <input readOnly type="password" value="********" />

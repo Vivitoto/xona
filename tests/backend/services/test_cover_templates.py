@@ -10,6 +10,7 @@ from backend.app.schemas.local_metadata import LocalCoverPreviewRequest
 from backend.app.services.cover_templates import (
     FANART_SIZE,
     POSTER_SIZE,
+    SIMILAR_FRAMES_FALLBACK_WARNING,
     CoverTemplateError,
     TemplateTitleStyle,
     _cover,
@@ -49,6 +50,8 @@ def test_cover_preview_request_accepts_bounded_title_controls_defaults() -> None
     assert default_request.title_stroke_color is None
     assert default_request.title_stroke_width is None
     assert default_request.title_effect is None
+    assert default_request.allow_similar_frame_fallback is True
+    assert default_request.similar_frame_fallback_threshold == 15
     assert customized_request.title_angle_degrees == -15
     assert customized_request.title_position_x_percent == 25
     assert customized_request.title_position_y_percent == 80
@@ -103,6 +106,18 @@ def test_cover_preview_request_accepts_bounded_title_controls_defaults() -> None
             video_path=Path("/media/source.mp4"),
             title="Poster Title",
             title_fill_color="white",
+        )
+    with pytest.raises(ValidationError):
+        LocalCoverPreviewRequest(
+            video_path=Path("/media/source.mp4"),
+            title="Poster Title",
+            similar_frame_fallback_threshold=8,
+        )
+    with pytest.raises(ValidationError):
+        LocalCoverPreviewRequest(
+            video_path=Path("/media/source.mp4"),
+            title="Poster Title",
+            similar_frame_fallback_threshold=37,
         )
     with pytest.raises(ValidationError):
         LocalCoverPreviewRequest(
@@ -217,6 +232,37 @@ def test_cover_templates_treat_content_duplicates_as_not_distinct(tmp_path: Path
             frame_paths=[*frame_paths, duplicate],
             output_dir=tmp_path / "duplicates",
         )
+
+
+def test_cover_templates_can_fill_thumb_from_similar_frames_after_threshold(
+    tmp_path: Path,
+) -> None:
+    original = _pattern_frame(tmp_path / "source.jpg", (120, 84, 48))
+    frame_paths: list[Path] = []
+    for index in range(15):
+        copy = tmp_path / f"similar-{index + 1}.jpg"
+        copy.write_bytes(original.read_bytes())
+        frame_paths.append(copy)
+
+    with pytest.raises(CoverTemplateError, match="nine_distinct_frames_required:1"):
+        generate_cover_previews(
+            title="Fallback Disabled",
+            template="simple_poster",
+            frame_paths=frame_paths,
+            output_dir=tmp_path / "strict",
+            allow_similar_frame_fallback=False,
+        )
+
+    generated = generate_cover_previews(
+        title="Fallback Enabled",
+        template="simple_poster",
+        frame_paths=frame_paths,
+        output_dir=tmp_path / "fallback",
+    )
+
+    assert generated.warnings == (SIMILAR_FRAMES_FALLBACK_WARNING,)
+    with Image.open(generated.thumb_path) as thumb:
+        assert thumb.size == FANART_SIZE
 
 
 def test_jav_fanart_main_image_occupies_exact_right_half(tmp_path: Path) -> None:

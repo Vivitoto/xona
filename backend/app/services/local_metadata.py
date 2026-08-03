@@ -43,7 +43,11 @@ from backend.app.schemas.metadata import (
 from backend.app.schemas.operations import GeneratedArtifact, OperationPlan
 from backend.app.schemas.templates import TemplateContext
 from backend.app.services import scanner
-from backend.app.services.cover_templates import CoverTemplateError, generate_cover_previews
+from backend.app.services.cover_templates import (
+    CoverTemplateError,
+    GeneratedCoverSet,
+    generate_cover_previews,
+)
 from backend.app.services.nfo import movie_nfo_relative_path, render_movie_nfo
 from backend.app.services.operation_executor import (
     EXECUTION_ERROR_LABELS,
@@ -205,33 +209,46 @@ class LocalMetadataService:
         payload: LocalCoverPreviewRequest,
     ) -> LocalCoverPreviewResponse:
         path = self._validate_video_path(payload.video_path)
-        frame_paths = [
+        selected_frame_paths = [
             self._cache_frame_path_for_video_ref(ref, video_path=path)
             for ref in payload.selected_frame_ids
         ]
+        frame_paths = list(selected_frame_paths)
         if not frame_paths:
             frame_paths = sorted((self._cache_dir_for_video(path) / "frames").glob("*.jpg"))
         if not frame_paths:
             raise LocalMetadataError("frame_required", reasons=["Generate frames before cover preview"])
 
         try:
-            generated = generate_cover_previews(
-                title=payload.title,
-                title_angle_degrees=payload.title_angle_degrees,
-                title_position_x_percent=payload.title_position_x_percent,
-                title_position_y_percent=payload.title_position_y_percent,
-                template=payload.template,
-                title_font_id=payload.title_font_id,
-                title_font_size=payload.title_font_size,
-                title_fill_color=payload.title_fill_color,
-                title_stroke_color=payload.title_stroke_color,
-                title_stroke_width=payload.title_stroke_width,
-                title_effect=payload.title_effect,
-                frame_paths=frame_paths,
-                output_dir=self._cache_dir_for_video(path) / "covers",
-            )
+            generated = self._generate_cover_previews(payload, path=path, frame_paths=frame_paths)
         except CoverTemplateError as exc:
-            raise LocalMetadataError("cover_generation_failed", reasons=[str(exc)]) from exc
+            if (
+                selected_frame_paths
+                and payload.allow_similar_frame_fallback
+                and str(exc).startswith("nine_distinct_frames_required:")
+                and len(_distinct_paths(selected_frame_paths)) >= 9
+            ):
+                cached_frame_paths = sorted((self._cache_dir_for_video(path) / "frames").glob("*.jpg"))
+                retry_frame_paths = _distinct_paths([*selected_frame_paths, *cached_frame_paths])
+                if len(retry_frame_paths) > len(_distinct_paths(selected_frame_paths)):
+                    try:
+                        generated = self._generate_cover_previews(
+                            payload,
+                            path=path,
+                            frame_paths=retry_frame_paths,
+                        )
+                    except CoverTemplateError as retry_exc:
+                        raise LocalMetadataError(
+                            "cover_generation_failed",
+                            reasons=[str(retry_exc)],
+                        ) from retry_exc
+                else:
+                    raise LocalMetadataError(
+                        "cover_generation_failed",
+                        reasons=[str(exc)],
+                    ) from exc
+            else:
+                raise LocalMetadataError("cover_generation_failed", reasons=[str(exc)]) from exc
 
         return LocalCoverPreviewResponse(
             poster=self._cache_asset(generated.poster_path, kind="poster"),
@@ -240,6 +257,32 @@ class LocalMetadataService:
             template=payload.template,
             title_font_id=generated.title_font_id,
             selected_frame_ids=list(payload.selected_frame_ids),
+            warnings=list(generated.warnings),
+        )
+
+    def _generate_cover_previews(
+        self,
+        payload: LocalCoverPreviewRequest,
+        *,
+        path: Path,
+        frame_paths: list[Path],
+    ) -> GeneratedCoverSet:
+        return generate_cover_previews(
+            title=payload.title,
+            title_angle_degrees=payload.title_angle_degrees,
+            title_position_x_percent=payload.title_position_x_percent,
+            title_position_y_percent=payload.title_position_y_percent,
+            template=payload.template,
+            title_font_id=payload.title_font_id,
+            title_font_size=payload.title_font_size,
+            title_fill_color=payload.title_fill_color,
+            title_stroke_color=payload.title_stroke_color,
+            title_stroke_width=payload.title_stroke_width,
+            title_effect=payload.title_effect,
+            frame_paths=frame_paths,
+            output_dir=self._cache_dir_for_video(path) / "covers",
+            allow_similar_frame_fallback=payload.allow_similar_frame_fallback,
+            similar_frame_fallback_threshold=payload.similar_frame_fallback_threshold,
         )
 
     def nfo_preview(self, metadata: LocalMetadataDraft) -> LocalNfoPreviewResponse:
@@ -936,6 +979,18 @@ def _hash_file(path: Path) -> str:
         for chunk in iter(lambda: handle.read(1024 * 1024), b""):
             digest.update(chunk)
     return digest.hexdigest()
+
+
+def _distinct_paths(paths: list[Path]) -> list[Path]:
+    distinct: list[Path] = []
+    seen: set[str] = set()
+    for path in paths:
+        key = path.resolve().as_posix()
+        if key in seen:
+            continue
+        distinct.append(path)
+        seen.add(key)
+    return distinct
 
 
 def _clean_text(value: str | None) -> str | None:

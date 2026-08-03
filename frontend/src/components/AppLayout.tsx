@@ -98,7 +98,7 @@ export function AppLayout({
               {APP_VERSION_LABEL}
             </span>
             <button
-              className="theme-toggle"
+              className="theme-toggle secondary"
               type="button"
               aria-label={themeToggleLabel}
               title={`切换到${themeToggleLabel}`}
@@ -113,7 +113,7 @@ export function AppLayout({
             </button>
             <label
               className="image-safety-toggle"
-              title="开启后候选图片和演员头像会默认模糊，悬停、聚焦或轻点图片可临时查看。"
+              title="开启后图片默认模糊；悬停、聚焦或轻点可临时查看。"
             >
               <input
                 aria-label="安全模式：模糊图片"

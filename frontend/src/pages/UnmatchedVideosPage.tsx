@@ -107,6 +107,10 @@ const DEFAULT_SCREENSHOT_COUNT = 9;
 const MIN_COVER_FRAME_COUNT = 9;
 const MIN_SCREENSHOT_COUNT = MIN_COVER_FRAME_COUNT;
 const MAX_SCREENSHOT_COUNT = 36;
+const DEFAULT_SIMILAR_FRAME_FALLBACK_ENABLED = true;
+const DEFAULT_SIMILAR_FRAME_FALLBACK_THRESHOLD = 15;
+const MIN_SIMILAR_FRAME_FALLBACK_THRESHOLD = MIN_COVER_FRAME_COUNT;
+const MAX_SIMILAR_FRAME_FALLBACK_THRESHOLD = MAX_SCREENSHOT_COUNT;
 const DEFAULT_BATCH_CONCURRENCY = 2;
 const BATCH_TABLE_VISIBLE_LIMIT = 50;
 const DEFAULT_LOCAL_METADATA_VALUES = ["{actors}", "{studio}", "{resolution}"];
@@ -225,6 +229,8 @@ interface CoverEditorSettings {
   titleAngleDegrees: number;
   titleOffsetX: number;
   titleOffsetY: number;
+  allowSimilarFrameFallback: boolean;
+  similarFrameFallbackThreshold: number;
 }
 
 interface BatchCoverStyleSettings extends CoverEditorSettings {
@@ -266,6 +272,11 @@ export function UnmatchedVideosPage() {
     titlePositionPercentToOffset(DEFAULT_TITLE_POSITION_BY_TEMPLATE.simple_poster.y),
   );
   const [screenshotCount, setScreenshotCount] = useState(DEFAULT_SCREENSHOT_COUNT);
+  const [allowSimilarFrameFallback, setAllowSimilarFrameFallback] = useState(
+    DEFAULT_SIMILAR_FRAME_FALLBACK_ENABLED,
+  );
+  const [similarFrameFallbackThreshold, setSimilarFrameFallbackThreshold] =
+    useState(DEFAULT_SIMILAR_FRAME_FALLBACK_THRESHOLD);
   const [technical, setTechnical] = useState<LocalAnalyzeResponse["technical"] | null>(
     null,
   );
@@ -346,6 +357,10 @@ export function UnmatchedVideosPage() {
   );
   const [batchCoverRandomTitleFormat, setBatchCoverRandomTitleFormat] =
     useState(true);
+  const [batchAllowSimilarFrameFallback, setBatchAllowSimilarFrameFallback] =
+    useState(DEFAULT_SIMILAR_FRAME_FALLBACK_ENABLED);
+  const [batchSimilarFrameFallbackThreshold, setBatchSimilarFrameFallbackThreshold] =
+    useState(DEFAULT_SIMILAR_FRAME_FALLBACK_THRESHOLD);
   const [batchStatuses, setBatchStatuses] = useState<BatchDraftStatus[]>([]);
   const [batchConcurrency, setBatchConcurrency] = useState(
     DEFAULT_BATCH_CONCURRENCY,
@@ -392,6 +407,8 @@ export function UnmatchedVideosPage() {
     batchCoverTitleOffsetX,
     batchCoverTitleOffsetY,
     batchCoverRandomTitleFormat,
+    batchAllowSimilarFrameFallback,
+    batchSimilarFrameFallbackThreshold,
   ]);
 
   const initialCoverFrameIds = useMemo(() => selectedInitialFrameIds(frames), [frames]);
@@ -924,6 +941,7 @@ export function UnmatchedVideosPage() {
         ...current,
         coverPreview: coverResponse,
       }));
+      appendCoverPreviewWarnings(item.path, coverResponse.warnings);
       appendBatchOutputLog(item.path, "success", "封面预览已生成");
 
       appendBatchOutputLog(item.path, "active", "正在生成 NFO 与整理计划");
@@ -1242,6 +1260,12 @@ export function UnmatchedVideosPage() {
     );
   }
 
+  function appendCoverPreviewWarnings(path: string, warnings: string[]) {
+    warnings.forEach((warning) => {
+      appendBatchOutputLog(path, "warning", coverWarningLabel(warning));
+    });
+  }
+
   function markDuplicateDestructiveBatchPlanSkipped(item: BatchOutputItem) {
     const message =
       "同一个源文件已有移动整理计划会先执行；此重复计划已跳过，请重新扫描后再生成预览。";
@@ -1348,6 +1372,8 @@ export function UnmatchedVideosPage() {
       titleAngleDegrees,
       titleOffsetX,
       titleOffsetY,
+      allowSimilarFrameFallback,
+      similarFrameFallbackThreshold,
     };
   }
 
@@ -1363,6 +1389,8 @@ export function UnmatchedVideosPage() {
       titleAngleDegrees: batchCoverTitleAngleDegrees,
       titleOffsetX: batchCoverTitleOffsetX,
       titleOffsetY: batchCoverTitleOffsetY,
+      allowSimilarFrameFallback: batchAllowSimilarFrameFallback,
+      similarFrameFallbackThreshold: batchSimilarFrameFallbackThreshold,
       randomTitleFormat: batchCoverRandomTitleFormat,
     };
   }
@@ -1378,6 +1406,15 @@ export function UnmatchedVideosPage() {
     setTitleAngleDegrees(clampTitleAngleDegreesValue(settings.titleAngleDegrees));
     setTitleOffsetX(clampTitleOffsetValue(settings.titleOffsetX));
     setTitleOffsetY(clampTitleOffsetValue(settings.titleOffsetY));
+    setAllowSimilarFrameFallback(
+      settings.allowSimilarFrameFallback ?? DEFAULT_SIMILAR_FRAME_FALLBACK_ENABLED,
+    );
+    setSimilarFrameFallbackThreshold(
+      clampSimilarFrameFallbackThresholdValue(
+        settings.similarFrameFallbackThreshold ??
+          DEFAULT_SIMILAR_FRAME_FALLBACK_THRESHOLD,
+      ),
+    );
     titleFontTouched.current = true;
   }
 
@@ -1453,6 +1490,16 @@ export function UnmatchedVideosPage() {
 
   function updateTitleEffect(value: PosterTextEffect) {
     setTitleEffect(value);
+    clearPosterDependentPreviews();
+  }
+
+  function updateSimilarFrameFallback(checked: boolean) {
+    setAllowSimilarFrameFallback(checked);
+    clearPosterDependentPreviews();
+  }
+
+  function updateSimilarFrameFallbackThreshold(value: string) {
+    setSimilarFrameFallbackThreshold(clampSimilarFrameFallbackThreshold(value));
     clearPosterDependentPreviews();
   }
 
@@ -1593,11 +1640,11 @@ export function UnmatchedVideosPage() {
           </FormField>
         </div>
         <div className="button-row organize-actions-row">
-          <button disabled={!canPreviewPlan} type="button" onClick={previewPlan}>
+          <button className="primary" disabled={!canPreviewPlan} type="button" onClick={previewPlan}>
             {busy === "plan" ? "预览中..." : "生成整理预览"}
           </button>
           <button
-            className="secondary"
+            className="secondary button-compact"
             disabled={!canExecutePlan}
             type="button"
             onClick={executePlan}
@@ -1645,8 +1692,7 @@ export function UnmatchedVideosPage() {
           <>
             <Section title="单个视频">
               <p className="section-lead">
-                先分析单个文件或从批量扫描载入草稿，再生成截图并选择封面帧，最后预览
-                NFO 与整理计划。
+                分析视频、生成截图和封面，再预览 NFO 与整理计划。
               </p>
               <form className="unmatched-source-grid" onSubmit={analyzeAndGenerateFrames}>
                 <div className="path-field">
@@ -1666,7 +1712,7 @@ export function UnmatchedVideosPage() {
                 </div>
                 <FormField
                   label="截图数量"
-                  description="用于截图候选和 Fanart 拼图；默认 9 张，生成后自动选中前 9 张。"
+                  description="用于封面候选；生成后自动选中前 9 张。"
                 >
                   <input
                     max={MAX_SCREENSHOT_COUNT}
@@ -1679,8 +1725,27 @@ export function UnmatchedVideosPage() {
                     }
                   />
                 </FormField>
+                <CheckboxField
+                  checked={allowSimilarFrameFallback}
+                  description="截图数达到阈值时，内容相近也可补足 9 张封面素材。"
+                  label="相似帧兜底"
+                  onChange={updateSimilarFrameFallback}
+                />
+                <FormField label="兜底阈值">
+                  <input
+                    max={MAX_SIMILAR_FRAME_FALLBACK_THRESHOLD}
+                    min={MIN_SIMILAR_FRAME_FALLBACK_THRESHOLD}
+                    step={1}
+                    type="number"
+                    value={similarFrameFallbackThreshold}
+                    onChange={(event) =>
+                      updateSimilarFrameFallbackThreshold(event.target.value)
+                    }
+                  />
+                </FormField>
                 <div className="field-action">
                   <button
+                    className="primary"
                     disabled={busy === "analyze_frames" || !videoPath.trim()}
                     type="submit"
                   >
@@ -1705,7 +1770,7 @@ export function UnmatchedVideosPage() {
                   </FormField>
                   <FormField
                     label="整理文件名 (organize_filename)"
-                    description="标题 (title) 写入 NFO 元数据；整理文件名 (organize_filename) 用于输出视频和同名 NFO 文件。留空时使用文件名模板。"
+                    description="留空时使用文件名模板。"
                   >
                     <input
                       value={draft.organize_filename ?? ""}
@@ -1738,7 +1803,7 @@ export function UnmatchedVideosPage() {
                   </FormField>
                   <FormField
                     label="封面字体"
-                    description="模板只提供默认字体；这里可以覆盖为任意内置字体。"
+                    description="可覆盖模板默认字体。"
                   >
                     <select
                       value={titleFontId}
@@ -1819,7 +1884,7 @@ export function UnmatchedVideosPage() {
                 <div className="grid two">
                   <FormField
                     label="文字横向偏移"
-                    description="0 表示居中；负数向左/上移动，正数向右/下移动。"
+                    description="0 居中；负数向左/上，正数向右/下。"
                   >
                     <input
                       max={MAX_TITLE_OFFSET}
@@ -1861,7 +1926,7 @@ export function UnmatchedVideosPage() {
                 </div>
                 <FormField
                   label="演员 (actor)"
-                  description="每行一位演员；会写入 NFO <actor>，并可用于 {actors} 与 {first_actor} 模板。"
+                  description="每行一位演员；可用于 {actors} 与 {first_actor}。"
                 >
                   <textarea
                     value={listToLines(draft.actors)}
@@ -1881,7 +1946,7 @@ export function UnmatchedVideosPage() {
                 <div className="grid two">
                   <FormField
                     label="标签 (tag)"
-                    description="每行一个 NFO <tag>；默认变量会展开为演员、片商: 制作方和分辨率。清空则不写入标签。"
+                    description="每行一个 NFO <tag>；清空则不写入。"
                   >
                     <textarea
                       value={listToLines(draft.tags)}
@@ -1892,7 +1957,7 @@ export function UnmatchedVideosPage() {
                   </FormField>
                   <FormField
                     label="类型 (genre)"
-                    description="每行一个 NFO <genre>；默认变量会展开为演员、片商: 制作方和分辨率。清空则不写入类型。"
+                    description="每行一个 NFO <genre>；清空则不写入。"
                   >
                     <textarea
                       value={listToLines(draft.genres)}
@@ -1904,6 +1969,7 @@ export function UnmatchedVideosPage() {
                 </div>
                 <div className="button-row">
                   <button
+                    className="primary"
                     disabled={!canGenerateCover}
                     type="button"
                     onClick={generateCoverPreview}
@@ -1911,7 +1977,7 @@ export function UnmatchedVideosPage() {
                     {busy === "cover" ? "生成中..." : "生成封面预览"}
                   </button>
                   <button
-                    className="secondary"
+                    className="secondary button-compact"
                     disabled={!canPreviewNfo}
                     type="button"
                     onClick={previewNfo}
@@ -1923,20 +1989,17 @@ export function UnmatchedVideosPage() {
 
               <Section title="截图与预览">
                 <p className="section-lead">
-                  生成截图后，Xona 会自动选中前 {MIN_COVER_FRAME_COUNT} 张作为
-                  Poster/Fanart/Thumb 的素材；你可以手动调整，但封面预览仍至少需要
-                  {MIN_COVER_FRAME_COUNT} 张不同截图。
+                  默认选中前 {MIN_COVER_FRAME_COUNT} 张；可手动调整。
                 </p>
                 {frames.length ? (
                   <>
                     <div className="frame-selection-toolbar">
                       <p className="frame-selection-status">
-                        Xona 默认选择前 {MIN_COVER_FRAME_COUNT} 张；当前已选择{" "}
-                        {selectedFrameIds.length} 张用于 Poster/Fanart/Thumb，至少需要{" "}
+                        已选择 {selectedFrameIds.length} 张，至少需要{" "}
                         {MIN_COVER_FRAME_COUNT} 张。
                       </p>
                       <button
-                        className="secondary"
+                        className="secondary button-compact"
                         disabled={!canReselectInitialCoverFrames}
                         type="button"
                         onClick={reselectInitialCoverFrames}
@@ -1974,18 +2037,24 @@ export function UnmatchedVideosPage() {
                     </span>
                     <strong>暂无截图</strong>
                     <span>
-                      输入视频路径后生成截图；Xona 会自动选择前 {MIN_COVER_FRAME_COUNT} 张用于
-                      Poster/Fanart/Thumb，也可手动调整。
+                      输入视频路径后生成截图。
                     </span>
                   </div>
                 )}
 
                 {coverPreview ? (
-                  <div className="cover-preview-grid">
-                    <PreviewImage asset={coverPreview.poster} label="Poster" />
-                    <PreviewImage asset={coverPreview.fanart} label="Fanart" />
-                    <PreviewImage asset={coverPreview.thumb} label="Thumb" />
-                  </div>
+                  <>
+                    {coverPreview.warnings.length ? (
+                      <p className="status warning">
+                        {coverPreview.warnings.map(coverWarningLabel).join("；")}
+                      </p>
+                    ) : null}
+                    <div className="cover-preview-grid">
+                      <PreviewImage asset={coverPreview.poster} label="Poster" />
+                      <PreviewImage asset={coverPreview.fanart} label="Fanart" />
+                      <PreviewImage asset={coverPreview.thumb} label="Thumb" />
+                    </div>
+                  </>
                 ) : null}
 
                 {nfoPreview ? (
@@ -2019,7 +2088,7 @@ export function UnmatchedVideosPage() {
                 </div>
                 <CheckboxField checked={recursive} label="递归扫描" onChange={setRecursive} />
                 <div className="field-action">
-                  <button disabled={!directory.trim() || busy === "scan"} type="submit">
+                  <button className="primary" disabled={!directory.trim() || busy === "scan"} type="submit">
                     {busy === "scan" ? "扫描中..." : "扫描目录"}
                   </button>
                 </div>
@@ -2046,11 +2115,11 @@ export function UnmatchedVideosPage() {
                 <div className="batch-selection-panel">
                   <div className="row row-between batch-selection-toolbar">
                     <p className="muted">
-                      默认已选中全部 {scannedVideos.length} 个视频；可以按需取消单项或清空后重选。
+                      已选中 {selectedBatchPaths.length}/{scannedVideos.length} 个视频。
                     </p>
                     <div className="button-row">
                       <button
-                        className="secondary"
+                        className="secondary button-compact"
                         disabled={selectedBatchPaths.length === scannedVideos.length}
                         type="button"
                         onClick={selectAllBatchVideos}
@@ -2058,7 +2127,7 @@ export function UnmatchedVideosPage() {
                         全选
                       </button>
                       <button
-                        className="secondary"
+                        className="secondary button-compact"
                         disabled={!selectedBatchPaths.length}
                         type="button"
                         onClick={clearBatchSelection}
@@ -2097,7 +2166,7 @@ export function UnmatchedVideosPage() {
                             <td>{formatBytes(video.size_bytes)}</td>
                             <td>
                               <button
-                                className="secondary"
+                                className="secondary button-compact"
                                 type="button"
                                 onClick={() => selectVideo(video)}
                               >
@@ -2165,7 +2234,7 @@ export function UnmatchedVideosPage() {
                 </FormField>
                 <FormField
                   label="标签 (tag)"
-                  description="每行一个 NFO <tag>；默认变量会展开为演员、片商: 制作方和分辨率。清空则不写入标签。"
+                  description="每行一个 NFO <tag>；清空则不写入。"
                 >
                   <textarea
                     value={batchTags}
@@ -2174,7 +2243,7 @@ export function UnmatchedVideosPage() {
                 </FormField>
                 <FormField
                   label="类型 (genre)"
-                  description="每行一个 NFO <genre>；默认变量会展开为演员、片商: 制作方和分辨率。清空则不写入类型。"
+                  description="每行一个 NFO <genre>；清空则不写入。"
                 >
                   <textarea
                     value={batchGenres}
@@ -2192,18 +2261,37 @@ export function UnmatchedVideosPage() {
                 <div>
                   <h3 id="batch-cover-style-title">批量封面风格</h3>
                   <p className="section-lead">
-                    启用后，每个视频按路径稳定随机标题样式；字体只在当前模板的风格池内随机，颜色、镜像角度与几何微调范围固定为字号
-                    +/-{BATCH_TITLE_FONT_SIZE_JITTER_RANGE}px、角度
-                    +/-{BATCH_TITLE_ANGLE_JITTER_RANGE} 度、位置
-                    +/-{BATCH_TITLE_OFFSET_JITTER_RANGE}。
+                    随机标题格式会按视频路径生成稳定样式；关闭后使用下方基础值。
                   </p>
                 </div>
                 <CheckboxField
                   checked={batchCoverRandomTitleFormat}
-                  description="关闭后完全使用下方基础值；开启后按模板风格池稳定随机字体、颜色、角度和位置。"
+                  description="开启后随机字体、颜色、角度和位置。"
                   label="随机标题格式"
                   onChange={setBatchCoverRandomTitleFormat}
                 />
+                <div className="grid two">
+                  <CheckboxField
+                    checked={batchAllowSimilarFrameFallback}
+                    description="截图数达到阈值时，内容相近也可补足 9 张封面素材。"
+                    label="相似帧兜底"
+                    onChange={setBatchAllowSimilarFrameFallback}
+                  />
+                  <FormField label="兜底阈值">
+                    <input
+                      max={MAX_SIMILAR_FRAME_FALLBACK_THRESHOLD}
+                      min={MIN_SIMILAR_FRAME_FALLBACK_THRESHOLD}
+                      step={1}
+                      type="number"
+                      value={batchSimilarFrameFallbackThreshold}
+                      onChange={(event) =>
+                        setBatchSimilarFrameFallbackThreshold(
+                          clampSimilarFrameFallbackThreshold(event.target.value),
+                        )
+                      }
+                    />
+                  </FormField>
+                </div>
                 <div className="grid three batch-cover-style-grid">
                   <FormField label="批量模板">
                     <select
@@ -2223,7 +2311,7 @@ export function UnmatchedVideosPage() {
                   </FormField>
                   <FormField
                     label="批量标题字体"
-                    description="作为每个批量封面标题的基础字体。"
+                    description="封面标题基础字体。"
                   >
                     <select
                       value={batchCoverTitleFontId}
@@ -2254,7 +2342,7 @@ export function UnmatchedVideosPage() {
                   </FormField>
                   <FormField
                     label="基础填充色"
-                    description="关闭随机标题格式时使用；启用时每个视频生成稳定随机填充色。"
+                    description="关闭随机时使用。"
                   >
                     <input
                       type="color"
@@ -2266,7 +2354,7 @@ export function UnmatchedVideosPage() {
                   </FormField>
                   <FormField
                     label="基础描边色"
-                    description="关闭随机标题格式时使用；启用时每个视频生成强对比随机描边色。"
+                    description="关闭随机时使用。"
                   >
                     <input
                       type="color"
@@ -2322,7 +2410,7 @@ export function UnmatchedVideosPage() {
                   </FormField>
                   <FormField
                     label="基础横向偏移"
-                    description="0 表示居中；负数向左移动，正数向右移动。"
+                    description="0 居中；负数向左，正数向右。"
                   >
                     <input
                       max={MAX_TITLE_OFFSET}
@@ -2337,7 +2425,7 @@ export function UnmatchedVideosPage() {
                   </FormField>
                   <FormField
                     label="基础纵向偏移"
-                    description="0 表示居中；负数向上移动，正数向下移动。"
+                    description="0 居中；负数向上，正数向下。"
                   >
                     <input
                       max={MAX_TITLE_OFFSET}
@@ -2356,7 +2444,7 @@ export function UnmatchedVideosPage() {
                 <div>
                   <h3 id="batch-output-rule-title">批量输出规则</h3>
                   <p className="section-lead">
-                    这些规则会一次性应用到所有已生成的批量元数据；提交批量预览任务后，Xona 只展示汇总和紧凑列表。
+                    规则会应用到已生成的批量元数据，并以汇总和紧凑列表展示。
                   </p>
                 </div>
                 <div className="grid four organize-preview-grid">
@@ -2424,12 +2512,24 @@ export function UnmatchedVideosPage() {
                       }}
                     />
                   </FormField>
+                  <FormField label="批量截图数量">
+                    <input
+                      max={MAX_SCREENSHOT_COUNT}
+                      min={MIN_SCREENSHOT_COUNT}
+                      step={1}
+                      type="number"
+                      value={screenshotCount}
+                      onChange={(event) =>
+                        setScreenshotCount(clampScreenshotCount(event.target.value))
+                      }
+                    />
+                  </FormField>
                 </div>
               </div>
               <div className="button-row batch-actions-row">
                 <FormField
                   label="批量并发数"
-                  description={`限制为 ${MIN_BATCH_CONCURRENCY}-${MAX_BATCH_CONCURRENCY}，避免同时压满本地分析与截图任务。`}
+                  description={`${MIN_BATCH_CONCURRENCY}-${MAX_BATCH_CONCURRENCY}`}
                 >
                   <input
                     max={MAX_BATCH_CONCURRENCY}
@@ -2445,6 +2545,7 @@ export function UnmatchedVideosPage() {
                   />
                 </FormField>
                 <button
+                  className="primary"
                   disabled={!selectedBatchPaths.length}
                   type="button"
                   onClick={applyBatchFields}
@@ -2452,7 +2553,7 @@ export function UnmatchedVideosPage() {
                   生成批量元数据
                 </button>
                 <button
-                  className="secondary"
+                  className="secondary button-compact"
                   disabled={!canGenerateBatchOutputs}
                   type="button"
                   onClick={() => void generateBatchOutputs()}
@@ -2462,7 +2563,7 @@ export function UnmatchedVideosPage() {
                     : "提交批量预览任务"}
                 </button>
                 <button
-                  className="secondary"
+                  className="secondary button-compact danger-button"
                   disabled={!canExecuteBatchOutputs}
                   type="button"
                   onClick={() => void executeBatchOutputs()}
@@ -2473,7 +2574,7 @@ export function UnmatchedVideosPage() {
                 </button>
               </div>
               <p className="muted batch-action-hint">
-                提交批量预览后会在后台继续处理，关闭页面也不会中断；预览完成且模式不是“仅预览”后才可执行。
+                预览在后台继续处理；非“仅预览”模式完成后可执行。
               </p>
 
               <BatchOutputSummary batchOutputItems={batchOutputItems} busy={busy} />
@@ -2626,12 +2727,13 @@ function VideoPathPicker({
                 <p className="muted">选择一个媒体目录，然后点击视频文件。</p>
               </div>
               <button
-                className="secondary"
+                aria-label="关闭"
+                className="icon-button"
+                title="关闭"
                 type="button"
                 onClick={() => setOpen(false)}
               >
                 <X className="button-icon" aria-hidden="true" size={15} />
-                <span>关闭</span>
               </button>
             </div>
 
@@ -2657,6 +2759,7 @@ function VideoPathPicker({
 
             <div className="directory-toolbar">
               <button
+                className="button-compact"
                 disabled={loading || !selectedRoot}
                 type="button"
                 onClick={() => void browse()}
@@ -2665,7 +2768,7 @@ function VideoPathPicker({
                 <span>刷新</span>
               </button>
               <button
-                className="secondary"
+                className="secondary button-compact"
                 disabled={loading || !selectedRoot || !currentPath}
                 type="button"
                 onClick={goUp}
@@ -2826,12 +2929,12 @@ function BatchServerJobPanel({
           </p>
         </div>
         <div className="button-row">
-          <button className="secondary" type="button" onClick={onRefresh}>
+          <button className="secondary button-compact" type="button" onClick={onRefresh}>
             <RefreshCw className="button-icon" aria-hidden="true" size={15} />
             <span>刷新</span>
           </button>
           <button
-            className="secondary"
+            className="secondary button-compact"
             disabled={!canRetry || busy !== null}
             type="button"
             onClick={onRetry}
@@ -2839,7 +2942,7 @@ function BatchServerJobPanel({
             重试失败
           </button>
           <button
-            className="secondary danger-button"
+            className="secondary button-compact danger-button"
             disabled={!canCancel || busy !== null}
             type="button"
             onClick={onCancel}
@@ -3114,6 +3217,9 @@ function BatchOutputDetails({ item }: { item: BatchOutputItem }) {
         </span>
         {item.planPreview ? (
           <span>目标 {item.planPreview.plan.target_directory}</span>
+        ) : null}
+        {item.coverPreview?.warnings.length ? (
+          <span>{item.coverPreview.warnings.map(coverWarningLabel).join("；")}</span>
         ) : null}
       </div>
       <BatchOutputLogView logs={item.logs} />
@@ -3648,6 +3754,8 @@ function coverSettingsToBatchCoverSettings(
     title_angle_degrees: settings.titleAngleDegrees,
     title_position_x_percent: titleOffsetToTitlePositionPercent(settings.titleOffsetX),
     title_position_y_percent: titleOffsetToTitlePositionPercent(settings.titleOffsetY),
+    allow_similar_frame_fallback: settings.allowSimilarFrameFallback,
+    similar_frame_fallback_threshold: settings.similarFrameFallbackThreshold,
   };
 }
 
@@ -3670,6 +3778,13 @@ function batchCoverSettingsToCoverEditorSettings(
     ),
     titleOffsetY: titlePositionPercentToOffset(
       settings.title_position_y_percent ?? DEFAULT_TITLE_POSITION_BY_TEMPLATE[template].y,
+    ),
+    allowSimilarFrameFallback:
+      settings.allow_similar_frame_fallback ??
+      DEFAULT_SIMILAR_FRAME_FALLBACK_ENABLED,
+    similarFrameFallbackThreshold: clampSimilarFrameFallbackThresholdValue(
+      settings.similar_frame_fallback_threshold ??
+        DEFAULT_SIMILAR_FRAME_FALLBACK_THRESHOLD,
     ),
   };
 }
@@ -3895,6 +4010,8 @@ function buildCoverPreviewRequest({
     title_stroke_width: settings.titleStrokeWidth,
     title_effect: settings.titleEffect,
     selected_frame_ids: selectedFrameIds,
+    allow_similar_frame_fallback: settings.allowSimilarFrameFallback,
+    similar_frame_fallback_threshold: settings.similarFrameFallbackThreshold,
   };
 }
 
@@ -4001,6 +4118,8 @@ function randomizedBatchCoverSettings(
           stableRandomDelta(seed, "offset-y", BATCH_TITLE_OFFSET_JITTER_RANGE),
       ),
     ),
+    allowSimilarFrameFallback: baseline.allowSimilarFrameFallback,
+    similarFrameFallbackThreshold: baseline.similarFrameFallbackThreshold,
   };
 }
 
@@ -4024,6 +4143,10 @@ function baselineBatchCoverSettings(
     titleAngleDegrees: clampTitleAngleDegreesValue(settings.titleAngleDegrees),
     titleOffsetX: clampTitleOffsetValue(settings.titleOffsetX),
     titleOffsetY: clampTitleOffsetValue(settings.titleOffsetY),
+    allowSimilarFrameFallback: settings.allowSimilarFrameFallback,
+    similarFrameFallbackThreshold: clampSimilarFrameFallbackThresholdValue(
+      settings.similarFrameFallbackThreshold,
+    ),
   };
 }
 
@@ -4240,6 +4363,9 @@ function srgbToLinear(channel: number): number {
 }
 
 function coverSettingsSummary(settings: CoverEditorSettings): string {
+  const fallback = settings.allowSimilarFrameFallback
+    ? `相似帧兜底 ${settings.similarFrameFallbackThreshold}`
+    : "相似帧严格";
   return `${coverTemplateLabel(settings.template)} / ${posterFontLabel(
     settings.titleFontId,
   )} / ${settings.titleFontSize}px / ${settings.titleFillColor} -> ${
@@ -4248,7 +4374,14 @@ function coverSettingsSummary(settings: CoverEditorSettings): string {
     settings.titleAngleDegrees,
   )} 度 / X ${formatSignedNumber(settings.titleOffsetX)} Y ${formatSignedNumber(
     settings.titleOffsetY,
-  )}`;
+  )} / ${fallback}`;
+}
+
+function coverWarningLabel(warning: string): string {
+  if (warning === "similar_frames_fallback_used") {
+    return "similar_frames_fallback_used：内容相近截图不足 9 张，已使用相似帧补足。";
+  }
+  return warning;
 }
 
 function coverTemplateLabel(template: CoverTemplateName): string {
@@ -4339,6 +4472,24 @@ function clampScreenshotCount(value: string): number {
     return DEFAULT_SCREENSHOT_COUNT;
   }
   return Math.min(MAX_SCREENSHOT_COUNT, Math.max(MIN_SCREENSHOT_COUNT, parsed));
+}
+
+function clampSimilarFrameFallbackThreshold(value: string): number {
+  const parsed = Number.parseInt(value, 10);
+  if (!Number.isFinite(parsed)) {
+    return DEFAULT_SIMILAR_FRAME_FALLBACK_THRESHOLD;
+  }
+  return clampSimilarFrameFallbackThresholdValue(parsed);
+}
+
+function clampSimilarFrameFallbackThresholdValue(value: number): number {
+  return Math.round(
+    clampNumber(
+      value,
+      MIN_SIMILAR_FRAME_FALLBACK_THRESHOLD,
+      MAX_SIMILAR_FRAME_FALLBACK_THRESHOLD,
+    ),
+  );
 }
 
 function clampBatchConcurrency(value: string): number {

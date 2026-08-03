@@ -428,6 +428,8 @@ export interface LocalCoverPreviewRequest extends Record<string, unknown> {
   title_stroke_width: number;
   title_effect: PosterTextEffect;
   selected_frame_ids: string[];
+  allow_similar_frame_fallback: boolean;
+  similar_frame_fallback_threshold: number;
 }
 
 export interface LocalCoverPreviewResponse {
@@ -532,6 +534,8 @@ export interface LocalBatchCoverSettings extends Record<string, unknown> {
   title_angle_degrees: number;
   title_position_x_percent: number | null;
   title_position_y_percent: number | null;
+  allow_similar_frame_fallback: boolean;
+  similar_frame_fallback_threshold: number;
 }
 
 export interface LocalMetadataBatchOptions extends Record<string, unknown> {

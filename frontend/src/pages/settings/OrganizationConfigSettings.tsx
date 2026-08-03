@@ -134,7 +134,7 @@ export function OrganizationConfigSettings({
         <div className="settings-subsection">
           <h3>媒体目录</h3>
           <p className="section-lead">
-            定义 Xona 可以访问的媒体根目录，用于扫描、选择源目录和限制整理路径范围。
+            用于扫描、选择源目录和限制整理路径范围。
           </p>
           {settings.storage.env_roots.length ? (
             <div className="readonly-list" aria-label="容器自动发现的媒体目录">
@@ -149,7 +149,7 @@ export function OrganizationConfigSettings({
           ) : null}
           <div className="path-field path-field-textarea">
             <FormField
-              description="每行一个额外媒体目录。容器已挂载的目录会自动出现在上方，不需要重复填写。"
+              description="每行一个额外媒体目录；容器挂载目录会显示在上方。"
               label="用户媒体目录"
             >
               <textarea
@@ -167,7 +167,7 @@ export function OrganizationConfigSettings({
         <div className="settings-subsection">
           <h3>整理目标目录</h3>
           <p className="section-lead">
-            设置本地元数据生成默认写入的位置。单个生成任务里仍可单独覆盖。
+            本地元数据生成的默认写入位置。
           </p>
           <div className="path-field">
             <FormField label="默认目标目录">
@@ -194,7 +194,6 @@ export function OrganizationConfigSettings({
 
       <Section title="命名模板">
         <p className="section-lead">
-          这套模板用于命名预览和本地元数据生成默认值。
           文件夹模板一行一级目录；文件名模板只写最终文件名。
         </p>
         <div className="grid two">
@@ -220,7 +219,7 @@ export function OrganizationConfigSettings({
         <div className="variable-help">
           <button
             aria-expanded={variablesOpen}
-            className="secondary"
+            className="secondary button-compact"
             type="button"
             onClick={() => setVariablesOpen((current) => !current)}
           >
@@ -243,7 +242,7 @@ export function OrganizationConfigSettings({
             </div>
           ) : null}
         </div>
-        <button type="button" onClick={previewTemplate}>
+        <button className="button-compact" type="button" onClick={previewTemplate}>
           预览命名模板
         </button>
         {error ? <p className="status error">{error}</p> : null}
@@ -270,9 +269,7 @@ export function OrganizationConfigSettings({
       </Section>
 
       <Section title="整理行为">
-        <p className="section-lead">
-          设置本地元数据生成任务的默认文件动作。具体生成任务里仍可按需覆盖。
-        </p>
+        <p className="section-lead">本地元数据生成任务的默认文件动作。</p>
         <div className="grid four">
           <FormField label="默认整理模式">
             <select
@@ -304,7 +301,7 @@ export function OrganizationConfigSettings({
           <CheckboxField
             checked={settings.organization_defaults.include_source_snapshot}
             label="默认保存来源页面快照"
-            description="整理时额外保存 source-snapshot.html，用于记录当时的来源详情页，方便审计或排查。"
+            description="额外保存 source-snapshot.html。"
             onChange={(include_source_snapshot) =>
               onOrganizationDefaultsChange({ include_source_snapshot })
             }

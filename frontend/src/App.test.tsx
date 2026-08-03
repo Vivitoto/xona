@@ -109,7 +109,7 @@ describe("App", () => {
     expect(screen.getByRole("button", { name: "生成 NFO 预览" })).toBeTruthy();
   });
 
-  it("promotes local metadata and XChina search from the dashboard", async () => {
+  it("shows workflow shortcuts from the dashboard", async () => {
     installFetchMock([
       { path: "/api/jobs?state=review_required", response: { jobs: [] } },
       { path: "/api/watch-rules", response: { rules: [] } },
@@ -118,12 +118,19 @@ describe("App", () => {
     render(<App />);
 
     const main = screen.getByRole("main");
+    expect(await within(main).findByText("媒体工作台")).toBeTruthy();
     expect(
       await within(main).findByRole("button", { name: "本地元数据生成" }),
     ).toBeTruthy();
     expect(
       within(main).getByRole("button", { name: "XChina 元数据搜索" }),
     ).toBeTruthy();
+    for (const shortcut of ["未处理文件", "元数据复核", "任务与记录", "历史线索"]) {
+      expect(within(main).getByText(shortcut)).toBeTruthy();
+    }
+    expect(within(main).getByRole("button", { name: "查看任务记录" })).toBeTruthy();
+    expect(within(main).getByRole("button", { name: "查看日志" })).toBeTruthy();
+    expect(await within(main).findByText("本地演员条目")).toBeTruthy();
     expect(
       within(main).queryByRole("button", { name: "监控规则" }),
     ).not.toBeInTheDocument();

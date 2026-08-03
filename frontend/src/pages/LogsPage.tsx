@@ -10,7 +10,7 @@ import { LoadingSkeleton } from "../components/LoadingSkeleton";
 
 const logLevels = ["ALL", "DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"] as const;
 type LogLevelFilter = (typeof logLevels)[number];
-const dockerLogsFallback = "也可通过 docker logs 查看。";
+const dockerLogsFallback = "可通过 docker logs 查看。";
 
 export function LogsPage() {
   const [entries, setEntries] = useState<LogEntryRead[]>([]);
@@ -100,7 +100,7 @@ export function LogsPage() {
         <div className="metric metric-primary">
           <span>日志条目</span>
           <strong>{entries.length}</strong>
-          <small>最近日志</small>
+          <small>最近 100 条</small>
         </div>
         <div className="metric metric-warning">
           <span>警告</span>
@@ -114,13 +114,13 @@ export function LogsPage() {
         </div>
       </div>
 
-      <Section title="实时日志">
+      <Section title="应用日志">
         <div className="section-toolbar">
           <div className="button-row">
-            <button type="button" onClick={loadRecent}>
+            <button className="button-compact" type="button" onClick={loadRecent}>
               刷新
             </button>
-            <button className="secondary" type="button" onClick={() => setEntries([])}>
+            <button className="secondary button-compact" type="button" onClick={() => setEntries([])}>
               清屏
             </button>
           </div>

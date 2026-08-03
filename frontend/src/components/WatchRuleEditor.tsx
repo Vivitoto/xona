@@ -104,7 +104,7 @@ export function WatchRuleEditor({
       <div className="grid two">
         <div className="path-field">
           <FormField
-            description="从已配置的媒体目录里选择要监控的源目录。"
+            description="要监控的源目录。"
             label="源目录"
           >
             <input
@@ -121,7 +121,7 @@ export function WatchRuleEditor({
         </div>
         <div className="path-field">
           <FormField
-            description="整理输出的目标根目录。目标位于源目录内时会自动加入排除前缀。"
+            description="目标位于源目录内时会自动排除。"
             label="目标目录"
           >
             <input
@@ -150,6 +150,7 @@ export function WatchRuleEditor({
       <div className="segmented" aria-label="监控模式">
         <button
           aria-pressed={draft.realtime}
+          className="button-compact"
           type="button"
           onClick={() => patch({ realtime: true })}
         >
@@ -157,6 +158,7 @@ export function WatchRuleEditor({
         </button>
         <button
           aria-pressed={!draft.realtime}
+          className="button-compact"
           type="button"
           onClick={() => patch({ realtime: false })}
         >
@@ -235,6 +237,7 @@ export function WatchRuleEditor({
         {modeOptions.map((mode) => (
           <button
             aria-pressed={organizationModeOrCopy(draft.organization_mode) === mode}
+            className="button-compact"
             key={mode}
             type="button"
             onClick={() => patch({ organization_mode: mode })}
@@ -320,7 +323,7 @@ export function WatchRuleEditor({
         </FormField>
         <div className="path-field path-field-textarea">
           <FormField
-            description="每行一个目录前缀；也可以从媒体目录中选择后追加。"
+            description="每行一个目录前缀，也可选择后追加。"
             label="已排除目标前缀"
           >
             <textarea
@@ -340,7 +343,7 @@ export function WatchRuleEditor({
         </div>
       </div>
 
-      <button type="button" onClick={onSubmit}>
+      <button className="primary" type="button" onClick={onSubmit}>
         {draft.rule_id ? "更新监控规则" : "创建监控规则"}
       </button>
     </div>

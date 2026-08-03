@@ -98,7 +98,7 @@ export function CandidateCard({
               打开来源
             </a>
             <button
-              className="candidate-select-button"
+              className="candidate-select-button button-compact"
               type="button"
               onClick={() => onSelect(candidate)}
             >

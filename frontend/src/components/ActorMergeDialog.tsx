@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { X } from "lucide-react";
 
 import type { ActorRead } from "../api/types";
 import { FormField } from "./FormField";
@@ -20,8 +21,19 @@ export function ActorMergeDialog({
 
   return (
     <div aria-modal="true" className="dialog-backdrop" role="dialog">
-      <div className="dialog">
-        <h2>合并演员</h2>
+      <div className="dialog actor-merge-dialog">
+        <div className="dialog-header">
+          <h2>合并演员</h2>
+          <button
+            aria-label="关闭"
+            className="icon-button"
+            title="关闭"
+            type="button"
+            onClick={onClose}
+          >
+            <X aria-hidden="true" size={15} />
+          </button>
+        </div>
         <p className="muted">将重复档案合并到 {actor.canonical_name}。</p>
         <FormField label="重复演员 ID">
           <input
@@ -33,6 +45,7 @@ export function ActorMergeDialog({
         </FormField>
         <div className="button-row">
           <button
+            className="button-compact"
             type="button"
             onClick={() => onMerge(Number.parseInt(duplicateId, 10))}
           >

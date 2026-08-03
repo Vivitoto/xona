@@ -70,7 +70,7 @@ export function XChinaSettings({
           />
         </FormField>
         <FormField
-          description="按输入原样保存和调用。客户端不会追加 /v1。"
+          description="按原样调用，客户端不会追加 /v1。"
           label="精确 FlareSolverr 端点"
         >
           <input
@@ -115,7 +115,7 @@ export function XChinaSettings({
           />
         </FormField>
         <FormField
-          description="正常会一直跟随下一页直到没有下一页；这里是防循环/异常分页的保险丝。"
+          description="防循环或异常分页。"
           label="搜索页数安全上限"
         >
           <input
@@ -137,10 +137,10 @@ export function XChinaSettings({
         />
       </div>
       <div className="button-row">
-        <button type="button" onClick={testFlareSolverr}>
+        <button className="secondary button-compact" type="button" onClick={testFlareSolverr}>
           测试 FlareSolverr
         </button>
-        <button type="button" onClick={testXChina}>
+        <button className="button-compact" type="button" onClick={testXChina}>
           测试 XChina
         </button>
       </div>

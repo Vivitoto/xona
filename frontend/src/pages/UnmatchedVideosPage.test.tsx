@@ -69,7 +69,7 @@ describe("UnmatchedVideosPage", () => {
     render(<UnmatchedVideosPage />);
 
     expect(screen.getByLabelText("整理文件名 (organize_filename)")).toBeTruthy();
-    expect(screen.getByText(/标题 \(title\) 写入 NFO 元数据/)).toBeTruthy();
+    expect(screen.getByText("留空时使用文件名模板。")).toBeTruthy();
     await waitFor(() =>
       expect(screen.getByLabelText("目标目录")).toHaveValue("/media/organized"),
     );
@@ -443,9 +443,9 @@ describe("UnmatchedVideosPage", () => {
     const batch = within(batchSection as HTMLElement);
 
     expect(batch.getByRole("heading", { name: "批量封面风格" })).toBeTruthy();
-    expect(batch.getByText(/字号\s+\+\/-10px/)).toBeTruthy();
-    expect(batch.getByText(/角度\s+\+\/-5 度/)).toBeTruthy();
-    expect(batch.getByText(/位置\s+\+\/-10/)).toBeTruthy();
+    expect(
+      batch.getByText("随机标题格式会按视频路径生成稳定样式；关闭后使用下方基础值。"),
+    ).toBeTruthy();
     expect(batch.getByLabelText("随机标题格式")).toBeChecked();
     expect(batch.getByLabelText("批量模板")).toBeTruthy();
     expect(batch.getByLabelText("批量标题字体")).toBeTruthy();
@@ -636,6 +636,14 @@ describe("UnmatchedVideosPage", () => {
 
     fireEvent.click(batch.getByLabelText("随机标题格式"));
     expect(batch.getByLabelText("随机标题格式")).not.toBeChecked();
+    expect(batch.getByLabelText("相似帧兜底")).toBeChecked();
+    expect(batch.getByLabelText("兜底阈值")).toHaveValue(15);
+    fireEvent.change(batch.getByLabelText("兜底阈值"), {
+      target: { value: "18" },
+    });
+    fireEvent.change(batch.getByLabelText("批量截图数量"), {
+      target: { value: "18" },
+    });
     fireEvent.click(batch.getByRole("button", { name: "生成批量元数据" }));
     await waitFor(() => expect(batch.getByRole("heading", { name: "已生成的批量元数据" })).toBeTruthy());
     fireEvent.click(batch.getByRole("button", { name: "提交批量预览任务" }));
@@ -653,8 +661,13 @@ describe("UnmatchedVideosPage", () => {
       title_angle_degrees: -8,
       title_position_x_percent: 50,
       title_position_y_percent: 90,
+      allow_similar_frame_fallback: true,
+      similar_frame_fallback_threshold: 18,
     };
     expect(fixedRequest).toMatchObject(fixedBaseline);
+    expect(batchCreateBodies(calls)[0].options).toMatchObject({
+      frame_count: 18,
+    });
 
     fireEvent.click(batch.getByLabelText("随机标题格式"));
     expect(batch.getByLabelText("随机标题格式")).toBeChecked();
@@ -677,6 +690,8 @@ describe("UnmatchedVideosPage", () => {
       title_angle_degrees: randomRequest.title_angle_degrees,
       title_position_x_percent: randomRequest.title_position_x_percent,
       title_position_y_percent: randomRequest.title_position_y_percent,
+      allow_similar_frame_fallback: randomRequest.allow_similar_frame_fallback,
+      similar_frame_fallback_threshold: randomRequest.similar_frame_fallback_threshold,
     }).not.toEqual({
       title_font_id: fixedBaseline.title_font_id,
       title_font_size: fixedBaseline.title_font_size,
@@ -687,6 +702,12 @@ describe("UnmatchedVideosPage", () => {
       title_angle_degrees: fixedBaseline.title_angle_degrees,
       title_position_x_percent: fixedBaseline.title_position_x_percent,
       title_position_y_percent: fixedBaseline.title_position_y_percent,
+      allow_similar_frame_fallback: fixedBaseline.allow_similar_frame_fallback,
+      similar_frame_fallback_threshold: fixedBaseline.similar_frame_fallback_threshold,
+    });
+    expect(randomRequest).toMatchObject({
+      allow_similar_frame_fallback: true,
+      similar_frame_fallback_threshold: 18,
     });
   });
 
@@ -1117,8 +1138,8 @@ describe("UnmatchedVideosPage", () => {
       expect(screen.getByLabelText("目标目录")).toHaveValue("/media/organized"),
     );
     expect(screen.getByText("分析文件或扫描目录")).toBeTruthy();
-    expect(screen.getByText(/自动选中前 9 张作为/)).toBeTruthy();
-    expect(screen.getByText(/0 表示居中/)).toBeTruthy();
+    expect(screen.getByText(/默认选中前 9 张/)).toBeTruthy();
+    expect(screen.getByText(/0 居中/)).toBeTruthy();
     expect(screen.getByRole("button", { name: "分析并生成截图" })).toBeTruthy();
     expect(screen.queryByRole("button", { name: "分析" })).toBeNull();
     expect(screen.queryByRole("button", { name: "生成截图" })).toBeNull();
@@ -1140,6 +1161,8 @@ describe("UnmatchedVideosPage", () => {
     expect(screen.getByLabelText("文字倾斜角度")).toHaveValue(-8);
     expect(screen.getByLabelText("文字横向偏移")).toHaveValue(0);
     expect(screen.getByLabelText("文字纵向偏移")).toHaveValue(43);
+    expect(screen.getByLabelText("相似帧兜底")).toBeChecked();
+    expect(screen.getByLabelText("兜底阈值")).toHaveValue(15);
 
     const coverButton = screen.getByRole("button", { name: "生成封面预览" });
     const resetFramesButton = screen.getByRole("button", { name: "重新选择前 9 张" });
@@ -1151,17 +1174,17 @@ describe("UnmatchedVideosPage", () => {
       video_path: "/media/incoming/Frame.Source.mp4",
       frame_count: 9,
     });
-    expect(screen.getByText(/Xona 默认选择前 9 张；当前已选择 9 张/)).toBeTruthy();
+    expect(screen.getByText(/已选择 9 张，至少需要 9 张/)).toBeTruthy();
     expect(coverButton).not.toBeDisabled();
     expect(resetFramesButton).toBeDisabled();
 
     fireEvent.click(firstFrame);
-    expect(screen.getByText(/Xona 默认选择前 9 张；当前已选择 8 张/)).toBeTruthy();
+    expect(screen.getByText(/已选择 8 张，至少需要 9 张/)).toBeTruthy();
     expect(coverButton).toBeDisabled();
     expect(resetFramesButton).not.toBeDisabled();
 
     fireEvent.click(resetFramesButton);
-    expect(screen.getByText(/Xona 默认选择前 9 张；当前已选择 9 张/)).toBeTruthy();
+    expect(screen.getByText(/已选择 9 张，至少需要 9 张/)).toBeTruthy();
     expect(coverButton).not.toBeDisabled();
     expect(resetFramesButton).toBeDisabled();
     fireEvent.change(screen.getByLabelText("封面文字"), {
@@ -1191,6 +1214,10 @@ describe("UnmatchedVideosPage", () => {
     fireEvent.change(screen.getByLabelText("文字效果"), {
       target: { value: "none" },
     });
+    fireEvent.click(screen.getByLabelText("相似帧兜底"));
+    fireEvent.change(screen.getByLabelText("兜底阈值"), {
+      target: { value: "20" },
+    });
     fireEvent.click(coverButton);
 
     const posterPreview = await screen.findByRole("img", {
@@ -1214,6 +1241,8 @@ describe("UnmatchedVideosPage", () => {
       title_stroke_width: 0,
       title_effect: "none",
       selected_frame_ids: selectedFrameIds,
+      allow_similar_frame_fallback: false,
+      similar_frame_fallback_threshold: 20,
     });
 
     fireEvent.click(screen.getByRole("button", { name: "生成整理预览" }));
@@ -1410,7 +1439,7 @@ describe("UnmatchedVideosPage", () => {
     fireEvent.click(screen.getByRole("button", { name: "分析并生成截图" }));
 
     await screen.findByRole("button", { name: /截图 0:10/ });
-    expect(screen.getByText(/Xona 默认选择前 9 张；当前已选择 9 张/)).toBeTruthy();
+    expect(screen.getByText(/已选择 9 张，至少需要 9 张/)).toBeTruthy();
     expect(screen.getByLabelText("截图候选").closest(".frame-strip")).toBeTruthy();
     expect(screen.getAllByRole("button", { name: /截图 / })).toHaveLength(12);
     const framesCall = calls.find(
