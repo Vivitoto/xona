@@ -386,7 +386,7 @@ function PathCell({ path }: { path: string | null }) {
 
 function recordStatusLabel(status: string, verification = ""): string {
   if (verification === "externally_modified") {
-    return "已完成，目标后续变更";
+    return "完成/目标变更";
   }
   return STATUS_LABELS[status] ?? status;
 }

@@ -2969,6 +2969,9 @@ td {
 }
 
 .dashboard-workflow {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 0.75rem;
   margin-top: 0.1rem;
 }
 
@@ -2977,8 +2980,16 @@ td {
 }
 
 .dashboard-workflow .workflow-step {
-  min-width: 118px;
-  flex-basis: 118px;
+  min-width: 0;
+  min-height: 86px;
+  align-content: center;
+  border-radius: 18px;
+}
+
+@media (max-width: 980px) {
+  .dashboard-workflow {
+    grid-template-columns: repeat(auto-fit, minmax(132px, 1fr));
+  }
 }
 
 .dashboard-shortcut-card > svg {
@@ -3702,67 +3713,98 @@ td {
 }
 
 .organize-records-page table {
-  min-width: 1080px;
+  table-layout: fixed;
+  min-width: 920px;
+  font-size: 0.78rem;
+}
+
+.organize-records-page th,
+.organize-records-page td {
+  padding: 0.38rem 0.42rem;
 }
 
 .organize-records-page td {
-  max-width: 280px;
+  max-width: 220px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
+.organize-records-page th:first-child,
+.organize-records-page td:first-child {
+  width: 58px;
+  padding-left: 0.55rem;
+}
+
+.organize-records-page th:nth-child(2),
+.organize-records-page td:nth-child(2) {
+  width: 170px;
+}
+
 .organize-records-page th:nth-child(3),
-.organize-records-page td:nth-child(3),
+.organize-records-page td:nth-child(3) {
+  width: 112px;
+}
+
 .organize-records-page th:nth-child(4),
 .organize-records-page td:nth-child(4) {
-  width: 96px;
+  width: 72px;
 }
 
 .organize-records-page th:nth-child(5),
 .organize-records-page td:nth-child(5) {
-  min-width: 230px;
+  width: 150px;
 }
 
 .organize-records-page th:nth-child(6),
 .organize-records-page td:nth-child(6) {
-  min-width: 360px;
+  width: 260px;
 }
 
 .organize-records-page th:nth-child(7),
 .organize-records-page td:nth-child(7) {
-  width: 170px;
+  width: 118px;
+  color: var(--muted);
+  font-size: 0.72rem;
 }
 
 .organize-records-page th:nth-child(8),
 .organize-records-page td:nth-child(8) {
-  width: 230px;
+  width: 155px;
+  padding-right: 0.55rem;
+}
+
+.organize-records-page .status-pill {
+  min-height: 20px;
+  padding: 0.12rem 0.35rem;
+  font-size: 0.68rem;
 }
 
 .organize-records-page .path-overview-cell {
   display: grid;
-  gap: 0.28rem;
+  gap: 0.18rem;
 }
 
 .organize-records-page .path-overview-cell > div {
   display: grid;
-  grid-template-columns: 1.8rem minmax(0, 1fr);
+  grid-template-columns: 1.55rem minmax(0, 1fr);
   align-items: center;
-  gap: 0.35rem;
+  gap: 0.25rem;
 }
 
 .organize-records-page .path-overview-cell span {
   color: var(--muted);
-  font-size: 0.72rem;
+  font-size: 0.64rem;
   font-weight: 800;
 }
 
 .organize-records-page .path-overview-cell .path-cell {
   max-width: none;
+  font-size: 0.7rem;
 }
 
 .organize-records-page .record-title-cell {
-  max-width: 260px;
+  max-width: 160px;
 }
 
 .organize-records-page .record-title-cell strong,
@@ -3773,13 +3815,20 @@ td {
   white-space: nowrap;
 }
 
+.organize-records-page .record-title-cell small {
+  color: var(--muted);
+  font-size: 0.68rem;
+}
+
 .organize-records-page .metadata-flags {
-  max-width: 210px;
+  max-width: 140px;
+  gap: 0.16rem;
 }
 
 .organize-records-page .metadata-flags .status-pill {
-  padding: 0.16rem 0.38rem;
-  font-size: 0.68rem;
+  min-height: 18px;
+  padding: 0.08rem 0.24rem;
+  font-size: 0.6rem;
 }
 
 .organize-records-page td:has(.button-row),
@@ -3788,13 +3837,20 @@ td {
 }
 
 .organize-records-page td:has(.button-row) {
-  min-width: 230px;
+  min-width: 155px;
 }
 
 .organize-records-page td:has(.button-row) .button-row {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 0.35rem;
+  display: flex;
+  flex-wrap: nowrap;
+  gap: 0.22rem;
+}
+
+.organize-records-page td:has(.button-row) button {
+  min-height: 24px;
+  padding-inline: 0.34rem;
+  font-size: 0.66rem;
+  white-space: nowrap;
 }
 
 /* Record detail modal */

@@ -76,7 +76,7 @@ describe("TaskCenterPage", () => {
         calls.some((call) => call.url === "/api/organize-records?limit=50&status=modified"),
       ).toBe(true);
     });
-    expect(screen.getByText("已完成，目标后续变更")).toBeTruthy();
+    expect(screen.getByText("完成/目标变更")).toBeTruthy();
     expect(screen.queryByText("目标被外部修改")).toBeNull();
 
     fireEvent.click(screen.getByRole("button", { name: "#42" }));

@@ -15,7 +15,6 @@ describe("App", () => {
     installFetchMock([
       { path: "/api/jobs?state=review_required", response: { jobs: [] } },
       { path: "/api/watch-rules", response: { rules: [] } },
-      { path: "/api/actors", response: { actors: [] } },
     ]);
     const { container } = render(<App />);
 
@@ -30,7 +29,6 @@ describe("App", () => {
     installFetchMock([
       { path: "/api/jobs?state=review_required", response: { jobs: [] } },
       { path: "/api/watch-rules", response: { rules: [] } },
-      { path: "/api/actors", response: { actors: [] } },
     ]);
     localStorage.setItem("xona-theme", "dark");
     render(<App />);
@@ -53,7 +51,6 @@ describe("App", () => {
     installFetchMock([
       { path: "/api/jobs?state=review_required", response: { jobs: [] } },
       { path: "/api/watch-rules", response: { rules: [] } },
-      { path: "/api/actors", response: { actors: [] } },
     ]);
     render(<App />);
 
@@ -63,7 +60,6 @@ describe("App", () => {
       "本地元数据生成",
       "XChina 元数据搜索",
       "整理记录",
-      "演员库",
       "日志",
       "设置",
     ]) {
@@ -79,6 +75,7 @@ describe("App", () => {
       "复核队列",
       "任务记录",
       "历史/回滚",
+      "演员库",
     ]) {
       expect(
         within(navigation).queryByRole("button", { name: retiredName }),
@@ -90,7 +87,6 @@ describe("App", () => {
     installFetchMock([
       { path: "/api/jobs?state=review_required", response: { jobs: [] } },
       { path: "/api/watch-rules", response: { rules: [] } },
-      { path: "/api/actors", response: { actors: [] } },
       { path: "/api/settings", response: settingsFixture() },
     ]);
     render(<App />);
@@ -113,7 +109,6 @@ describe("App", () => {
     installFetchMock([
       { path: "/api/jobs?state=review_required", response: { jobs: [] } },
       { path: "/api/watch-rules", response: { rules: [] } },
-      { path: "/api/actors", response: { actors: [] } },
     ]);
     render(<App />);
 
@@ -125,23 +120,23 @@ describe("App", () => {
     expect(
       within(main).getByRole("button", { name: "XChina 元数据搜索" }),
     ).toBeTruthy();
-    for (const shortcut of ["未处理文件", "元数据复核", "任务与记录", "历史线索"]) {
-      expect(within(main).getByText(shortcut)).toBeTruthy();
+    expect(within(main).getByText("流程示例")).toBeTruthy();
+    for (const step of ["扫描", "草稿", "封面/NFO", "预览", "记录"]) {
+      expect(within(main).getByText(step)).toBeTruthy();
     }
-    expect(within(main).getByRole("button", { name: "查看任务记录" })).toBeTruthy();
-    expect(within(main).getByRole("button", { name: "查看日志" })).toBeTruthy();
-    expect(await within(main).findByText("本地演员条目")).toBeTruthy();
+    for (const removedShortcut of ["未处理文件", "元数据复核", "任务与记录", "历史线索", "本地演员条目"]) {
+      expect(within(main).queryByText(removedShortcut)).not.toBeInTheDocument();
+    }
     expect(
       within(main).queryByRole("button", { name: "监控规则" }),
     ).not.toBeInTheDocument();
     expect(screen.queryByText("复核")).not.toBeInTheDocument();
   });
 
-  it("defaults image safety mode on and toggles actor image blur independently from theme mode", async () => {
+  it("defaults image safety mode on and toggles independently from theme mode", async () => {
     installFetchMock([
       { path: "/api/jobs?state=review_required", response: { jobs: [] } },
       { path: "/api/watch-rules", response: { rules: [] } },
-      { path: "/api/actors", response: { actors: [actorFixture()] } },
     ]);
     localStorage.setItem("xona-theme", "dark");
     render(<App />);
@@ -156,45 +151,14 @@ describe("App", () => {
     expect(shell).toHaveAttribute("data-theme", "light");
     expect(safetyToggle).toBeChecked();
 
-    fireEvent.click(screen.getByRole("button", { name: "演员库" }));
-
-    const actorPortrait = await screen.findByRole("img", {
-      name: /Actor One 头像/,
-    });
-    expect(actorPortrait).toHaveClass("safety-image");
-    expect(actorPortrait).toHaveClass("is-blurred");
-    expect(actorPortrait).toHaveAttribute("data-image-safety", "blurred");
-
     fireEvent.click(safetyToggle);
-    expect(actorPortrait).not.toHaveClass("is-blurred");
-    expect(actorPortrait).toHaveAttribute("data-image-safety", "visible");
+    expect(safetyToggle).not.toBeChecked();
 
     fireEvent.click(screen.getByRole("button", { name: "深色模式" }));
     expect(shell).toHaveAttribute("data-theme", "dark");
     expect(safetyToggle).not.toBeChecked();
-    expect(actorPortrait).toHaveAttribute("data-image-safety", "visible");
   });
 });
-
-function actorFixture() {
-  return {
-    id: 1,
-    canonical_name: "Actor One",
-    aliases: ["Alias One"],
-    source: "xchina",
-    source_id: "ACT-001",
-    profile_url: "https://xchina.example.test/models/actor-one.html",
-    portrait_source_url: "https://images.example.test/actor-one.jpg",
-    portrait_cache_path: null,
-    portrait_sha256: null,
-    portrait_size_bytes: null,
-    biography: null,
-    profile_fields: {},
-    associated_works: [],
-    emby_person_id: null,
-    linked_works: [],
-  };
-}
 
 function settingsFixture() {
   return {

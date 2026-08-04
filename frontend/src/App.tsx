@@ -4,7 +4,6 @@ import { AppLayout, type PageId } from "./components/AppLayout";
 import { ErrorBoundary } from "./components/ErrorBoundary";
 import { ImageSafetyModeProvider } from "./components/ImageSafetyMode";
 import { ThemeModeProvider } from "./components/ThemeMode";
-import { ActorLibraryPage } from "./pages/ActorLibraryPage";
 import { DashboardPage } from "./pages/DashboardPage";
 import { LogsPage } from "./pages/LogsPage";
 import { SettingsPage } from "./pages/SettingsPage";
@@ -44,8 +43,6 @@ function renderPage(page: PageId, onNavigate: (page: PageId) => void) {
       return <XChinaSearchPage />;
     case "tasks":
       return <TaskCenterPage onRerun={() => onNavigate("localMetadata")} />;
-    case "actors":
-      return <ActorLibraryPage />;
     case "logs":
       return <LogsPage />;
     case "settings":
