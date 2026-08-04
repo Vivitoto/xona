@@ -7,12 +7,14 @@ import { installFetchMock } from "../test/mockFetch";
 
 afterEach(() => {
   vi.unstubAllGlobals();
+  vi.restoreAllMocks();
 });
 
 describe("SettingsPage", () => {
   it("renders all settings sections and keeps FlareSolverr endpoint exact", async () => {
     installFetchMock([
       { path: "/api/settings", response: settingsFixture() },
+      { path: "/api/settings/cache-maintenance", response: cacheStatsFixture() },
       { method: "PUT", path: "/api/settings", response: settingsFixture() },
     ]);
 
@@ -34,6 +36,7 @@ describe("SettingsPage", () => {
       ["Emby", "Emby"],
       ["整理配置", "目录配置"],
       ["元数据/资源", "元数据/资源"],
+      ["缓存维护", "缓存维护"],
       ["认证", "认证"],
     ]) {
       fireEvent.click(screen.getByRole("tab", { name: tab }));
@@ -275,7 +278,80 @@ describe("SettingsPage", () => {
       base_url: "https://mirror.xchina.test",
     });
   });
+
+  it("loads cache maintenance stats and cleans selected safe cache areas", async () => {
+    let cleaned = false;
+    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(true);
+    const { calls } = installFetchMock([
+      { path: "/api/settings", response: settingsFixture() },
+      {
+        path: "/api/settings/cache-maintenance",
+        response: () => (cleaned ? cacheStatsFixture({ empty: true }) : cacheStatsFixture()),
+      },
+      {
+        method: "POST",
+        path: "/api/settings/cache-maintenance/cleanup",
+        response: () => {
+          cleaned = true;
+          return {
+            results: [],
+            deleted_files: 3,
+            deleted_bytes: 3072,
+            warnings: [],
+          };
+        },
+      },
+    ]);
+
+    render(<SettingsPage />);
+
+    await screen.findByRole("heading", { name: "XChina" });
+    fireEvent.click(screen.getByRole("tab", { name: "缓存维护" }));
+
+    expect(await screen.findByText("本地元数据缓存")).toBeTruthy();
+    expect(screen.getAllByText("3.00 KB").length).toBeGreaterThan(0);
+
+    fireEvent.click(screen.getByLabelText("选择本地元数据缓存"));
+    fireEvent.click(screen.getByRole("button", { name: "清理所选缓存" }));
+
+    await screen.findByText(/缓存清理完成/);
+    expect(confirmSpy).toHaveBeenCalled();
+    const cleanupCall = calls.find(
+      (call) => call.method === "POST" && call.url === "/api/settings/cache-maintenance/cleanup",
+    );
+    expect(cleanupCall?.body).toEqual({ area_keys: ["local_metadata"] });
+  });
 });
+
+function cacheStatsFixture({ empty = false }: { empty?: boolean } = {}) {
+  return {
+    areas: [
+      {
+        key: "local_metadata",
+        label: "本地元数据缓存",
+        path: "/config/cache/local_metadata",
+        exists: !empty,
+        cleanup_supported: true,
+        file_count: empty ? 0 : 3,
+        size_bytes: empty ? 0 : 3072,
+        warnings: [],
+      },
+      {
+        key: "asset_cache",
+        label: "元数据资源缓存",
+        path: "/config/asset-cache",
+        exists: false,
+        cleanup_supported: true,
+        file_count: 0,
+        size_bytes: 0,
+        warnings: ["cache_dir_missing:/config/asset-cache"],
+      },
+    ],
+    total_file_count: empty ? 0 : 3,
+    total_size_bytes: empty ? 0 : 3072,
+    warnings: [],
+  };
+}
 
 function settingsFixture(): AppSettings {
   return {

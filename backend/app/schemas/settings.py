@@ -144,3 +144,42 @@ class TemplatePreviewResponse(BaseModel):
     filename: str | None
     validation_errors: list[str] = Field(default_factory=list)
     warnings: list[str] = Field(default_factory=list)
+
+
+class CacheAreaStats(BaseModel):
+    key: str
+    label: str
+    path: Path
+    exists: bool
+    cleanup_supported: bool = True
+    file_count: int = 0
+    size_bytes: int = 0
+    warnings: list[str] = Field(default_factory=list)
+
+
+class CacheMaintenanceResponse(BaseModel):
+    areas: list[CacheAreaStats]
+    total_file_count: int = 0
+    total_size_bytes: int = 0
+    warnings: list[str] = Field(default_factory=list)
+
+
+class CacheMaintenanceCleanupRequest(BaseModel):
+    area_keys: list[str] = Field(min_length=1)
+
+
+class CacheCleanupAreaResult(BaseModel):
+    key: str
+    label: str
+    path: Path
+    deleted_files: int = 0
+    deleted_bytes: int = 0
+    removed: bool = False
+    warnings: list[str] = Field(default_factory=list)
+
+
+class CacheMaintenanceCleanupResponse(BaseModel):
+    results: list[CacheCleanupAreaResult]
+    deleted_files: int = 0
+    deleted_bytes: int = 0
+    warnings: list[str] = Field(default_factory=list)

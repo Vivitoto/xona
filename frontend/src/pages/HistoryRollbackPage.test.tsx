@@ -42,7 +42,8 @@ describe("HistoryRollbackPage", () => {
 
     render(<HistoryRollbackPage />);
 
-    expect(await screen.findByText("externally_modified")).toBeTruthy();
+    expect(await screen.findByText("已完成，目标后续变更")).toBeTruthy();
+    expect(screen.queryByText("目标被外部修改")).toBeNull();
     expect(screen.getAllByText("/media/organized/Movie/Movie.mkv").length).toBeGreaterThan(0);
 
     fireEvent.click(screen.getByRole("button", { name: "回滚" }));

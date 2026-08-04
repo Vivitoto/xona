@@ -8,6 +8,7 @@ import { ErrorNotice } from "../components/ErrorNotice";
 import { LoadingSkeleton } from "../components/LoadingSkeleton";
 import { Tabs, type TabItem } from "../components/Tabs";
 import { AuthSettings } from "./settings/AuthSettings";
+import { CacheMaintenanceSettings } from "./settings/CacheMaintenanceSettings";
 import { EmbySettings } from "./settings/EmbySettings";
 import { MetadataAssetSettings } from "./settings/MetadataAssetSettings";
 import { OrganizationConfigSettings } from "./settings/OrganizationConfigSettings";
@@ -24,6 +25,7 @@ type SettingsTab =
   | "emby"
   | "organization_config"
   | "metadata"
+  | "cache_maintenance"
   | "auth";
 
 const settingsTabs: readonly TabItem<SettingsTab>[] = [
@@ -31,6 +33,7 @@ const settingsTabs: readonly TabItem<SettingsTab>[] = [
   { id: "emby", label: "Emby" },
   { id: "organization_config", label: "整理配置" },
   { id: "metadata", label: "元数据/资源" },
+  { id: "cache_maintenance", label: "缓存维护" },
   { id: "auth", label: "认证" },
 ];
 
@@ -141,6 +144,8 @@ export function SettingsPage() {
             onChange={(patch) => patchSettings("metadata_assets", patch)}
           />
         );
+      case "cache_maintenance":
+        return <CacheMaintenanceSettings />;
       case "auth":
         return (
           <AuthSettings

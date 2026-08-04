@@ -1745,6 +1745,24 @@ td {
   color: var(--warning);
 }
 
+.cache-maintenance-summary {
+  margin-block: 0.2rem 0.35rem;
+}
+
+.cache-maintenance-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.7rem;
+}
+
+.cache-maintenance-table td:first-child,
+.cache-maintenance-table th:first-child {
+  width: 4.5rem;
+  text-align: center;
+}
+
 .review-reasons ul {
   display: flex;
   gap: 0.4rem;
@@ -3143,6 +3161,44 @@ td {
 
 .batch-limit-note {
   margin: 0;
+}
+
+.batch-execution-summary,
+.batch-output-filters {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.45rem;
+}
+
+.batch-execution-summary {
+  color: var(--muted);
+  font-size: 0.84rem;
+  font-weight: 800;
+}
+
+.batch-execution-summary span,
+.batch-execution-summary strong {
+  padding: 0.38rem 0.55rem;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--panel-soft);
+}
+
+.batch-execution-summary strong {
+  color: var(--warning);
+}
+
+.batch-output-filters button[aria-pressed="true"] {
+  border-color: var(--primary);
+  background: var(--primary-soft);
+  color: var(--primary);
+}
+
+.batch-output-filters button span {
+  margin-left: 0.35rem;
+  color: var(--muted);
+  font-size: 0.74rem;
 }
 
 .batch-compact-table table {

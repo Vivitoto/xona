@@ -21,6 +21,9 @@ from backend.app.integrations.xchina_config import (
 from backend.app.schemas.settings import (
     AppSettingsRead,
     AppSettingsUpdate,
+    CacheMaintenanceCleanupRequest,
+    CacheMaintenanceCleanupResponse,
+    CacheMaintenanceResponse,
     FlareSolverrTestRequest,
     FlareSolverrTestResponse,
     TemplatePreviewRequest,
@@ -29,6 +32,10 @@ from backend.app.schemas.settings import (
     XChinaTestResponse,
 )
 from backend.app.schemas.templates import TemplateContext
+from backend.app.services.cache_maintenance import (
+    CacheMaintenanceError,
+    CacheMaintenanceService,
+)
 from backend.app.services.settings_store import SettingsStore, SettingsUpdateError
 from backend.app.services.storage_roots import StorageRootService, StorageRootValidationError
 from backend.app.services.templates import preview_template
@@ -50,6 +57,32 @@ async def get_settings(
     values = SettingsStore(session).get_app_settings()
     _overlay_runtime_settings(request.app.state.settings, values)
     return AppSettingsRead.model_validate(values)
+
+
+@router.get("/cache-maintenance", response_model=CacheMaintenanceResponse)
+async def get_cache_maintenance(
+    request: Request,
+    session: Session = Depends(get_db),
+) -> CacheMaintenanceResponse:
+    service = _cache_maintenance_service(request, session)
+    return service.stats()
+
+
+@router.post(
+    "/cache-maintenance/cleanup",
+    response_model=CacheMaintenanceCleanupResponse,
+)
+async def cleanup_cache_maintenance(
+    payload: CacheMaintenanceCleanupRequest,
+    request: Request,
+    session: Session = Depends(get_db),
+) -> CacheMaintenanceCleanupResponse:
+    service = _cache_maintenance_service(request, session)
+    try:
+        return service.cleanup(payload.area_keys)
+    except CacheMaintenanceError as exc:
+        logger.warning("Cache maintenance cleanup rejected error=%s", exc)
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 @router.put("", response_model=AppSettingsRead)
@@ -261,6 +294,21 @@ def _remove_read_only_runtime_settings(patch: dict[str, Any]) -> None:
     storage = patch.get("storage")
     if isinstance(storage, dict):
         storage.pop("env_roots", None)
+
+
+def _cache_maintenance_service(
+    request: Request,
+    session: Session,
+) -> CacheMaintenanceService:
+    settings: Settings = request.app.state.settings
+    store_settings = SettingsStore(session).xchina_settings()
+    configured_xchina_cache = store_settings.get("cache_dir")
+    return CacheMaintenanceService(
+        settings.config_dir,
+        xchina_cache_dir=Path(str(configured_xchina_cache))
+        if configured_xchina_cache
+        else None,
+    )
 
 
 def _validate_settings_patch(

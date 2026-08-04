@@ -45,6 +45,25 @@ import type {
 import { DirectoryPicker } from "../components/DirectoryPicker";
 import { CheckboxField, FormField, Section } from "../components/FormField";
 import { Tabs, type TabItem } from "../components/Tabs";
+import {
+  BatchExecutionSummary,
+  BatchOutputFilterControls,
+  BatchOutputSummary,
+  CompactBatchDraftTable,
+  CompactBatchOutputTable,
+  canExecuteBatchOutputItem,
+  isDestructiveOrganizationMode,
+} from "./local-metadata/BatchDisplayPanels";
+import type {
+  BatchCoverStyleSettings,
+  BatchDraftStatus,
+  BatchOutputFilter,
+  BatchOutputItem,
+  BatchOutputLogTone,
+  BatchRunOptions,
+  BusyAction,
+  CoverEditorSettings,
+} from "./local-metadata/batchTypes";
 import { linesToList, listToLines, normalizeSettings } from "./settings/settingsForm";
 
 const coverTemplates: { value: CoverTemplateName; label: string }[] = [
@@ -166,85 +185,7 @@ const titleEffects: { value: PosterTextEffect; label: string }[] = [
   { value: "none", label: "无" },
 ];
 
-type BusyAction =
-  | "analyze_frames"
-  | "cover"
-  | "nfo"
-  | "plan"
-  | "execute"
-  | "scan"
-  | "batch_generate"
-  | "batch_execute"
-  | null;
-
-interface BatchDraftStatus {
-  path: string;
-  filename: string;
-  draft: LocalMetadataDraft;
-  coverSettings: CoverEditorSettings;
-  status: BatchDraftState;
-}
-
-type BatchDraftState = "drafted";
-type BatchOutputState =
-  | "pending"
-  | "running"
-  | "succeeded"
-  | "failed"
-  | "executing"
-  | "executed"
-  | "execute_failed"
-  | "cancelled";
-type BatchOutputLogTone = "active" | "success" | "warning" | "danger" | "neutral";
 type LocalMetadataWorkflowTab = "single" | "batch";
-
-interface BatchOutputLog {
-  tone: BatchOutputLogTone;
-  message: string;
-}
-
-interface BatchOutputItem {
-  path: string;
-  filename: string;
-  draft: LocalMetadataDraft;
-  coverSettings: CoverEditorSettings;
-  status: BatchOutputState;
-  logs: BatchOutputLog[];
-  frames: LocalCachedAsset[];
-  selectedFrameIds: string[];
-  coverPreview: LocalCoverPreviewResponse | null;
-  planPreview: LocalPlanPreviewResponse | null;
-  executeResult: LocalExecutePlanResponse | null;
-  error: string | null;
-}
-
-interface CoverEditorSettings {
-  template: CoverTemplateName;
-  titleFontId: PosterFontId;
-  titleFontSize: number;
-  titleFillColor: string;
-  titleStrokeColor: string;
-  titleStrokeWidth: number;
-  titleEffect: PosterTextEffect;
-  titleAngleDegrees: number;
-  titleOffsetX: number;
-  titleOffsetY: number;
-  allowSimilarFrameFallback: boolean;
-  similarFrameFallbackThreshold: number;
-}
-
-interface BatchCoverStyleSettings extends CoverEditorSettings {
-  randomTitleFormat: boolean;
-}
-
-interface BatchRunOptions {
-  destinationRoot: string;
-  mode: OrganizationMode;
-  folderTemplates: string[];
-  filenameTemplate: string;
-  extraBackdropCount: number;
-  frameCount: number;
-}
 
 const localMetadataWorkflowTabs: readonly TabItem<LocalMetadataWorkflowTab>[] = [
   { id: "single", label: "单个整理" },
@@ -366,6 +307,8 @@ export function UnmatchedVideosPage() {
     DEFAULT_BATCH_CONCURRENCY,
   );
   const [batchOutputItems, setBatchOutputItems] = useState<BatchOutputItem[]>([]);
+  const [batchOutputFilter, setBatchOutputFilter] =
+    useState<BatchOutputFilter>("all");
   const [activeBatch, setActiveBatch] = useState<LocalMetadataBatchRead | null>(null);
   const [recentBatches, setRecentBatches] = useState<LocalMetadataBatchSummary[]>([]);
   const [busy, setBusy] = useState<BusyAction>(null);
@@ -2577,14 +2520,31 @@ export function UnmatchedVideosPage() {
                 预览在后台继续处理；非“仅预览”模式完成后可执行。
               </p>
 
+              <BatchExecutionSummary
+                batchOutputItems={batchOutputItems}
+                isDestructiveMode={isDestructiveOrganizationMode(activeBatch?.options.mode ?? mode)}
+                selectedCount={selectedBatchPaths.length}
+              />
               <BatchOutputSummary batchOutputItems={batchOutputItems} busy={busy} />
+              <BatchOutputFilterControls
+                filter={batchOutputFilter}
+                items={batchOutputItems}
+                onChange={setBatchOutputFilter}
+              />
 
               {batchStatuses.length ? (
-                <CompactBatchDraftTable batchStatuses={batchStatuses} />
+                <CompactBatchDraftTable
+                  batchStatuses={batchStatuses}
+                  visibleLimit={BATCH_TABLE_VISIBLE_LIMIT}
+                />
               ) : null}
 
               {batchOutputItems.length ? (
-                <CompactBatchOutputTable batchOutputItems={batchOutputItems} />
+                <CompactBatchOutputTable
+                  batchOutputItems={batchOutputItems}
+                  filter={batchOutputFilter}
+                  visibleLimit={BATCH_TABLE_VISIBLE_LIMIT}
+                />
               ) : null}
             </Section>
           </>
@@ -3004,244 +2964,6 @@ function BatchServerJobPanel({
           ))}
         </div>
       ) : null}
-    </div>
-  );
-}
-
-function BatchOutputSummary({
-  batchOutputItems,
-  busy,
-}: {
-  batchOutputItems: BatchOutputItem[];
-  busy: BusyAction;
-}) {
-  const stats = batchOutputStats(batchOutputItems);
-  return (
-    <div className="batch-summary-panel">
-      <p
-        aria-label="批量生成摘要"
-        aria-live="polite"
-        className="status"
-        role="status"
-      >
-        {batchOutputSummaryText({ batchOutputItems, busy })}
-      </p>
-      {batchOutputItems.length ? (
-        <dl className="batch-summary-metrics" aria-label="批量生成统计">
-          <div>
-            <dt>总数</dt>
-            <dd>{stats.total}</dd>
-          </div>
-          <div>
-            <dt>等待</dt>
-            <dd>{stats.pending}</dd>
-          </div>
-          <div>
-            <dt>处理中</dt>
-            <dd>{stats.running}</dd>
-          </div>
-          <div>
-            <dt>预览可用</dt>
-            <dd>{stats.succeeded}</dd>
-          </div>
-          <div>
-            <dt>可执行</dt>
-            <dd>{stats.executable}</dd>
-          </div>
-          <div>
-            <dt>失败</dt>
-            <dd>{stats.failed + stats.executeFailed}</dd>
-          </div>
-          <div>
-            <dt>已执行</dt>
-            <dd>{stats.executed}</dd>
-          </div>
-        </dl>
-      ) : null}
-    </div>
-  );
-}
-
-function CompactBatchDraftTable({
-  batchStatuses,
-}: {
-  batchStatuses: BatchDraftStatus[];
-}) {
-  const visibleItems = batchStatuses.slice(0, BATCH_TABLE_VISIBLE_LIMIT);
-  const hiddenCount = Math.max(batchStatuses.length - visibleItems.length, 0);
-
-  return (
-    <div className="batch-compact-panel">
-      <div className="row row-between batch-table-heading">
-        <div>
-          <h3>已生成的批量元数据</h3>
-          <p className="muted">
-            共 {batchStatuses.length} 个；当前只显示前 {visibleItems.length} 个，提交预览任务时仍包含全部已生成元数据。
-          </p>
-        </div>
-        <span className="status-pill status-pill-neutral">待提交</span>
-      </div>
-      {hiddenCount ? (
-        <p className="status batch-limit-note">
-          为避免页面过长，已折叠 {hiddenCount} 个成功元数据条目。
-        </p>
-      ) : null}
-      <div className="table-wrap batch-compact-table">
-        <table>
-          <caption>已生成的批量元数据</caption>
-          <thead>
-            <tr>
-              <th>文件</th>
-              <th>标题</th>
-              <th>整理文件名</th>
-              <th>封面</th>
-              <th>状态</th>
-            </tr>
-          </thead>
-          <tbody>
-            {visibleItems.map((item) => (
-              <tr key={item.path}>
-                <td>
-                  <strong title={item.filename}>{item.filename}</strong>
-                  <small className="path-cell" title={item.path}>{item.path}</small>
-                </td>
-                <td>{item.draft.title}</td>
-                <td className="path-cell" title={item.draft.organize_filename ?? undefined}>{item.draft.organize_filename || "使用文件名模板"}</td>
-                <td>{coverSettingsSummary(item.coverSettings)}</td>
-                <td>
-                  <span className={`status-pill ${batchStatusClass(item.status)}`}>
-                    {batchStatusLabel(item.status)}
-                  </span>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-    </div>
-  );
-}
-
-function CompactBatchOutputTable({
-  batchOutputItems,
-}: {
-  batchOutputItems: BatchOutputItem[];
-}) {
-  const visibleItems = prioritizedBatchOutputItems(batchOutputItems).slice(
-    0,
-    BATCH_TABLE_VISIBLE_LIMIT,
-  );
-  const hiddenCount = Math.max(batchOutputItems.length - visibleItems.length, 0);
-
-  return (
-    <div className="batch-compact-panel batch-output-results">
-      <div className="row row-between batch-table-heading">
-        <div>
-          <h3>批量预览结果</h3>
-          <p className="muted">
-            优先显示失败、处理中和可执行条目；日志、封面和计划细节默认折叠。
-          </p>
-        </div>
-        <span className="status-pill status-pill-neutral">
-          显示 {visibleItems.length} / {batchOutputItems.length}
-        </span>
-      </div>
-      {hiddenCount ? (
-        <p className="status batch-limit-note">
-          已隐藏 {hiddenCount} 个低优先级条目，避免 100+ 文件时页面过长；批量执行仍覆盖全部可执行计划。
-        </p>
-      ) : null}
-      <div className="table-wrap batch-compact-table">
-        <table>
-          <caption>批量预览结果</caption>
-          <thead>
-            <tr>
-              <th>文件</th>
-              <th>标题 / 计划</th>
-              <th>状态</th>
-              <th>执行</th>
-              <th>详情</th>
-            </tr>
-          </thead>
-          <tbody>
-            {visibleItems.map((item) => (
-              <tr key={item.path}>
-                <td>
-                  <strong title={item.filename}>{item.filename}</strong>
-                  <small className="path-cell" title={item.path}>{item.path}</small>
-                </td>
-                <td>
-                  <strong>{item.draft.title}</strong>
-                  <small>
-                    {item.planPreview
-                      ? `计划 ${item.planPreview.plan_id}`
-                      : item.draft.organize_filename || "等待计划"}
-                  </small>
-                </td>
-                <td>
-                  <span
-                    className={`status-pill ${batchOutputStatusClass(item.status)}`}
-                  >
-                    {batchOutputStatusLabel(item.status)}
-                  </span>
-                  {item.error ? (
-                    <p className="status error batch-output-error">
-                      {shortBatchError(item.error)}
-                    </p>
-                  ) : null}
-                </td>
-                <td>{batchOutputExecutionLabel(item)}</td>
-                <td>
-                  <BatchOutputDetails item={item} />
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-    </div>
-  );
-}
-
-function BatchOutputDetails({ item }: { item: BatchOutputItem }) {
-  return (
-    <details className="batch-output-disclosure">
-      <summary>查看详情</summary>
-      <div className="batch-output-details">
-        <span>{item.planPreview ? "NFO 已生成" : "NFO 未生成"}</span>
-        <span>
-          {item.coverPreview ? `封面 ${item.coverPreview.poster.id}` : "封面未生成"}
-        </span>
-        <span>
-          {item.planPreview ? `计划 ${item.planPreview.plan_id}` : "计划未生成"}
-        </span>
-        {item.planPreview ? (
-          <span>目标 {item.planPreview.plan.target_directory}</span>
-        ) : null}
-        {item.coverPreview?.warnings.length ? (
-          <span>{item.coverPreview.warnings.map(coverWarningLabel).join("；")}</span>
-        ) : null}
-      </div>
-      <BatchOutputLogView logs={item.logs} />
-    </details>
-  );
-}
-
-function BatchOutputLogView({ logs }: { logs: BatchOutputLog[] }) {
-  return (
-    <div className="progress-log" aria-label="批量条目日志">
-      {logs.length ? (
-        <ol>
-          {logs.map((entry, index) => (
-            <li className={batchOutputLogClass(entry.tone)} key={index}>
-              <span aria-hidden="true" />
-              <p>{entry.message}</p>
-            </li>
-          ))}
-        </ol>
-      ) : (
-        <p className="muted">等待处理。</p>
-      )}
     </div>
   );
 }
@@ -3682,44 +3404,6 @@ function batchDraftProgressText({
   return "批量整理进度：等待扫描目录。";
 }
 
-function batchOutputSummaryText({
-  batchOutputItems,
-  busy,
-}: {
-  batchOutputItems: BatchOutputItem[];
-  busy: BusyAction;
-}): string {
-  if (!batchOutputItems.length) {
-    return "批量预览摘要：等待生成 NFO、封面与整理预览。";
-  }
-  const stats = batchOutputStats(batchOutputItems);
-
-  if (busy === "batch_generate" || busy === "batch_execute") {
-    return `批量预览摘要：共 ${stats.total} 个，处理中 ${stats.running} 个，等待 ${stats.pending} 个，预览可用 ${stats.succeeded} 个，失败 ${stats.failed + stats.executeFailed} 个，可执行 ${stats.executable} 个。`;
-  }
-  return `批量预览摘要：共 ${stats.total} 个，预览可用 ${stats.succeeded} 个，失败 ${stats.failed} 个，可执行 ${stats.executable} 个，已执行 ${stats.executed} 个，执行失败 ${stats.executeFailed} 个。`;
-}
-
-function batchOutputStats(items: BatchOutputItem[]) {
-  return {
-    total: items.length,
-    pending: items.filter((item) => item.status === "pending").length,
-    running: items.filter(
-      (item) => item.status === "running" || item.status === "executing",
-    ).length,
-    succeeded: items.filter(
-      (item) =>
-        item.status === "succeeded" ||
-        item.status === "executing" ||
-        item.status === "executed",
-    ).length,
-    executable: items.filter(canExecuteBatchOutputItem).length,
-    failed: items.filter((item) => item.status === "failed").length,
-    executed: items.filter((item) => item.status === "executed").length,
-    executeFailed: items.filter((item) => item.status === "execute_failed").length,
-  };
-}
-
 function batchOutputItemsFromBatch(batch: LocalMetadataBatchRead): BatchOutputItem[] {
   return batch.items.map((item) => ({
     path: item.video_path,
@@ -3830,111 +3514,6 @@ function localBatchStatusLabel(status: LocalMetadataBatchStatus): string {
     default:
       return "失败";
   }
-}
-
-function prioritizedBatchOutputItems(items: BatchOutputItem[]): BatchOutputItem[] {
-  const priority: Record<BatchOutputState, number> = {
-    failed: 0,
-    execute_failed: 1,
-    running: 2,
-    executing: 3,
-    succeeded: 4,
-    pending: 5,
-    cancelled: 6,
-    executed: 7,
-  };
-  return [...items].sort((left, right) => {
-    const leftPriority = priority[left.status];
-    const rightPriority = priority[right.status];
-    if (leftPriority !== rightPriority) {
-      return leftPriority - rightPriority;
-    }
-    return left.filename.localeCompare(right.filename, "zh-Hans-CN");
-  });
-}
-
-function batchOutputExecutionLabel(item: BatchOutputItem): string {
-  if (item.executeResult) {
-    return item.executeResult.state === "completed"
-      ? "整理完成"
-      : `状态 ${item.executeResult.state}`;
-  }
-  if (item.planPreview?.plan.mode === "preview") {
-    return "仅预览";
-  }
-  if (canExecuteBatchOutputItem(item)) {
-    return "可执行";
-  }
-  if (item.planPreview) {
-    return "等待批量执行";
-  }
-  return "未生成计划";
-}
-
-function shortBatchError(message: string): string {
-  return message.length > 96 ? `${message.slice(0, 96)}...` : message;
-}
-
-function batchStatusLabel(status: BatchDraftState): string {
-  return status === "drafted" ? "已生成" : "已生成";
-}
-
-function batchStatusClass(status: BatchDraftState): string {
-  return status === "drafted" ? "status-pill-success" : "status-pill-success";
-}
-
-function batchOutputStatusLabel(status: BatchOutputState): string {
-  switch (status) {
-    case "running":
-      return "生成中";
-    case "succeeded":
-      return "已生成";
-    case "failed":
-      return "生成失败";
-    case "executing":
-      return "执行中";
-    case "executed":
-      return "已执行";
-    case "execute_failed":
-      return "执行失败";
-    case "cancelled":
-      return "已取消";
-    case "pending":
-    default:
-      return "等待";
-  }
-}
-
-function batchOutputStatusClass(status: BatchOutputState): string {
-  switch (status) {
-    case "succeeded":
-    case "executed":
-      return "status-pill-success";
-    case "failed":
-    case "execute_failed":
-      return "status-pill-danger";
-    case "running":
-    case "executing":
-      return "status-pill-neutral";
-    case "pending":
-    case "cancelled":
-    default:
-      return "status-pill-warning";
-  }
-}
-
-function batchOutputLogClass(tone: BatchOutputLogTone): string {
-  const suffix = tone === "neutral" ? "" : ` progress-log-line-${tone}`;
-  return `progress-log-line${suffix}`;
-}
-
-function canExecuteBatchOutputItem(item: BatchOutputItem): boolean {
-  return Boolean(
-    item.planPreview &&
-      item.planPreview.plan.mode !== "preview" &&
-      !item.executeResult &&
-      (item.status === "succeeded" || item.status === "execute_failed"),
-  );
 }
 
 function batchExecutionConcurrency(
@@ -4362,39 +3941,11 @@ function srgbToLinear(channel: number): number {
     : ((normalized + 0.055) / 1.055) ** 2.4;
 }
 
-function coverSettingsSummary(settings: CoverEditorSettings): string {
-  const fallback = settings.allowSimilarFrameFallback
-    ? `相似帧兜底 ${settings.similarFrameFallbackThreshold}`
-    : "相似帧严格";
-  return `${coverTemplateLabel(settings.template)} / ${posterFontLabel(
-    settings.titleFontId,
-  )} / ${settings.titleFontSize}px / ${settings.titleFillColor} -> ${
-    settings.titleStrokeColor
-  } / ${formatSignedNumber(
-    settings.titleAngleDegrees,
-  )} 度 / X ${formatSignedNumber(settings.titleOffsetX)} Y ${formatSignedNumber(
-    settings.titleOffsetY,
-  )} / ${fallback}`;
-}
-
 function coverWarningLabel(warning: string): string {
   if (warning === "similar_frames_fallback_used") {
     return "similar_frames_fallback_used：内容相近截图不足 9 张，已使用相似帧补足。";
   }
   return warning;
-}
-
-function coverTemplateLabel(template: CoverTemplateName): string {
-  return coverTemplates.find((item) => item.value === template)?.label ?? template;
-}
-
-function posterFontLabel(fontId: PosterFontId): string {
-  return posterFonts.find((item) => item.value === fontId)?.label ?? fontId;
-}
-
-function formatSignedNumber(value: number): string {
-  const rounded = Number.isInteger(value) ? value : Number(value.toFixed(1));
-  return rounded > 0 ? `+${rounded}` : String(rounded);
 }
 
 function runtimeMinutes(durationSeconds: number | null): number | null {

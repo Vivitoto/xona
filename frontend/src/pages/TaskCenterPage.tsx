@@ -51,7 +51,7 @@ const STATUS_LABELS: Record<string, string> = {
   completed: "已完成",
   failed: "失败",
   rolled_back: "已回滚",
-  externally_modified: "目标被修改",
+  externally_modified: "已完成，目标后续变更",
   searching: "搜索中",
   review_required: "待复核",
   matched: "已匹配",
@@ -181,7 +181,9 @@ export function TaskCenterPage({ onRerun }: { onRerun?: (path: string) => void }
     onRerun?.(record.rerun_path);
   }
 
-  const completedCount = records.filter((record) => record.status === "completed").length;
+  const completedCount = records.filter(
+    (record) => record.status === "completed" || record.status === "externally_modified",
+  ).length;
   const rollbackableCount = records.filter((record) => record.can_rollback).length;
   const modifiedCount = records.filter((record) => record.verification_status === "externally_modified").length;
 
@@ -273,7 +275,11 @@ export function TaskCenterPage({ onRerun }: { onRerun?: (path: string) => void }
                         {record.short_plan_id ? <small>{record.short_plan_id}</small> : null}
                       </div>
                     </td>
-                    <td><span className={`status-pill ${statusTone(record.status, record.verification_status)}`}>{recordStatusLabel(record.status)}</span></td>
+                    <td>
+                      <span className={`status-pill ${statusTone(record.status, record.verification_status)}`}>
+                        {recordStatusLabel(record.status, record.verification_status)}
+                      </span>
+                    </td>
                     <td>{modeLabel(record.mode)}</td>
                     <td><MetadataFlags flags={record.metadata} /></td>
                     <td><PathOverview sourcePath={record.source_path} targetPath={record.target_path} /></td>
@@ -378,13 +384,16 @@ function PathCell({ path }: { path: string | null }) {
   return <code className="path-cell" title={path}>{path}</code>;
 }
 
-function recordStatusLabel(status: string): string {
+function recordStatusLabel(status: string, verification = ""): string {
+  if (verification === "externally_modified") {
+    return "已完成，目标后续变更";
+  }
   return STATUS_LABELS[status] ?? status;
 }
 
 function verificationLabel(status: string): string {
   if (status === "verified") return "已校验";
-  if (status === "externally_modified") return "目标被外部修改";
+  if (status === "externally_modified") return "已完成，目标后续变更";
   if (status === "partial") return "部分完成";
   if (status === "pending") return "目标缺失";
   return status;

@@ -83,7 +83,7 @@ export function HistoryRollbackPage() {
         <div className="metric metric-warning">
           <span>外部变更</span>
           <strong>{loading ? "-" : modifiedCount}</strong>
-          <small>目标被修改</small>
+          <small>已完成后变更</small>
         </div>
       </div>
 
@@ -135,7 +135,7 @@ export function HistoryRollbackPage() {
                     </td>
                     <td>
                       <span className={`status-pill ${verificationTone(plan.verification_status)}`}>
-                        {plan.verification_status}
+                        {verificationLabel(plan.verification_status)}
                       </span>
                     </td>
                     <td>
@@ -247,6 +247,16 @@ function verificationTone(status: string): string {
     return "status-pill-success";
   }
   return "status-pill-neutral";
+}
+
+function verificationLabel(status: string): string {
+  if (status === "externally_modified") {
+    return "已完成，目标后续变更";
+  }
+  if (status === "verified") {
+    return "已校验";
+  }
+  return status;
 }
 
 function historyPlanToOperationPlan(plan: HistoryPlanRead): OperationPlan {

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import os
 from pathlib import Path
 
 import httpx
@@ -140,6 +141,15 @@ def test_organize_records_list_detail_filters_and_rollback(tmp_path: Path) -> No
                     for record in records.json()["records"]
                     if record["name"] == "Movie Title"
                 )
+                target_mtime_ns = expected_target.stat().st_mtime_ns
+                expected_target.write_bytes(b"modified-after-completion")
+                modified_records = await client.get("/api/organize-records?limit=50")
+                modified_filter = await client.get(
+                    "/api/organize-records",
+                    params={"status": "modified"},
+                )
+                expected_target.write_bytes(b"movie-bytes")
+                os.utime(expected_target, ns=(target_mtime_ns, target_mtime_ns))
                 detail = await client.get(
                     f"/api/organize-records/{completed_record['record_id']}"
                 )
@@ -170,6 +180,8 @@ def test_organize_records_list_detail_filters_and_rollback(tmp_path: Path) -> No
                 return {
                     "records": records,
                     "detail": detail,
+                    "modified_records": modified_records,
+                    "modified_filter": modified_filter,
                     "rollbackable": rollbackable,
                     "mode": mode,
                     "metadata": metadata,
@@ -195,6 +207,12 @@ def test_organize_records_list_detail_filters_and_rollback(tmp_path: Path) -> No
     assert completed["metadata"]["actors"] is True
     assert completed["can_rollback"] is True
     assert completed["can_rerun"] is True
+
+    modified_records = responses["modified_records"].json()["records"]
+    modified = next(record for record in modified_records if record["name"] == "Movie Title")
+    assert modified["status"] == "completed"
+    assert modified["verification_status"] == "externally_modified"
+    assert _record_names(responses["modified_filter"]) == ["Movie Title"]
 
     detail = responses["detail"].json()
     assert detail["record_id"] == completed["record_id"]

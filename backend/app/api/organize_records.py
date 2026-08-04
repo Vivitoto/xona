@@ -197,8 +197,6 @@ def _record_status(row: OperationPlanModel, job: Job | None, verification: str) 
         return "rolled_back"
     if row.status == "failed" or (job is not None and job.state == "failed"):
         return "failed"
-    if verification == "externally_modified":
-        return "externally_modified"
     if job is not None and job.state not in {"completed", "rolled_back", "failed", "cancelled"}:
         return job.state
     return _classified_row_status(row.status)

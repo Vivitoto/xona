@@ -417,3 +417,64 @@ def test_settings_api_rejects_organization_default_destination_outside_storage_r
 
     assert response.status_code == 400
     assert "inside configured storage roots" in response.text
+
+
+def test_settings_cache_maintenance_stats_and_cleanup_endpoint(tmp_path: Path) -> None:
+    settings = Settings(config_dir=tmp_path / "config", auth_enabled=False)
+    local_cache_file = settings.config_dir / "cache" / "local_metadata" / "aa" / "frame.jpg"
+    asset_cache_file = settings.config_dir / "asset-cache" / "poster.jpg"
+    xchina_cache_file = settings.config_dir / "cache" / "xchina" / "page.html"
+    local_cache_file.parent.mkdir(parents=True)
+    asset_cache_file.parent.mkdir(parents=True)
+    xchina_cache_file.parent.mkdir(parents=True)
+    local_cache_file.write_bytes(b"frame")
+    asset_cache_file.write_bytes(b"poster")
+    xchina_cache_file.write_bytes(b"html")
+
+    async def run() -> dict[str, httpx.Response]:
+        app = create_app(settings)
+        async with app.router.lifespan_context(app):
+            async with httpx.AsyncClient(
+                transport=httpx.ASGITransport(app=app),
+                base_url=ORIGIN,
+            ) as client:
+                await client.put(
+                    "/api/settings",
+                    json={
+                        "xchina": {
+                            "cache_dir": str(settings.config_dir / "cache" / "xchina")
+                        }
+                    },
+                    headers={"Origin": ORIGIN},
+                )
+                stats = await client.get("/api/settings/cache-maintenance")
+                cleanup = await client.post(
+                    "/api/settings/cache-maintenance/cleanup",
+                    json={"area_keys": ["local_metadata", "xchina_cache"]},
+                    headers={"Origin": ORIGIN},
+                )
+                return {
+                    "stats": stats,
+                    "cleanup": cleanup,
+                    "after": await client.get("/api/settings/cache-maintenance"),
+                }
+
+    responses = asyncio.run(run())
+
+    assert responses["stats"].status_code == 200, responses["stats"].text
+    stats_payload = responses["stats"].json()
+    areas = {area["key"]: area for area in stats_payload["areas"]}
+    assert areas["local_metadata"]["file_count"] == 1
+    assert areas["xchina_cache"]["file_count"] == 1
+    assert stats_payload["total_file_count"] == 3
+
+    assert responses["cleanup"].status_code == 200, responses["cleanup"].text
+    cleanup_payload = responses["cleanup"].json()
+    assert cleanup_payload["deleted_files"] == 2
+    assert cleanup_payload["deleted_bytes"] == 9
+    assert not (settings.config_dir / "cache" / "local_metadata").exists()
+    assert not (settings.config_dir / "cache" / "xchina").exists()
+    assert asset_cache_file.is_file()
+    after_areas = {area["key"]: area for area in responses["after"].json()["areas"]}
+    assert after_areas["local_metadata"]["file_count"] == 0
+    assert after_areas["asset_cache"]["file_count"] == 1

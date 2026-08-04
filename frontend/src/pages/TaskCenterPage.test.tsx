@@ -31,7 +31,7 @@ describe("TaskCenterPage", () => {
               short_plan_id: "plan-7",
               name: "Externally Modified",
               verification_status: "externally_modified",
-              status: "externally_modified",
+              status: "completed",
               can_rollback: false,
             }),
           ],
@@ -70,6 +70,15 @@ describe("TaskCenterPage", () => {
       ).toBe(true);
     });
 
+    fireEvent.change(screen.getByLabelText("状态"), { target: { value: "modified" } });
+    await waitFor(() => {
+      expect(
+        calls.some((call) => call.url === "/api/organize-records?limit=50&status=modified"),
+      ).toBe(true);
+    });
+    expect(screen.getByText("已完成，目标后续变更")).toBeTruthy();
+    expect(screen.queryByText("目标被外部修改")).toBeNull();
+
     fireEvent.click(screen.getByRole("button", { name: "#42" }));
 
     expect(await screen.findByText("计划 plan-42")).toBeTruthy();
@@ -87,7 +96,7 @@ describe("TaskCenterPage", () => {
       expect(calls.some((call) => call.url === "/api/organize-records/job-42/rollback")).toBe(true);
       expect(
         calls.filter(
-          (call) => call.url === "/api/organize-records?limit=50&status=rollbackable",
+          (call) => call.url === "/api/organize-records?limit=50&status=modified",
         ).length,
       ).toBeGreaterThan(1);
     });

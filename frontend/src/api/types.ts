@@ -95,6 +95,39 @@ export type AppSettingsUpdate = Partial<{
   auth: Partial<AppSettings["auth"]>;
 }>;
 
+export interface CacheAreaStats {
+  key: string;
+  label: string;
+  path: string;
+  exists: boolean;
+  cleanup_supported: boolean;
+  file_count: number;
+  size_bytes: number;
+  warnings: string[];
+}
+
+export interface CacheMaintenanceResponse {
+  areas: CacheAreaStats[];
+  total_file_count: number;
+  total_size_bytes: number;
+  warnings: string[];
+}
+
+export interface CacheMaintenanceCleanupResponse {
+  results: Array<{
+    key: string;
+    label: string;
+    path: string;
+    deleted_files: number;
+    deleted_bytes: number;
+    removed: boolean;
+    warnings: string[];
+  }>;
+  deleted_files: number;
+  deleted_bytes: number;
+  warnings: string[];
+}
+
 export interface TemplatePreviewResponse {
   folder_path: string | null;
   filename: string | null;

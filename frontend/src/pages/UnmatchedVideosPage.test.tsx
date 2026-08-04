@@ -1013,6 +1013,30 @@ describe("UnmatchedVideosPage", () => {
     expect(screen.queryByText("计划 plan-beta-scene")).toBeNull();
     expect(screen.getAllByText("已生成").length).toBeGreaterThanOrEqual(2);
     expect(screen.getByText("生成失败")).toBeTruthy();
+    expect(batch.getByText("已选择 3")).toBeTruthy();
+    expect(batch.getByText("可执行 2")).toBeTruthy();
+    expect(batch.getByText("失败 1")).toBeTruthy();
+    expect(batch.getByText(/当前模式会改变原始文件位置或内容/)).toBeTruthy();
+
+    const filters = within(batch.getByRole("group", { name: "批量预览筛选" }));
+
+    fireEvent.click(filters.getByRole("button", { name: /需处理/ }));
+    let outputTable = within(batch.getByRole("table", { name: "批量预览结果" }));
+    expect(outputTable.getByText("Beta.Scene.mkv")).toBeTruthy();
+    expect(outputTable.queryByText("Alpha.Scene.mp4")).toBeNull();
+    expect(outputTable.queryByText("Gamma.Scene.mp4")).toBeNull();
+
+    fireEvent.click(filters.getByRole("button", { name: /可执行/ }));
+    outputTable = within(batch.getByRole("table", { name: "批量预览结果" }));
+    expect(outputTable.getByText("Alpha.Scene.mp4")).toBeTruthy();
+    expect(outputTable.getByText("Gamma.Scene.mp4")).toBeTruthy();
+    expect(outputTable.queryByText("Beta.Scene.mkv")).toBeNull();
+
+    fireEvent.click(filters.getByRole("button", { name: /全部/ }));
+    outputTable = within(batch.getByRole("table", { name: "批量预览结果" }));
+    expect(outputTable.getByText("Alpha.Scene.mp4")).toBeTruthy();
+    expect(outputTable.getByText("Beta.Scene.mkv")).toBeTruthy();
+    expect(outputTable.getByText("Gamma.Scene.mp4")).toBeTruthy();
 
     expect(batchCreateBodies(calls)).toHaveLength(1);
     expect(batchCreateBodies(calls)[0]).toMatchObject({
